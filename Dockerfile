@@ -1,5 +1,7 @@
 # syntax=docker/dockerfile:1
-FROM cm2network/steamcmd:root AS gamefiles
+# SteamCMD crashes under the QEMU i386 emulation used for the final image.
+# This stage only produces game data, so run it natively on the builder.
+FROM --platform=$BUILDPLATFORM cm2network/steamcmd:root AS gamefiles
 
 RUN apt update && apt -y --no-install-recommends install zip
 
