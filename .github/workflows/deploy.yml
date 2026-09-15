@@ -1,0 +1,260 @@
+# Deploy CS 1.6 web server to the staging VPS at /opt/apps/cs.
+#
+# Create a GitHub Environment named "staging-vps" and set everything there
+# (Environment variables / Environment secrets — not repository-level).
+#
+# Environment variables:
+#   VPS_HOST            SSH host. Use the VPS IP (76.13.24.24) so hashed known_hosts match.
+#   VPS_USER            SSH username
+#   VPS_KNOWN_HOSTS     Full SSH known_hosts contents for the VPS
+#   VPS_PORT            Optional SSH port (default 22)
+#   VPS_IP              Optional public IP advertised for WebRTC (default: VPS_HOST)
+#   VPS_GAME_PORT       Optional WebRTC UDP/TCP port (default 27018)
+#
+# Environment secrets:
+#   VPS_SSH_PRIVATE_KEY SSH private key for VPS_USER
+name: Deploy to staging VPS
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+    inputs:
+      skip_build:
+        description: Skip building a new image and deploy an existing GHCR tag
+        type: boolean
+        default: false
+      image_tag:
+        description: Image tag to deploy when skipping the build (default latest)
+        type: string
+        default: latest
+
+concurrency:
+  group: deploy-staging-vps
+  cancel-in-progress: false
+
+jobs:
+  build-and-push:
+    name: Build and push image
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.skip_build }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve image name
+        id: meta
+        run: |
+          owner="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          echo "image=ghcr.io/${owner}/cs16-web-server" >> "$GITHUB_OUTPUT"
+          echo "tag=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU (linux/386)
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: 386
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/386
+          tags: |
+            ${{ steps.meta.outputs.image }}:latest
+            ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to VPS
+    needs: build-and-push
+    if: ${{ !cancelled() && (needs.build-and-push.result == 'success' || needs.build-and-push.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: staging-vps
+      url: http://${{ vars.VPS_HOST }}:27016
+    permissions:
+      contents: read
+      packages: read
+    env:
+      VPS_HOST: ${{ vars.VPS_HOST }}
+      VPS_USER: ${{ vars.VPS_USER }}
+      VPS_PORT: ${{ vars.VPS_PORT || '22' }}
+      VPS_KNOWN_HOSTS: ${{ vars.VPS_KNOWN_HOSTS }}
+      VPS_IP: ${{ vars.VPS_IP || vars.VPS_HOST }}
+      VPS_GAME_PORT: ${{ vars.VPS_GAME_PORT || '27018' }}
+      VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+      DEPLOY_DIR: /opt/apps/cs
+    steps:
+      - name: Resolve image to deploy
+        id: meta
+        run: |
+          owner="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          image="ghcr.io/${owner}/cs16-web-server"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.skip_build }}" = "true" ]; then
+            tag="${{ inputs.image_tag || 'latest' }}"
+          else
+            tag="${{ needs.build-and-push.outputs.tag }}"
+          fi
+          if [ -z "$tag" ]; then
+            echo "Could not resolve an image tag to deploy." >&2
+            exit 1
+          fi
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "Deploying ${image}:${tag}"
+
+      - name: Check staging-vps environment values
+        run: |
+          missing=0
+          for name in VPS_HOST VPS_USER VPS_KNOWN_HOSTS VPS_SSH_PRIVATE_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "::error::${name} is empty. Set it on the staging-vps GitHub Environment."
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          umask 077
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/deploy_key
+          chmod 644 ~/.ssh/known_hosts
+          ssh-keygen -y -f ~/.ssh/deploy_key >/dev/null
+
+      - name: Write compose files
+        env:
+          CS16_IMAGE: ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}
+        run: |
+          cat > /tmp/cs-docker-compose.yml <<EOF
+          services:
+            cs16-web-server:
+              image: ${CS16_IMAGE}
+              container_name: cs16-web-server
+              command: ["+map de_dust2", "+maxplayers 14"]
+              restart: always
+              platform: linux/386
+              environment:
+                IP: ${VPS_IP}
+                PORT: "${VPS_GAME_PORT}"
+              ports:
+                - "27016:27016"
+                - "${VPS_GAME_PORT}:${VPS_GAME_PORT}/tcp"
+                - "${VPS_GAME_PORT}:${VPS_GAME_PORT}/udp"
+          EOF
+          cat > /tmp/cs.env <<EOF
+          CS16_IMAGE=${CS16_IMAGE}
+          IP=${VPS_IP}
+          PORT=${VPS_GAME_PORT}
+          EOF
+
+      - name: Sync files and start stack
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CS16_IMAGE: ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}
+        run: |
+          ssh_base=(
+            ssh
+            -i "$HOME/.ssh/deploy_key"
+            -p "$VPS_PORT"
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts"
+            -o ServerAliveInterval=30
+            -o BatchMode=yes
+          )
+          remote="${VPS_USER}@${VPS_HOST}"
+
+          "${ssh_base[@]}" "$remote" "bash -s" <<EOF
+          set -euo pipefail
+          dir="${DEPLOY_DIR}"
+          if mkdir -p "\$dir" 2>/dev/null && [ -w "\$dir" ]; then
+            :
+          else
+            sudo -n mkdir -p "\$dir"
+            sudo -n chown "\$(id -u):\$(id -g)" "\$dir"
+          fi
+          EOF
+
+          "${ssh_base[@]}" "$remote" "cat > '${DEPLOY_DIR}/docker-compose.yml'" < /tmp/cs-docker-compose.yml
+          "${ssh_base[@]}" "$remote" "cat > '${DEPLOY_DIR}/.env'" < /tmp/cs.env
+
+          "${ssh_base[@]}" "$remote" "bash -s" <<EOF
+          set -euo pipefail
+          cd "${DEPLOY_DIR}"
+          if ! command -v docker >/dev/null 2>&1; then
+            echo "docker is not installed on the VPS." >&2
+            exit 1
+          fi
+          if docker compose version >/dev/null 2>&1; then
+            dc=(docker compose)
+          elif command -v docker-compose >/dev/null 2>&1; then
+            dc=(docker-compose)
+          else
+            echo "docker compose is not installed on the VPS." >&2
+            exit 1
+          fi
+          if [ ! -e /proc/sys/fs/binfmt_misc/qemu-i386 ]; then
+            if command -v apt-get >/dev/null 2>&1; then
+              sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update -y
+              sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y qemu-user-static binfmt-support
+            else
+              echo "linux/386 emulation is missing. Install qemu-user-static on the VPS." >&2
+              exit 1
+            fi
+          fi
+          echo '${GHCR_TOKEN}' | docker login ghcr.io -u '${GHCR_USER}' --password-stdin
+          "\${dc[@]}" pull
+          "\${dc[@]}" up -d --remove-orphans
+          docker logout ghcr.io >/dev/null 2>&1 || true
+          "\${dc[@]}" ps
+          EOF
+
+      - name: Wait for HTTP
+        run: |
+          ssh_base=(
+            ssh
+            -i "$HOME/.ssh/deploy_key"
+            -p "$VPS_PORT"
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts"
+            -o BatchMode=yes
+          )
+          remote="${VPS_USER}@${VPS_HOST}"
+          for i in $(seq 1 30); do
+            if "${ssh_base[@]}" "$remote" "curl -fsS --max-time 5 http://127.0.0.1:27016/ >/dev/null"; then
+              echo "Service is up at http://${VPS_HOST}:27016"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Web UI did not become ready on port 27016"
+          "${ssh_base[@]}" "$remote" "cd '${DEPLOY_DIR}' && docker compose logs --tail 80" || true
+          exit 1
