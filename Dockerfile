@@ -53,7 +53,7 @@ WORKDIR /opt/xash/xashds
 COPY configs/valve valve
 COPY configs/cstrike cstrike
 
-FROM --platform=linux/amd64 node:24-alpine AS client
+FROM --platform=$BUILDPLATFORM node:24-alpine AS client
 
 WORKDIR /client
 

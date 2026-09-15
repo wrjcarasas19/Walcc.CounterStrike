@@ -56,11 +56,6 @@ jobs:
           echo "image=ghcr.io/${owner}/cs16-web-server" >> "$GITHUB_OUTPUT"
           echo "tag=${{ github.sha }}" >> "$GITHUB_OUTPUT"
 
-      - name: Set up QEMU (linux/386)
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: 386
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -76,7 +71,7 @@ jobs:
         with:
           context: .
           push: true
-          platforms: linux/386
+          platforms: linux/amd64
           tags: |
             ${{ steps.meta.outputs.image }}:latest
             ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}
@@ -160,7 +155,7 @@ jobs:
               container_name: cs16-web-server
               command: ["+map de_dust2", "+maxplayers 14"]
               restart: always
-              platform: linux/386
+              platform: linux/amd64
               environment:
                 IP: ${VPS_IP}
                 PORT: "${VPS_GAME_PORT}"
@@ -221,15 +216,6 @@ jobs:
           else
             echo "docker compose is not installed on the VPS." >&2
             exit 1
-          fi
-          if [ ! -e /proc/sys/fs/binfmt_misc/qemu-i386 ]; then
-            if command -v apt-get >/dev/null 2>&1; then
-              sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update -y
-              sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y qemu-user-static binfmt-support
-            else
-              echo "linux/386 emulation is missing. Install qemu-user-static on the VPS." >&2
-              exit 1
-            fi
           fi
           echo '${GHCR_TOKEN}' | docker login ghcr.io -u '${GHCR_USER}' --password-stdin
           "\${dc[@]}" pull
