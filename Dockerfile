@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 FROM cm2network/steamcmd:root AS gamefiles
 
 RUN apt update && apt -y --no-install-recommends install zip
@@ -18,27 +19,45 @@ ENV PKG_CONFIG_PATH=/usr/lib/i386-linux-gnu/pkgconfig
 
 WORKDIR /xash
 
-RUN git clone --branch go --single-branch https://github.com/yohimik/xash3d-fwgs .
-RUN git submodule update --init --recursive
+RUN --mount=type=secret,id=GIT_AUTH_TOKEN,required=false \
+    set -eu; \
+    if [ -s /run/secrets/GIT_AUTH_TOKEN ]; then \
+      printf 'machine github.com\nlogin x-access-token\npassword %s\n' "$(cat /run/secrets/GIT_AUTH_TOKEN)" > /root/.netrc; \
+      chmod 600 /root/.netrc; \
+    fi; \
+    git clone --branch go --single-branch https://github.com/yohimik/xash3d-fwgs .; \
+    git submodule update --init --recursive; \
+    rm -f /root/.netrc
 
 RUN ./waf configure -T release -d --enable-lto --enable-openmp \
     && ./waf build
 
 FROM golang:1.24 AS go
 
-WORKDIR /go
+WORKDIR /src
 COPY go.mod go.mod
 COPY go.sum go.sum
-RUN go mod download
-RUN mkdir -p ../github.com/yohimik/goxash3d-fwgs
-RUN cp -r $(go list -m -f '{{.Dir}}' github.com/yohimik/goxash3d-fwgs)/* ../github.com/yohimik/goxash3d-fwgs
-RUN echo 'replace github.com/yohimik/goxash3d-fwgs => ../github.com/yohimik/goxash3d-fwgs' >> go.mod
+# goxash3d-fwgs is not on proxy.golang.org, so `go mod download` falls back to
+# `git ls-remote` and fails in CI with "could not read Username for github.com".
+# Clone it (optionally with GITHUB_TOKEN) and replace before downloading.
+ARG GOXASH3D_COMMIT=90b4aa816099
+RUN --mount=type=secret,id=GIT_AUTH_TOKEN,required=false \
+    set -eu; \
+    if [ -s /run/secrets/GIT_AUTH_TOKEN ]; then \
+      printf 'machine github.com\nlogin x-access-token\npassword %s\n' "$(cat /run/secrets/GIT_AUTH_TOKEN)" > /root/.netrc; \
+      chmod 600 /root/.netrc; \
+    fi; \
+    git clone https://github.com/yohimik/goxash3d-fwgs /github.com/yohimik/goxash3d-fwgs; \
+    git -C /github.com/yohimik/goxash3d-fwgs checkout --detach "$GOXASH3D_COMMIT"; \
+    printf '\nreplace github.com/yohimik/goxash3d-fwgs => /github.com/yohimik/goxash3d-fwgs\n' >> go.mod; \
+    go mod download; \
+    rm -f /root/.netrc
 
 COPY src/server src/server
-COPY --from=engine /xash/build/engine/libxash.a ../github.com/yohimik/goxash3d-fwgs/pkg/libxash.a
-COPY --from=engine /xash/build/public/libbuild_vcs.a ../github.com/yohimik/goxash3d-fwgs/pkg/libbuild_vcs.a
-COPY --from=engine /xash/build/public/libpublic.a ../github.com/yohimik/goxash3d-fwgs/pkg/libpublic.a
-COPY --from=engine /xash/build/3rdparty/libbacktrace/libbacktrace.a ../github.com/yohimik/goxash3d-fwgs/pkg/libbacktrace.a
+COPY --from=engine /xash/build/engine/libxash.a /github.com/yohimik/goxash3d-fwgs/pkg/libxash.a
+COPY --from=engine /xash/build/public/libbuild_vcs.a /github.com/yohimik/goxash3d-fwgs/pkg/libbuild_vcs.a
+COPY --from=engine /xash/build/public/libpublic.a /github.com/yohimik/goxash3d-fwgs/pkg/libpublic.a
+COPY --from=engine /xash/build/3rdparty/libbacktrace/libbacktrace.a /github.com/yohimik/goxash3d-fwgs/pkg/libbacktrace.a
 
 ENV GOARCH=386
 ENV CC="gcc -m32 -D__i386__"
@@ -117,7 +136,7 @@ WORKDIR /xashds
 ENV LD_LIBRARY_PATH=/xashds
 
 COPY --from=hlds /opt/xash/xashds .
-COPY --from=go /go/xash ./xash
+COPY --from=go /src/xash ./xash
 COPY --from=client /client/src/client/dist ./public
 COPY --from=engine /xash/build/filesystem/filesystem_stdio.so ./filesystem_stdio.so
 COPY --from=engine "/usr/lib/i386-linux-gnu/libstdc++.so.6" "./libstdc++.so.6"
