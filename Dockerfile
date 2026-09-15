@@ -92,11 +92,12 @@ COPY --from=client /client/src/client/dist ./public
 COPY --from=server-runtime /xashds/filesystem_stdio.so ./filesystem_stdio.so
 COPY --from=gamefiles /home/steam/gamefiles/gamefiles.zip ./public/gamefiles.zip
 
-# The legacy HLDS archive includes an old libstdc++.so.6 in /xashds. Because
-# /xashds is on LD_LIBRARY_PATH, it would override Debian's 32-bit runtime and
-# cannot satisfy the CXXABI required by the newer filesystem_stdio.so.
+# The legacy HLDS archive includes old GCC runtime libraries in /xashds.
+# Because /xashds is on LD_LIBRARY_PATH, they would override Debian's compatible
+# 32-bit runtime pair and cannot satisfy the symbols required by the newer
+# filesystem_stdio.so.
 USER root
-RUN rm -f /xashds/libstdc++.so.6
+RUN rm -f /xashds/libstdc++.so.6 /xashds/libgcc_s.so.1
 USER xashds
 
 EXPOSE 27015/udp
