@@ -1,5 +1,21 @@
 import { Net, type Packet, Xash3D, type Xash3DOptions } from 'xash3d-fwgs';
 
+function copyPacketBytes(data: unknown): Uint8Array<ArrayBuffer> | null {
+  let src: Uint8Array | null = null;
+  if (data instanceof ArrayBuffer) {
+    src = new Uint8Array(data);
+  } else if (ArrayBuffer.isView(data)) {
+    const view = data as ArrayBufferView;
+    src = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+  }
+  if (!src) {
+    return null;
+  }
+  const copy = new Uint8Array(src.byteLength);
+  copy.set(src);
+  return copy;
+}
+
 export class Xash3DWebRTC extends Xash3D {
   private channel?: RTCDataChannel;
   private resolve?: (value?: unknown) => void;
@@ -47,20 +63,29 @@ export class Xash3DWebRTC extends Xash3D {
     };
     let channelsCount = 0;
     this.peer.ondatachannel = (e) => {
+      e.channel.binaryType = 'arraybuffer';
       if (e.channel.label === 'write') {
         e.channel.onmessage = (ee) => {
-          const packet: Packet = {
-            ip: [127, 0, 0, 1],
-            port: 8080,
-            data: ee.data,
-          };
-          if (ee.data.arrayBuffer) {
-            ee.data.arrayBuffer().then((data: Int8Array) => {
-              packet.data = data;
-              this.net!.incoming.enqueue(packet);
+          const enqueue = (data: Uint8Array) => {
+            this.net!.incoming.enqueue({
+              ip: [127, 0, 0, 1],
+              port: 8080,
+              data: new Int8Array(data.buffer, data.byteOffset, data.byteLength),
             });
-          } else {
-            this.net!.incoming.enqueue(packet);
+          };
+          const copied = copyPacketBytes(ee.data);
+          if (copied) {
+            enqueue(copied);
+            return;
+          }
+          const blob = ee.data as { arrayBuffer?: () => Promise<ArrayBuffer> };
+          if (typeof blob.arrayBuffer === 'function') {
+            blob.arrayBuffer().then((buffer: ArrayBuffer) => {
+              const bytes = copyPacketBytes(buffer);
+              if (bytes) {
+                enqueue(bytes);
+              }
+            });
           }
         };
       }
@@ -130,7 +155,13 @@ export class Xash3DWebRTC extends Xash3D {
   }
 
   sendto(packet: Packet) {
-    if (!this.channel) return;
-    this.channel.send(packet.data);
+    if (!this.channel || this.channel.readyState !== 'open') return;
+    const data = copyPacketBytes(packet.data);
+    if (!data || data.byteLength === 0) return;
+    try {
+      this.channel.send(data);
+    } catch {
+      // Channel can throw if the SCTP send buffer is full; drop like UDP.
+    }
   }
 }

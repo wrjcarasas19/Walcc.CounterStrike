@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/gorilla/websocket"
 	"github.com/pion/ice/v4"
@@ -202,20 +203,31 @@ func dispatchKeyFrame() {
 	}
 }
 
-const messageSize = 1024 * 8
+const (
+	messageSize    = 64 * 1024
+	maxMessageSize = 256 * 1024
+)
 
 func ReadLoop(d io.Reader, ip [4]byte) {
+	buffer := make([]byte, messageSize)
 	for {
-		buffer := make([]byte, messageSize)
 		n, err := d.Read(buffer)
 		if err != nil {
+			if errors.Is(err, io.ErrShortBuffer) && len(buffer) < maxMessageSize {
+				buffer = make([]byte, maxMessageSize)
+				continue
+			}
 			fmt.Println("Datachannel closed; Exit the readloop:", err)
-
 			return
 		}
+		if n <= 0 {
+			continue
+		}
+		data := make([]byte, n)
+		copy(data, buffer[:n])
 		packets <- &goxash3d_fwgs.Packet{
 			IP:   ip,
-			Data: buffer[:n],
+			Data: data,
 		}
 	}
 }
@@ -528,7 +540,12 @@ func runSFU() {
 		if err != nil || channel == nil {
 			return
 		}
-		channel.Write(p.Data)
+		if len(p.Data) == 0 || len(p.Data) > maxMessageSize {
+			return
+		}
+		// p.Data aliases C stack memory from Netchan_TransmitBits; copy before Write.
+		payload := append([]byte(nil), p.Data...)
+		_, _ = channel.Write(payload)
 	})
 
 	// start HTTP server

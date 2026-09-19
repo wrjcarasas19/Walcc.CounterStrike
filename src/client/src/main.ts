@@ -63,6 +63,11 @@ function start(engine: Xash3DWebRTC): void {
     engine.Cmd_ExecuteString('touch_enable 1');
   }
   engine.Cmd_ExecuteString(`name "${playerName}"`);
+  // Large cl_dlmax makes this dedicated server crash in Netchan_TransmitBits.
+  engine.Cmd_ExecuteString('cl_dlmax 1400');
+  engine.Cmd_ExecuteString('rate 25000');
+  engine.Cmd_ExecuteString('cl_allowdownload 0');
+  engine.Cmd_ExecuteString('cl_allowupload 0');
   engine.Cmd_ExecuteString('connect 127.0.0.1:8080');
 
   window.addEventListener('beforeunload', (event) => {
