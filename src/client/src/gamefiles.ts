@@ -3,6 +3,8 @@ import { get, set } from 'idb-keyval';
 import { updateStatus } from './desktop';
 
 const FILE_KEY = 'gamefiles.zip';
+const GAMEFILES_URL =
+  'https://sgwalcc.blob.core.windows.net/public/gamezip_8308.zip';
 
 export async function getGameFiles() {
   const cacheHit = await get<ArrayBuffer>(FILE_KEY);
@@ -11,7 +13,7 @@ export async function getGameFiles() {
     return loadAsync(cacheHit);
   }
   updateStatus('Fetching game files...');
-  const response = await fetch(FILE_KEY);
+  const response = await fetch(GAMEFILES_URL);
   const buffer = await response.arrayBuffer();
   await set(FILE_KEY, buffer);
   return loadAsync(buffer);
