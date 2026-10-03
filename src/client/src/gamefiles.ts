@@ -3,6 +3,8 @@ import { get, set } from 'idb-keyval';
 import { updateProgress, updateStatus } from './desktop';
 
 const FILE_KEY = 'gamefiles.zip';
+const GAMEFILES_URL =
+  'https://sgwalcc.blob.core.windows.net/public/gamezip_8308.zip';
 // Used when the response has no Content-Length.
 const FALLBACK_BYTES = 483 * 1024 * 1024;
 
@@ -13,7 +15,7 @@ export async function getGameFiles() {
     return loadAsync(cacheHit);
   }
   updateStatus('Fetching game files...');
-  const response = await fetch(FILE_KEY);
+  const response = await fetch(GAMEFILES_URL);
   if (!response.ok || !response.body) {
     throw new Error(`Failed to fetch game files (${response.status})`);
   }
