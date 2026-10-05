@@ -1,5 +1,10 @@
 import { Net, type Packet, Xash3D, type Xash3DOptions } from 'xash3d-fwgs';
 
+// How long signaling + ICE + both data channels may take before init fails.
+const CONNECT_TIMEOUT_MS = 20_000;
+// Packets pile up while the tab is throttled; anything past this is stale.
+const MAX_INCOMING_PACKETS = 512;
+
 function copyPacketBytes(data: unknown): Uint8Array<ArrayBuffer> | null {
   let src: Uint8Array | null = null;
   if (data instanceof ArrayBuffer) {
@@ -19,11 +24,16 @@ function copyPacketBytes(data: unknown): Uint8Array<ArrayBuffer> | null {
 export class Xash3DWebRTC extends Xash3D {
   private channel?: RTCDataChannel;
   private resolve?: (value?: unknown) => void;
+  private reject?: (reason: Error) => void;
   private ws?: WebSocket;
   private peer?: RTCPeerConnection;
   private candidates: RTCIceCandidateInit[] = [];
   private wasRemote = false;
   private timeout?: ReturnType<typeof setTimeout>;
+  private disconnected = false;
+  // Signaling messages are handled one at a time so overlapping offers
+  // can't interleave setRemoteDescription/createAnswer.
+  private signaling: Promise<void> = Promise.resolve();
 
   constructor(opts?: Xash3DOptions) {
     super(opts);
@@ -44,73 +54,75 @@ export class Xash3DWebRTC extends Xash3D {
       }
       this.wsSend('candidate', e.candidate.toJSON());
     };
-    this.peer.ontrack = (e) => {
-      const el = document.createElement(e.track.kind) as HTMLAudioElement;
-      el.srcObject = e.streams[0];
-      el.autoplay = true;
-      el.controls = true;
-      document.body.appendChild(el);
-
-      e.track.onmute = () => {
-        el.play();
-      };
-
-      e.streams[0].onremovetrack = () => {
-        if (el.parentNode) {
-          el.parentNode.removeChild(el);
-        }
-      };
+    this.peer.onconnectionstatechange = () => {
+      const state = this.peer?.connectionState;
+      if (state === 'failed' || state === 'closed') {
+        this.fail(new Error(`WebRTC connection ${state}`));
+      }
     };
     let channelsCount = 0;
     this.peer.ondatachannel = (e) => {
       e.channel.binaryType = 'arraybuffer';
       if (e.channel.label === 'write') {
-        e.channel.onmessage = (ee) => {
-          const enqueue = (data: Uint8Array) => {
-            this.net!.incoming.enqueue({
-              ip: [127, 0, 0, 1],
-              port: 8080,
-              data: new Int8Array(data.buffer, data.byteOffset, data.byteLength),
-            });
-          };
-          const copied = copyPacketBytes(ee.data);
-          if (copied) {
-            enqueue(copied);
-            return;
+        e.channel.onmessage = (ee: MessageEvent<ArrayBuffer>) => {
+          const incoming = this.net!.incoming;
+          // `size` is private in the typings but public at runtime.
+          while ((incoming as unknown as { size: number }).size >= MAX_INCOMING_PACKETS) {
+            incoming.dequeue();
           }
-          const blob = ee.data as { arrayBuffer?: () => Promise<ArrayBuffer> };
-          if (typeof blob.arrayBuffer === 'function') {
-            blob.arrayBuffer().then((buffer: ArrayBuffer) => {
-              const bytes = copyPacketBytes(buffer);
-              if (bytes) {
-                enqueue(bytes);
-              }
-            });
-          }
+          // binaryType is 'arraybuffer', so each message is already a fresh buffer.
+          incoming.enqueue({
+            ip: [127, 0, 0, 1],
+            port: 8080,
+            data: new Int8Array(ee.data),
+          });
         };
       }
+      e.channel.onclose = () => {
+        this.fail(new Error(`Data channel "${e.channel.label}" closed`));
+      };
       e.channel.onopen = () => {
         channelsCount += 1;
         if (e.channel.label === 'read') {
           this.channel = e.channel;
         }
         if (channelsCount === 2) {
-          if (this.resolve) {
-            const r = this.resolve;
-            this.resolve = undefined;
-            if (this.timeout) {
-              clearTimeout(this.timeout);
-              this.timeout = undefined;
-            }
-            r();
-          }
+          this.settle()?.resolve();
         }
       };
     };
   }
 
+  // Clears the pending connect() callbacks so it resolves or rejects only once.
+  private settle() {
+    if (!this.resolve || !this.reject) return undefined;
+    const callbacks = { resolve: this.resolve, reject: this.reject };
+    this.resolve = undefined;
+    this.reject = undefined;
+    if (this.timeout) {
+      clearTimeout(this.timeout);
+      this.timeout = undefined;
+    }
+    return callbacks;
+  }
+
+  private fail(error: Error) {
+    if (this.disconnected) return;
+    this.disconnected = true;
+    const pending = this.settle();
+    if (pending) {
+      this.ws?.close();
+      this.peer?.close();
+      pending.reject(error);
+      return;
+    }
+    // Already connected: the engine notices the silence and times out on its own.
+    console.warn('Connection to server lost:', error.message);
+  }
+
   private wsSend(event: string, data: unknown) {
-    this.ws?.send(
+    if (this.ws?.readyState !== WebSocket.OPEN) return;
+    this.ws.send(
       JSON.stringify({
         event,
         data,
@@ -118,39 +130,60 @@ export class Xash3DWebRTC extends Xash3D {
     );
   }
 
+  private async handleSignal(parsed: { event: string; data: any }) {
+    switch (parsed.event) {
+      case 'offer': {
+        await this.peer!.setRemoteDescription(parsed.data);
+        const answer = await this.peer!.createAnswer();
+        await this.peer!.setLocalDescription(answer);
+        this.wsSend('answer', answer);
+        if (!this.wasRemote) {
+          this.wasRemote = true;
+          for (const c of this.candidates) {
+            await this.peer!.addIceCandidate(c);
+          }
+          this.candidates = [];
+        }
+        break;
+      }
+      case 'candidate':
+        if (this.wasRemote) {
+          await this.peer!.addIceCandidate(parsed.data);
+        } else {
+          this.candidates.push(parsed.data);
+        }
+        break;
+    }
+  }
+
   async connect() {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       this.resolve = resolve;
+      this.reject = reject;
+      this.timeout = setTimeout(() => {
+        this.fail(new Error('Timed out connecting to the game server'));
+      }, CONNECT_TIMEOUT_MS);
+
       const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
       const host = window.location.host;
       this.ws = new WebSocket(`${protocol}://${host}/websocket`);
-      const handler = async (e: MessageEvent) => {
-        const parsed = JSON.parse(e.data);
-        switch (parsed.event) {
-          case 'offer':
-            await this.peer!.setRemoteDescription(parsed.data);
-            const answer = await this.peer!.createAnswer();
-            await this.peer!.setLocalDescription(answer);
-            this.wsSend('answer', answer);
-            if (!this.wasRemote) {
-              this.wasRemote = true;
-              this.candidates.forEach((c) => this.peer!.addIceCandidate(c));
-              this.candidates = [];
-            }
-            break;
-          case 'candidate':
-            if (this.wasRemote) {
-              await this.peer!.addIceCandidate(parsed.data);
-            } else {
-              this.candidates.push(parsed.data);
-            }
-            break;
-        }
-      };
-      this.ws!.onopen = () => {
+      this.ws.onopen = () => {
         this.initConnection();
       };
-      this.ws.addEventListener('message', handler);
+      this.ws.onerror = () => {
+        this.fail(new Error('Signaling WebSocket error'));
+      };
+      this.ws.onclose = () => {
+        this.fail(new Error('Signaling WebSocket closed'));
+      };
+      this.ws.onmessage = (e: MessageEvent) => {
+        const parsed = JSON.parse(e.data);
+        this.signaling = this.signaling
+          .then(() => this.handleSignal(parsed))
+          .catch((error) => {
+            console.error(`Failed to handle "${parsed.event}" signal:`, error);
+          });
+      };
     });
   }
 
@@ -161,7 +194,6 @@ export class Xash3DWebRTC extends Xash3D {
     try {
       this.channel.send(data);
     } catch {
-      // Channel can throw if the SCTP send buffer is full; drop like UDP.
     }
   }
 }
