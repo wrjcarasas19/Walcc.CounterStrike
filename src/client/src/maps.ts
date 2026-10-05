@@ -1,6 +1,6 @@
 import { delMany, get, keys, set } from 'idb-keyval';
+import type { Xash3D } from 'xash3d-fwgs';
 import { updateProgress } from './desktop';
-import type { Xash3DWebRTC } from './webrtc';
 
 // Maps the server has but the game zip lacks are fetched over HTTP and
 // written into the engine's filesystem before connecting. The engine's own
@@ -8,6 +8,9 @@ import type { Xash3DWebRTC } from './webrtc';
 const MAPS_URL = '/maps/';
 const MAPS_DIR = '/rodir/cstrike/maps';
 const CACHE_PREFIX = 'map:';
+// While in game, maps added to the server since the page loaded are fetched
+// in the background, so a later changelevel to them doesn't drop players.
+const RESYNC_INTERVAL_MS = 5 * 60_000;
 
 interface ServerMap {
   name: string;
@@ -19,6 +22,8 @@ const cacheKey = (map: ServerMap) => `${CACHE_PREFIX}${map.name}:${map.sha256}`;
 
 // Names from the last successful listing, sorted by the server.
 let serverMaps: string[] = [];
+let syncing: Promise<void> | undefined;
+let resyncTimer: ReturnType<typeof setInterval> | undefined;
 
 /** Maps the server listed during syncServerMaps, for the admin menu. */
 export function getServerMaps(): readonly string[] {
@@ -28,8 +33,29 @@ export function getServerMaps(): readonly string[] {
 /**
  * Makes every map the server lists available to the engine. Not fatal: a
  * map that can't be fetched only matters if the server switches to it.
+ * Joins a sync that is already running instead of starting another.
  */
-export async function syncServerMaps(engine: Xash3DWebRTC): Promise<void> {
+export function syncServerMaps(engine: Xash3D): Promise<void> {
+  syncing ??= syncMaps(engine).finally(() => {
+    syncing = undefined;
+  });
+  return syncing;
+}
+
+/** Re-syncs the server's maps periodically while a game is running. */
+export function startMapResync(engine: Xash3D): void {
+  stopMapResync();
+  resyncTimer = setInterval(() => {
+    void syncServerMaps(engine);
+  }, RESYNC_INTERVAL_MS);
+}
+
+export function stopMapResync(): void {
+  clearInterval(resyncTimer);
+  resyncTimer = undefined;
+}
+
+async function syncMaps(engine: Xash3D): Promise<void> {
   let maps: ServerMap[];
   try {
     const response = await fetch(`${MAPS_URL}index.json`, { cache: 'no-cache' });
@@ -63,7 +89,7 @@ export async function syncServerMaps(engine: Xash3DWebRTC): Promise<void> {
 
 // Maps already in the game zip are identical when the sizes match; both
 // sides ship the same HLDS build.
-function hasMap(engine: Xash3DWebRTC, map: ServerMap): boolean {
+function hasMap(engine: Xash3D, map: ServerMap): boolean {
   try {
     return engine.em.FS.stat(`${MAPS_DIR}/${map.name}.bsp`).size === map.size;
   } catch {
@@ -86,6 +112,9 @@ async function fetchMap(map: ServerMap): Promise<Uint8Array> {
   if (data.byteLength !== map.size) {
     throw new Error(`Expected ${map.size} bytes, got ${data.byteLength}`);
   }
+  if (!(await matchesHash(data, map.sha256))) {
+    throw new Error('SHA-256 does not match the server listing');
+  }
   try {
     await set(key, data);
   } catch (error) {
@@ -93,6 +122,18 @@ async function fetchMap(map: ServerMap): Promise<Uint8Array> {
     console.warn(`Failed to cache map ${map.name}:`, error);
   }
   return new Uint8Array(data);
+}
+
+// crypto.subtle only exists in secure contexts (HTTPS or localhost); over
+// plain HTTP the size check above is all there is. Cached maps were checked
+// when stored: the cache key includes the hash.
+async function matchesHash(data: ArrayBuffer, sha256: string): Promise<boolean> {
+  if (!globalThis.crypto?.subtle) return true;
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', data));
+  const hex = Array.from(digest, (byte) =>
+    byte.toString(16).padStart(2, '0')
+  ).join('');
+  return hex === sha256.toLowerCase();
 }
 
 // Drops cached maps the server no longer has, or has replaced.

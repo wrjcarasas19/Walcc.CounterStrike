@@ -20,6 +20,7 @@ const actionButton = document.getElementById(
 
 const connectStatus = document.getElementById('connect-status')!;
 const connectionLost = document.getElementById('connection-lost')!;
+const connectionMessage = document.getElementById('connection-message')!;
 const reloadButton = document.getElementById(
   'reload-button'
 ) as HTMLButtonElement;
@@ -118,9 +119,22 @@ export function removeDesktop(): void {
   desktop.remove();
 }
 
+/** Shows that the connection dropped and is being re-established. */
+export function showReconnecting(): void {
+  connectionMessage.textContent = 'Connection lost. Reconnecting…';
+  reloadButton.hidden = true;
+  connectionLost.hidden = false;
+}
+
+export function hideConnectionLost(): void {
+  connectionLost.hidden = true;
+}
+
 export function showConnectionLost(onReload: () => void): void {
   document.exitPointerLock?.();
+  connectionMessage.textContent = 'Connection to the server was lost';
   reloadButton.onclick = onReload;
+  reloadButton.hidden = false;
   connectionLost.hidden = false;
   reloadButton.focus();
 }

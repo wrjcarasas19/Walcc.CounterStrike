@@ -3,21 +3,29 @@ import { createEngine } from './engine';
 import { GameFilesError, getGameFiles } from './gamefiles';
 import {
   getPhase,
+  hideConnectionLost,
   onAction,
   removeDesktop,
   setConnectStatus,
   setPhase,
   showConnectionLost,
   showError,
+  showReconnecting,
   type Stage,
   updateProgress,
 } from './desktop';
 import { attachHud, detachHud } from './hud';
-import { syncServerMaps } from './maps';
+import { startMapResync, stopMapResync, syncServerMaps } from './maps';
 import { cachePlayerName, getPlayerName } from './player';
 import { ConnectError, type Xash3DWebRTC } from './webrtc';
 
 const GENERIC_ERROR = 'Failed to load game. Please try again later.';
+// The engine talks to the server through Xash3DWebRTC, which stands in for
+// this address.
+const SERVER_ADDRESS = '127.0.0.1:8080';
+// Waits before each attempt to re-open a lost connection; after the last
+// one fails, the player is offered a reload.
+const RECONNECT_DELAYS_MS = [1_000, 3_000, 5_000];
 
 let engine: Xash3DWebRTC | undefined;
 let failedStage: Stage | undefined;
@@ -138,11 +146,15 @@ function start(engine: Xash3DWebRTC): void {
     return '';
   };
   engine.onDisconnect = () => {
-    detachAdmin();
-    detachHud();
-    showConnectionLost(() => {
-      window.removeEventListener('beforeunload', confirmLeave);
-      window.location.reload();
+    void reconnect(engine).then((reconnected) => {
+      if (reconnected) return;
+      stopMapResync();
+      detachAdmin();
+      detachHud();
+      showConnectionLost(() => {
+        window.removeEventListener('beforeunload', confirmLeave);
+        window.location.reload();
+      });
     });
   };
 
@@ -161,7 +173,32 @@ function start(engine: Xash3DWebRTC): void {
   engine.Cmd_ExecuteString('cl_cmdrate 60');
   engine.Cmd_ExecuteString('cl_allowdownload 0');
   engine.Cmd_ExecuteString('cl_allowupload 0');
-  engine.Cmd_ExecuteString('connect 127.0.0.1:8080');
+  engine.Cmd_ExecuteString(`connect ${SERVER_ADDRESS}`);
+  startMapResync(engine);
 
   window.addEventListener('beforeunload', confirmLeave);
+}
+
+/**
+ * Re-opens a lost connection while the engine keeps running, so the game
+ * files and engine don't have to load again. The server sees the new
+ * connection as a new player, so the engine joins again.
+ */
+async function reconnect(engine: Xash3DWebRTC): Promise<boolean> {
+  showReconnecting();
+  for (const delay of RECONNECT_DELAYS_MS) {
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    try {
+      await engine.connect();
+    } catch (error) {
+      console.warn('Reconnect attempt failed:', error);
+      continue;
+    }
+    hideConnectionLost();
+    // Maps added while the player was away (e.g. after a server restart).
+    await syncServerMaps(engine);
+    engine.Cmd_ExecuteString(`connect ${SERVER_ADDRESS}`);
+    return true;
+  }
+  return false;
 }

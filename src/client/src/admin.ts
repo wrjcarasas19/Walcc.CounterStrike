@@ -1,6 +1,6 @@
 import type { Xash3D } from 'xash3d-fwgs';
 import { onMapLoad } from './hud';
-import { getServerMaps } from './maps';
+import { getServerMaps, syncServerMaps } from './maps';
 
 // HTML admin menu: changes the map through rcon without opening the engine
 // console. The rcon reply is only printed to that console, so success is
@@ -87,6 +87,10 @@ function open(): void {
   if (!engine || isOpen()) return;
   document.exitPointerLock?.();
   renderMaps();
+  // Picks up maps added to the server since the last sync.
+  void syncServerMaps(engine).then(() => {
+    if (isOpen()) renderMaps();
+  });
   if (!pending) setStatus('');
   passwordInput.value = savedPassword;
   menu.hidden = false;

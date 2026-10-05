@@ -22,7 +22,21 @@ import (
 	"time"
 )
 
-var connections = NewFixedArray[io.Writer](128)
+// peerSlot is a connected player as the engine's sendto sees it. The engine
+// knows each player by a fake IPv4 address: the slot index followed by
+// addr. A slot is reused after its player leaves, while the engine may still
+// be sending to the old player until it times out; addr tells them apart.
+type peerSlot struct {
+	write io.Writer
+	addr  [3]byte
+}
+
+// owns reports whether ip is the address of this slot's player.
+func (p *peerSlot) owns(ip [4]byte) bool {
+	return [3]byte(ip[1:]) == p.addr
+}
+
+var connections = NewFixedArray[*peerSlot](128)
 
 var packets = make(chan *goxash3d_fwgs.Packet, 256)
 
@@ -98,7 +112,7 @@ func countDroppedPacket() {
 const (
 	// maxConnectionsPerIP caps concurrent signaling WebSockets from one remote IP.
 	maxConnectionsPerIP = 4
-	// connectTimeout is how long a client has to open both data channels.
+	// connectTimeout is how long a client has to open the game data channel.
 	connectTimeout = 30 * time.Second
 	pingPeriod     = 20 * time.Second
 	pongWait       = 45 * time.Second
@@ -174,50 +188,47 @@ func releaseIP(host string) {
 var errSessionClosed = errors.New("session closed")
 
 // gameSession owns the server slot of one player. The slot is allocated only
-// once both data channels are open and is released exactly once.
+// once the game data channel is open and is released exactly once.
 type gameSession struct {
 	lock      sync.Mutex
 	closed    bool
-	read      io.ReadWriteCloser
-	write     io.ReadWriteCloser
 	slot      byte
 	slotGen   uint32
+	ip        [4]byte
 	hasSlot   bool
 	connected chan struct{}
 }
 
-// channelOpened stores a detached data channel. When both channels are open it
-// allocates the slot and returns the reader and IP for ReadLoop (ready=true).
-func (s *gameSession) channelOpened(dst *io.ReadWriteCloser, d io.ReadWriteCloser) (reader io.Reader, ip [4]byte, ready bool, err error) {
+// channelOpened takes a slot for the open game channel and returns the
+// address the engine knows this player by.
+func (s *gameSession) channelOpened(d io.ReadWriteCloser) (ip [4]byte, err error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
-	if s.closed {
+	if s.closed || s.hasSlot {
 		_ = d.Close()
-		return nil, ip, false, errSessionClosed
-	}
-	*dst = d
-	if s.read == nil || s.write == nil {
-		return nil, ip, false, nil
+		return ip, errSessionClosed
 	}
 
-	index, gen, err := connections.Add(s.write)
+	peer := &peerSlot{write: d}
+	for i := range peer.addr {
+		peer.addr[i] = byte(rand.Intn(256))
+	}
+	index, gen, err := connections.Add(peer)
 	if err != nil {
 		s.closed = true
-		return nil, ip, false, err
+		return ip, err
 	}
 	s.slot, s.slotGen, s.hasSlot = index, gen, true
 
-	for i := range ip {
-		ip[i] = byte(rand.Intn(256))
-	}
-	ip[0] = index
+	ip = [4]byte{index, peer.addr[0], peer.addr[1], peer.addr[2]}
+	s.ip = ip
 	close(s.connected)
-	return s.read, ip, true, nil
+	return ip, nil
 }
 
 // abandon closes a session that never finished connecting. It returns false
-// (and changes nothing) if both data channels are already open.
+// (and changes nothing) if the game channel is already open.
 func (s *gameSession) abandon() bool {
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -228,7 +239,8 @@ func (s *gameSession) abandon() bool {
 	return true
 }
 
-// release frees the slot (if any) and stops later channel opens from taking one.
+// release frees the slot (if any), has the engine drop the player, and stops
+// later channel opens from taking a slot.
 func (s *gameSession) release() {
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -238,6 +250,7 @@ func (s *gameSession) release() {
 		if err := connections.Remove(s.slot, s.slotGen); err != nil {
 			log.Errorf("Failed to remove connection: %v", err)
 		}
+		requestDrop(s.ip)
 	}
 }
 
@@ -286,37 +299,11 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) { // nolint
 		}
 	}
 
-	onChannelOpen := func(channel *webrtc.DataChannel, dst *io.ReadWriteCloser) func() {
-		return func() {
-			d, err := channel.Detach()
-			if err != nil {
-				log.Errorf("Failed to detach data channel: %v", err)
-				go closePeer()
-
-				return
-			}
-			reader, ip, ready, err := session.channelOpened(dst, d)
-			if err != nil {
-				if !errors.Is(err, errSessionClosed) {
-					log.Errorf("Failed to add connection: %v", err)
-					go closePeer()
-				}
-
-				return
-			}
-			if ready {
-				go func() {
-					ReadLoop(reader, ip)
-					// The client's read channel is gone; end the session.
-					closePeer()
-				}()
-			}
-		}
-	}
-
+	// One unordered channel without retransmits carries the game's UDP
+	// traffic both ways.
 	f := false
 	var z uint16 = 0
-	readChannel, err := peerConnection.CreateDataChannel("read", &webrtc.DataChannelInit{
+	gameChannel, err := peerConnection.CreateDataChannel("game", &webrtc.DataChannelInit{
 		Ordered:        &f,
 		MaxRetransmits: &z,
 	})
@@ -325,20 +312,30 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) { // nolint
 
 		return
 	}
-	readChannel.OnOpen(onChannelOpen(readChannel, &session.read))
-	defer readChannel.Close()
+	gameChannel.OnOpen(func() {
+		d, err := gameChannel.Detach()
+		if err != nil {
+			log.Errorf("Failed to detach data channel: %v", err)
+			go closePeer()
 
-	writeChannel, err := peerConnection.CreateDataChannel("write", &webrtc.DataChannelInit{
-		Ordered:        &f,
-		MaxRetransmits: &z,
+			return
+		}
+		ip, err := session.channelOpened(d)
+		if err != nil {
+			if !errors.Is(err, errSessionClosed) {
+				log.Errorf("Failed to add connection: %v", err)
+				go closePeer()
+			}
+
+			return
+		}
+		go func() {
+			ReadLoop(d, ip)
+			// The client's game channel is gone; end the session.
+			closePeer()
+		}()
 	})
-	if err != nil {
-		log.Errorf("Failed to creates a data channel: %v", err)
-
-		return
-	}
-	writeChannel.OnOpen(onChannelOpen(writeChannel, &session.write))
-	defer writeChannel.Close()
+	defer gameChannel.Close()
 
 	// Trickle ICE. Emit server candidate to client
 	peerConnection.OnICECandidate(func(i *webrtc.ICECandidate) {
@@ -376,7 +373,7 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) { // nolint
 		return c.SetReadDeadline(time.Now().Add(pongWait))
 	})
 
-	// Send the single offer for this connection. The data channels are fixed
+	// Send the single offer for this connection. The data channel is fixed
 	// up front, so there is never any renegotiation after the answer.
 	offer, err := peerConnection.CreateOffer(nil)
 	if err != nil {
@@ -440,14 +437,29 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) { // nolint
 		return
 	}
 
-	// Both data channels are open. Losing the signaling socket no longer ends
+	// The game data channel is open. Losing the signaling socket no longer ends
 	// the game; wait for the PeerConnection to fail or close.
 	<-peerDone
 }
 
+// maxPendingCandidates caps the ICE candidates kept while waiting for the
+// answer; a browser sends a handful.
+const maxPendingCandidates = 64
+
 // readSignaling handles answer/candidate messages until the socket fails.
 func readSignaling(c *threadSafeWriter, peerConnection *webrtc.PeerConnection) {
-	message := &websocketMessage{}
+	// Candidates that arrive before the answer can't be added yet (pion
+	// rejects them without a remote description), so they wait for it.
+	var pending []webrtc.ICECandidateInit
+	answered := false
+	addCandidate := func(candidate webrtc.ICECandidateInit) {
+		// A candidate the peer can't use only loses that path; ICE goes on
+		// with the others.
+		if err := peerConnection.AddICECandidate(candidate); err != nil {
+			log.Warnf("Failed to add ICE candidate: %v", err)
+		}
+	}
+
 	for {
 		_, raw, err := c.ReadMessage()
 		if err != nil {
@@ -456,6 +468,7 @@ func readSignaling(c *threadSafeWriter, peerConnection *webrtc.PeerConnection) {
 			return
 		}
 
+		message := websocketMessage{}
 		if err := json.Unmarshal(raw, &message); err != nil {
 			log.Errorf("Failed to unmarshal json to message: %v", err)
 
@@ -471,10 +484,10 @@ func readSignaling(c *threadSafeWriter, peerConnection *webrtc.PeerConnection) {
 				return
 			}
 
-			if err := peerConnection.AddICECandidate(candidate); err != nil {
-				log.Errorf("Failed to add ICE candidate: %v", err)
-
-				return
+			if answered {
+				addCandidate(candidate)
+			} else if len(pending) < maxPendingCandidates {
+				pending = append(pending, candidate)
 			}
 		case "answer":
 			answer := webrtc.SessionDescription{}
@@ -489,6 +502,11 @@ func readSignaling(c *threadSafeWriter, peerConnection *webrtc.PeerConnection) {
 
 				return
 			}
+			answered = true
+			for _, candidate := range pending {
+				addCandidate(candidate)
+			}
+			pending = nil
 		default:
 			log.Errorf("unknown message: %+v", message)
 		}
@@ -540,6 +558,11 @@ func runSFU() {
 	settingEngine := webrtc.SettingEngine{}
 	settingEngine.DetachDataChannels()
 
+	// Browsers hide their local addresses behind mDNS .local names, which
+	// the container can't resolve; the peer-reflexive candidate learned from
+	// the browser's own checks is what connects.
+	settingEngine.SetICEMulticastDNSMode(ice.MulticastDNSModeDisabled)
+
 	// IPv4 only: the NAT 1:1 IP below is an IPv4 address.
 	settingEngine.SetNetworkTypes([]webrtc.NetworkType{webrtc.NetworkTypeUDP4, webrtc.NetworkTypeTCP4})
 
@@ -571,17 +594,16 @@ func runSFU() {
 	// Data channels only: no media codecs or RTP interceptors needed.
 	api = webrtc.NewAPI(webrtc.WithSettingEngine(settingEngine))
 
+	receive := newPacketReceiver(packets, recvIdleWait)
 	goxash3d_fwgs.DefaultXash3D.RegisterRecvfromCallback(func() *goxash3d_fwgs.Packet {
-		var packet *goxash3d_fwgs.Packet
-		select {
-		case packet = <-packets:
-		case <-time.After(10 * time.Millisecond):
-		}
-		return packet
+		// recvfrom runs on the engine thread, the only place commands can
+		// be queued safely.
+		runDrops()
+		return receive()
 	})
 	goxash3d_fwgs.DefaultXash3D.RegisterSendtoCallback(func(p goxash3d_fwgs.Packet) {
-		channel, err := connections.Get(p.IP[0])
-		if err != nil || channel == nil {
+		peer, err := connections.Get(p.IP[0])
+		if err != nil || peer == nil || !peer.owns(p.IP) {
 			return
 		}
 		if len(p.Data) == 0 || len(p.Data) > maxMessageSize {
@@ -589,7 +611,7 @@ func runSFU() {
 		}
 		// p.Data aliases C stack memory from Netchan_TransmitBits; copy before Write.
 		payload := append([]byte(nil), p.Data...)
-		_, _ = channel.Write(payload)
+		_, _ = peer.write.Write(payload)
 	})
 
 	// start HTTP server

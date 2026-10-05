@@ -1,6 +1,6 @@
 import { Net, type Packet, Xash3D, type Xash3DOptions } from 'xash3d-fwgs';
 
-// How long signaling + ICE + both data channels may take before init fails.
+// How long signaling + ICE + the game data channel may take before connect fails.
 const CONNECT_TIMEOUT_MS = 20_000;
 // Packets pile up while the tab is throttled; anything past this is stale.
 const MAX_INCOMING_PACKETS = 512;
@@ -134,45 +134,36 @@ export class Xash3DWebRTC extends Xash3D {
         );
       }
     };
-    let channelsCount = 0;
     peer.ondatachannel = (e) => {
-      e.channel.binaryType = 'arraybuffer';
-      if (e.channel.label === 'write') {
-        e.channel.onmessage = (ee: MessageEvent<ArrayBuffer>) => {
-          if (this.peer !== peer) return;
-          const incoming = this.net!.incoming;
-          while (
-            (incoming as unknown as { size: number }).size >=
-            MAX_INCOMING_PACKETS
-          ) {
-            incoming.dequeue();
-          }
-          incoming.enqueue({
-            ip: [127, 0, 0, 1],
-            port: 8080,
-            data: new Int8Array(ee.data),
-          });
-        };
-      }
-      e.channel.onclose = () => {
+      const channel = e.channel;
+      if (channel.label !== 'game') return;
+      channel.binaryType = 'arraybuffer';
+      channel.onmessage = (ee: MessageEvent<ArrayBuffer>) => {
+        if (this.peer !== peer) return;
+        const incoming = this.net!.incoming;
+        while (
+          (incoming as unknown as { size: number }).size >=
+          MAX_INCOMING_PACKETS
+        ) {
+          incoming.dequeue();
+        }
+        incoming.enqueue({
+          ip: [127, 0, 0, 1],
+          port: 8080,
+          data: new Int8Array(ee.data),
+        });
+      };
+      channel.onclose = () => {
         this.fail(
-          new ConnectError(
-            'webrtc',
-            `Data channel "${e.channel.label}" closed`
-          ),
+          new ConnectError('webrtc', 'Game data channel closed'),
           peer
         );
       };
-      e.channel.onopen = () => {
+      channel.onopen = () => {
         if (this.peer !== peer) return;
-        channelsCount += 1;
-        if (e.channel.label === 'read') {
-          this.channel = e.channel;
-        }
-        if (channelsCount === 2) {
-          this.connected = true;
-          this.settle()?.resolve();
-        }
+        this.channel = channel;
+        this.connected = true;
+        this.settle()?.resolve();
       };
     };
   }
@@ -264,9 +255,9 @@ export class Xash3DWebRTC extends Xash3D {
   }
 
   /**
-   * Opens the signaling WebSocket and WebRTC data channels to the game
-   * server. Resolves once both channels are open; rejects with a
-   * ConnectError. Safe to call again after a failure.
+   * Opens the signaling WebSocket and the WebRTC data channel to the game
+   * server. Resolves once the channel is open; rejects with a ConnectError.
+   * Safe to call again after a failure.
    */
   connect(): Promise<void> {
     this.settle()?.reject(new ConnectError('closed', 'Connect restarted'));
