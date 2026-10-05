@@ -17,6 +17,14 @@ interface ServerMap {
 
 const cacheKey = (map: ServerMap) => `${CACHE_PREFIX}${map.name}:${map.sha256}`;
 
+// Names from the last successful listing, sorted by the server.
+let serverMaps: string[] = [];
+
+/** Maps the server listed during syncServerMaps, for the admin menu. */
+export function getServerMaps(): readonly string[] {
+  return serverMaps;
+}
+
 /**
  * Makes every map the server lists available to the engine. Not fatal: a
  * map that can't be fetched only matters if the server switches to it.
@@ -33,6 +41,7 @@ export async function syncServerMaps(engine: Xash3DWebRTC): Promise<void> {
     console.warn('Failed to list server maps:', error);
     return;
   }
+  serverMaps = maps.map((map) => map.name);
 
   const missing = maps.filter((map) => !hasMap(engine, map));
   await deleteStaleMaps(maps);

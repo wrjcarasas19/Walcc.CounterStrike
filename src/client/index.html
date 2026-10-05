@@ -159,6 +159,52 @@
           </div>
         </div>
       </div>
+      <div id="admin-menu" class="admin-backdrop" hidden>
+        <form
+          id="admin-form"
+          class="admin-panel"
+          role="dialog"
+          aria-labelledby="admin-title"
+          novalidate
+        >
+          <header class="admin-header">
+            <span id="admin-title" class="admin-title">Change map</span>
+            <span class="admin-hint">F4 / Esc to close</span>
+          </header>
+          <div class="admin-body">
+            <div class="field">
+              <label class="field-label" for="admin-password">
+                Rcon password
+              </label>
+              <input
+                id="admin-password"
+                class="field-input"
+                type="password"
+                autocomplete="off"
+                maxlength="64"
+              />
+            </div>
+            <div class="field">
+              <span class="field-label" id="admin-maps-label">Map</span>
+              <div
+                id="admin-maps"
+                class="admin-maps"
+                role="radiogroup"
+                aria-labelledby="admin-maps-label"
+              ></div>
+            </div>
+            <div id="admin-status" class="progress-status" role="status"></div>
+            <button
+              id="admin-submit"
+              class="action-button"
+              type="submit"
+              disabled
+            >
+              Change map
+            </button>
+          </div>
+        </form>
+      </div>
       <div id="connection-lost" class="overlay" role="alertdialog" hidden>
         <div class="overlay-panel">
           <div class="overlay-message">Connection to the server was lost</div>

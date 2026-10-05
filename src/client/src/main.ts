@@ -1,3 +1,4 @@
+import { attachAdmin, detachAdmin } from './admin';
 import { createEngine } from './engine';
 import { GameFilesError, getGameFiles } from './gamefiles';
 import {
@@ -137,6 +138,7 @@ function start(engine: Xash3DWebRTC): void {
     return '';
   };
   engine.onDisconnect = () => {
+    detachAdmin();
     detachHud();
     showConnectionLost(() => {
       window.removeEventListener('beforeunload', confirmLeave);
@@ -146,6 +148,7 @@ function start(engine: Xash3DWebRTC): void {
 
   engine.main();
   attachHud(engine);
+  attachAdmin(engine);
   engine.Cmd_ExecuteString('_vgui_menus 0');
   if (!window.matchMedia('(hover: hover)').matches) {
     engine.Cmd_ExecuteString('touch_enable 1');

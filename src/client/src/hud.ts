@@ -165,6 +165,16 @@ let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
 let moneySynced = false;
 // Last rendered scores, to skip identical snapshots (sent at 2 Hz).
 let lastScores = '';
+const mapLoadListeners = new Set<() => void>();
+
+/**
+ * Calls listener on every reset event (InitHUD: a map change or reconnect).
+ * Returns a function that removes it.
+ */
+export function onMapLoad(listener: () => void): () => void {
+  mapLoadListeners.add(listener);
+  return () => mapLoadListeners.delete(listener);
+}
 
 function setText(el: HTMLElement, text: string): void {
   if (el.textContent !== text) el.textContent = text;
@@ -394,6 +404,7 @@ function handle(event: HudEvent): void {
     }
     case 'reset':
       reset();
+      for (const listener of mapLoadListeners) listener();
       break;
     case 'scoreboard':
       showScoreboard(event.payload.visible);
