@@ -4,8 +4,8 @@ Date: 2026-10-05 · Branch: new branch off `main` (suggested `html-hud`)
 
 ## Status
 
-Phases 0–3 and the HTML scoreboard (Phase 4) are implemented; only the
-manual checks below are left.
+Phases 0–3, the HTML scoreboard (Phase 4) and hiding the HUD in the menu
+(Phase 5) are implemented; only the manual checks below are left.
 
 - **Client build (Phase 0):** `yohimik/webxash3d-fwgs` and `yohimik/cs16-client`
   are gone (404). The local checkout `/Users/wcarasas/Repos/webxash3d-fwgs` was
@@ -14,10 +14,11 @@ manual checks below are left.
   `Velaron/cs16-client` fork network. Not pushed to an owned GitHub account
   yet. Build steps, provenance and the npm-cache gotcha are in
   `packages/cs16-client/BUILD-NOTES.md`; the C++ changes are kept as
-  `packages/cs16-client/html-hud.patch`. Output: `vendor/cs16-client-0.0.4.tgz`
-  (0.0.3 had the HUD bridge without the scoreboard; the version was bumped
-  instead of overwriting 0.0.3 because npm caches `file:` tarballs by
-  integrity, see BUILD-NOTES).
+  `packages/cs16-client/html-hud.patch` (plus `html-hud-mainui.patch` for the
+  menu library). Output: `vendor/cs16-client-0.0.5.tgz` (0.0.3 had the HUD
+  bridge, 0.0.4 added the scoreboard; each version was bumped instead of
+  overwritten because npm caches `file:` tarballs by integrity, see
+  BUILD-NOTES).
 - **Bridge (Phases 0.2 / 1):** `EM_JS` works in the client side module, so
   `cl_dll/web_bridge.{h,cpp}` calls `Module.hudEvent(type, payload)` directly.
   The event contract (when each event fires, resends) is documented in
@@ -30,6 +31,12 @@ manual checks below are left.
 - **States (Phase 3):** see the decisions under Phase 3.
 - **Scoreboard (Phase 4):** `scoreboard` / `scores` events, the stock
   scoreboard is skipped with `hud_html 1`; see Phase 4.
+- **Menu (Phase 5):** `menu` event from the menu library hides the HTML HUD
+  while the main menu is open; see Phase 5.
+- **Fixed after the first deploy:** `engine.em` is a wrapper
+  (`{ Module, FS, HEAPU8, ... }`), so `hudEvent` must be set on
+  `engine.em.Module` (`bridgeModule` in `hud.ts`). Setting it on `engine.em`
+  meant no event ever arrived and the page fell back to the stock HUD.
 
 **Remaining manual verification:**
 - [ ] A real match round: buy, take damage, reload, die, respawn; values match
@@ -54,6 +61,8 @@ manual checks below are left.
 - [ ] Bots show `BOT` as ping; a player with a quoted / non-ASCII name
       renders correctly. Ping may read 0 for real players (see Phase 4).
 - [ ] Phone (portrait): CT above T, fits the screen.
+- [ ] Esc opens the main menu: the HTML HUD (and scoreboard) disappear;
+      Resume game brings them back. Same for the connection-progress dialog.
 
 Replace part of the in-game CS 1.6 HUD with an HTML/CSS overlay styled to match
 the new login page, while the engine keeps drawing everything tied to the 3D
@@ -304,8 +313,26 @@ kill the server mid-game — no stale or overlapping HUD in any case.
 - `reset` and `detachHud` hide it. With 32 players on a phone in portrait
   the last rows are clipped.
 
+## Phase 5 — Hide the HUD while the menu is open (as implemented)
+
+**Problem:** the main menu (Esc) is drawn by the menu library inside the
+canvas, so the HTML overlay stayed on top of it.
+
+**Change:**
+- The engine exposes no "menu open" state to the page or the game client, but
+  the menu library (`menu_emscripten_wasm32.wasm`, built from
+  `3rdparty/mainui_cpp` in the same package) knows. `BaseMenu.cpp` gets an
+  `EM_JS` that sends `menu { visible }` through `Module.hudEvent` whenever
+  `uiStatic.menu.IsActive()` changes, checked each `UI_UpdateMenu` frame and in
+  `UI_CloseMenu`. Saved as `html-hud-mainui.patch`; client version 0.0.5.
+- `hud.ts` toggles `#hud.menu-open` (`visibility: hidden` in `style.css`); it is
+  not cleared by `reset` (the menu is independent of map changes), only on
+  `detachHud`.
+- The engine console (`~`) is not part of the menu, so the HUD stays visible
+  there.
+
 ## Release checklist
-- Fork tagged, tgz build command documented, `vendor/cs16-client-0.0.4.tgz`
+- Fork tagged, tgz build command documented, `vendor/cs16-client-0.0.5.tgz`
   committed.
 - `npx tsc --noEmit -p .` and `npm run build` pass.
 - `docker compose up --build`; two browser tabs play a round together and both

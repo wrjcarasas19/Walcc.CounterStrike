@@ -56,6 +56,8 @@ export type HudEvent =
   | { type: 'alive'; payload: { alive: boolean; spectating: boolean } }
   | { type: 'reset'; payload: Record<string, never> }
   | { type: 'scoreboard'; payload: { visible: boolean } }
+  // From the menu library (mainui), not the game client.
+  | { type: 'menu'; payload: { visible: boolean } }
   // Sent right before scoreboard { visible: true }, then every 0.5 s.
   | { type: 'scores'; payload: Scores };
 
@@ -399,6 +401,10 @@ function handle(event: HudEvent): void {
     case 'scores':
       renderScores(event.payload);
       break;
+    case 'menu':
+      // The menu is drawn inside the canvas, so the overlay would cover it.
+      hud.classList.toggle('menu-open', event.payload.visible);
+      break;
   }
 }
 
@@ -445,5 +451,6 @@ export function detachHud(): void {
   bridgeSeen = false;
   clearTimeout(fallbackTimer);
   reset();
+  hud.classList.remove('menu-open');
   hud.hidden = true;
 }

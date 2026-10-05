@@ -557,6 +557,10 @@ canvas,
   opacity: 0.25;
 }
 
+#hud.menu-open {
+  visibility: hidden;
+}
+
 .hud-killfeed {
   position: absolute;
   top: 1.2em;
