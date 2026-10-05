@@ -250,6 +250,12 @@ function handle(event: HudEvent): void {
   }
 }
 
+// engine.em is a wrapper ({ Module, FS, HEAPU8, ... }); the client's EM_JS
+// code reads hudEvent from the Emscripten Module inside it.
+function bridgeModule(target: Xash3D): HudModule {
+  return target.em!.Module as HudModule;
+}
+
 function setHudEnabled(enabled: boolean): void {
   hud.hidden = !enabled;
   engine?.Cmd_ExecuteString(`hud_html ${enabled ? 1 : 0}`);
@@ -286,7 +292,7 @@ function undim(): void {
 export function attachHud(target: Xash3D): void {
   detachHud();
   engine = target;
-  (target.em as HudModule).hudEvent = onBridgeEvent;
+  bridgeModule(target).hudEvent = onBridgeEvent;
   window.addEventListener('keydown', onKey);
   window.addEventListener('keyup', onKey);
   window.addEventListener('blur', undim);
@@ -299,7 +305,7 @@ export function attachHud(target: Xash3D): void {
 /** Hides the HUD and stops all its timers and listeners (connection lost). */
 export function detachHud(): void {
   if (!engine) return;
-  delete (engine.em as HudModule).hudEvent;
+  delete bridgeModule(engine).hudEvent;
   engine = undefined;
   bridgeSeen = false;
   clearTimeout(fallbackTimer);

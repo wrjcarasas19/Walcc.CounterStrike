@@ -21,6 +21,50 @@ function copyPacketBytes(data: unknown): Uint8Array<ArrayBuffer> | null {
   return copy;
 }
 
+// Must match the engine's defaults (INITIAL_MEMORY 128 MiB, 2 GiB max).
+const WASM_INITIAL_PAGES = 134217728 / 65536;
+const WASM_MAXIMUM_PAGES = 32768;
+
+/**
+ * The library's Net reads em.HEAPU8 and friends, which the emscripten glue
+ * snapshots once at startup. Memory growth (e.g. loading a new map after
+ * changelevel) detaches those views and sendto throws. Serve views that are
+ * rebuilt whenever the memory buffer changes.
+ */
+class LiveHeapNet extends Net {
+  constructor(
+    sender: ConstructorParameters<typeof Net>[0],
+    private readonly memory: WebAssembly.Memory
+  ) {
+    super(sender);
+  }
+
+  init(em: NonNullable<Net['em']>) {
+    const memory = this.memory;
+    let buffer: ArrayBuffer | undefined;
+    let views: Record<'HEAP8' | 'HEAPU8' | 'HEAP16' | 'HEAP32', unknown>;
+    const current = () => {
+      if (memory.buffer !== buffer) {
+        buffer = memory.buffer;
+        views = {
+          HEAP8: new Int8Array(buffer),
+          HEAPU8: new Uint8Array(buffer),
+          HEAP16: new Int16Array(buffer),
+          HEAP32: new Int32Array(buffer),
+        };
+      }
+      return views;
+    };
+    const live = Object.create(em, {
+      HEAP8: { get: () => current().HEAP8 },
+      HEAPU8: { get: () => current().HEAPU8 },
+      HEAP16: { get: () => current().HEAP16 },
+      HEAP32: { get: () => current().HEAP32 },
+    });
+    super.init(live);
+  }
+}
+
 export type ConnectErrorKind =
   // The signaling WebSocket never opened (server down, refused or rate limited).
   | 'unreachable'
@@ -56,8 +100,15 @@ export class Xash3DWebRTC extends Xash3D {
   private signaling: Promise<void> = Promise.resolve();
 
   constructor(opts?: Xash3DOptions) {
-    super(opts);
-    this.net = new Net(this);
+    const memory = new WebAssembly.Memory({
+      initial: WASM_INITIAL_PAGES,
+      maximum: WASM_MAXIMUM_PAGES,
+    });
+    super({
+      ...opts,
+      module: { ...opts?.module, wasmMemory: memory } as Xash3DOptions['module'],
+    });
+    this.net = new LiveHeapNet(this, memory);
   }
 
   private initConnection() {
