@@ -7,6 +7,9 @@ import { getServerMaps } from './maps';
 // detected by the reset event the client sends once the new map is loaded.
 
 const TOGGLE_KEY = 'F4';
+// The engine hardcodes these (Escape: main menu, `/~: console), so unbind
+// can't remove them; they never reach it while a game is running.
+const ENGINE_BLOCKED_KEYS = new Set(['Escape', 'Backquote']);
 // Covers loading a large map after the server has switched.
 const CHANGE_TIMEOUT_MS = 15_000;
 // rcon sends the password as a bare token: no spaces, quotes or control
@@ -149,9 +152,15 @@ function onMapLoaded(): void {
 
 // Registered at module load, before the engine adds its own window
 // listeners, so stopImmediatePropagation keeps keys from reaching the game.
-// keyup is left alone so a key held when the menu opens is still released.
+// keyup is left alone so a key held when the menu opens is still released,
+// except for blocked keys, whose keydown the engine never saw.
 function onKey(event: KeyboardEvent): void {
   if (!engine) return;
+  if (!isOpen() && ENGINE_BLOCKED_KEYS.has(event.code)) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    return;
+  }
   if (event.type === 'keydown' && event.code === TOGGLE_KEY) {
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -171,6 +180,13 @@ function onKey(event: KeyboardEvent): void {
 
 window.addEventListener('keydown', onKey, { capture: true });
 window.addEventListener('keypress', onKey, { capture: true });
+window.addEventListener('keyup', onBlockedKeyUp, { capture: true });
+
+function onBlockedKeyUp(event: KeyboardEvent): void {
+  if (engine && ENGINE_BLOCKED_KEYS.has(event.code)) {
+    event.stopImmediatePropagation();
+  }
+}
 
 passwordInput.addEventListener('input', refreshSubmit);
 mapList.addEventListener('change', refreshSubmit);
