@@ -1,6 +1,6 @@
 import { loadAsync } from 'jszip';
 import { get, set } from 'idb-keyval';
-import { updateProgress, updateStatus } from './desktop';
+import { updateProgress } from './desktop';
 
 const FILE_KEY = 'gamefiles.zip';
 const GAMEFILES_URL =
@@ -11,10 +11,10 @@ const FALLBACK_BYTES = 483 * 1024 * 1024;
 export async function getGameFiles() {
   const cacheHit = await get<ArrayBuffer>(FILE_KEY);
   if (cacheHit) {
-    updateStatus('Loading cached game files...');
+    updateProgress('download', 1, 'Using cached game files');
     return loadAsync(cacheHit);
   }
-  updateStatus('Fetching game files...');
+  updateProgress('download', 0, 'Connecting...');
   const response = await fetch(GAMEFILES_URL);
   if (!response.ok || !response.body) {
     throw new Error(`Failed to fetch game files (${response.status})`);
@@ -27,7 +27,6 @@ export async function getGameFiles() {
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let received = 0;
-  updateProgress(0, expected);
 
   while (true) {
     const { done, value } = await reader.read();
@@ -35,16 +34,14 @@ export async function getGameFiles() {
     chunks.push(value);
     received += value.byteLength;
     const total = Math.max(expected, received);
-    updateProgress(received, total);
-    updateStatus(
-      `Fetching game files... (${formatMegabytes(received)} / ${formatMegabytes(total)} MB)`
+    updateProgress(
+      'download',
+      received / total,
+      `${formatMegabytes(received)} / ${formatMegabytes(total)} MB`
     );
   }
 
-  updateProgress(received, received);
-  updateStatus(
-    `Fetching game files... (${formatMegabytes(received)} / ${formatMegabytes(received)} MB)`
-  );
+  updateProgress('download', 1, 'Done');
 
   const buffer = new Uint8Array(received);
   let offset = 0;
