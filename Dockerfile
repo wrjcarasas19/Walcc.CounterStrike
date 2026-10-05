@@ -1,16 +1,4 @@
 # syntax=docker/dockerfile:1
-# SteamCMD crashes under the QEMU i386 emulation used for the final image.
-# This stage only produces game data, so run it natively on the builder.
-FROM --platform=$BUILDPLATFORM cm2network/steamcmd:root AS gamefiles
-
-RUN apt update && apt -y --no-install-recommends install zip
-
-USER steam
-RUN ./steamcmd.sh +force_install_dir /home/steam/gamefiles +login anonymous +app_update 90 +quit
-
-WORKDIR /home/steam/gamefiles
-RUN zip -r gamefiles.zip valve cstrike
-
 FROM debian:bookworm-slim AS engine
 
 RUN dpkg --add-architecture i386
@@ -143,7 +131,6 @@ COPY --from=hlds /opt/xash/xashds .
 COPY --from=go /src/xash ./xash
 COPY --from=client /client/src/client/dist ./public
 COPY --from=engine /xash/build/filesystem/filesystem_stdio.so ./filesystem_stdio.so
-COPY --from=gamefiles /home/steam/gamefiles/gamefiles.zip ./public/gamefiles.zip
 
 # The legacy HLDS archive includes old GCC runtime libraries in /xashds.
 # Because /xashds is on LD_LIBRARY_PATH, they would override Debian's compatible
