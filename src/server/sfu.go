@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -519,6 +520,7 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 
 type Server struct {
 	static http.Handler
+	maps   http.Handler
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -526,6 +528,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/websocket":
 		websocketHandler(w, r)
 	default:
+		if strings.HasPrefix(r.URL.Path, mapsPrefix) {
+			s.maps.ServeHTTP(w, r)
+			return
+		}
 		s.static.ServeHTTP(w, r)
 	}
 }
@@ -587,7 +593,10 @@ func runSFU() {
 	})
 
 	// start HTTP server
-	if err := http.ListenAndServe(addr, &Server{static: newStaticHandler("public")}); err != nil { //nolint: gosec
+	if err := http.ListenAndServe(addr, &Server{
+		static: newStaticHandler("public"),
+		maps:   newMapsHandler(filepath.Join("cstrike", "maps")),
+	}); err != nil { //nolint: gosec
 		log.Errorf("Failed to start http server: %v", err)
 	}
 }

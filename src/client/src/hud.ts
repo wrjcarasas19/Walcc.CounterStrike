@@ -7,6 +7,31 @@ import type { Xash3D } from 'xash3d-fwgs';
 
 type Team = 'CT' | 'T' | '';
 
+type ScoreTeam = { score: number; players: number; avgPing: number };
+
+type ScorePlayer = {
+  id: number;
+  name: string;
+  // SPEC also covers unassigned players; '' before the first TeamInfo.
+  team: Team | 'SPEC';
+  frags: number;
+  deaths: number;
+  ping: number;
+  dead: boolean;
+  bomb: boolean;
+  vip: boolean;
+  bot: boolean;
+  local: boolean;
+};
+
+type Scores = {
+  map: string;
+  server: string;
+  teams: { CT: ScoreTeam; T: ScoreTeam };
+  // Slot order, unsorted.
+  players: ScorePlayer[];
+};
+
 export type HudEvent =
   | { type: 'health'; payload: { hp: number } }
   | { type: 'armor'; payload: { ap: number; helmet: boolean } }
@@ -29,7 +54,10 @@ export type HudEvent =
       };
     }
   | { type: 'alive'; payload: { alive: boolean; spectating: boolean } }
-  | { type: 'reset'; payload: Record<string, never> };
+  | { type: 'reset'; payload: Record<string, never> }
+  | { type: 'scoreboard'; payload: { visible: boolean } }
+  // Sent right before scoreboard { visible: true }, then every 0.5 s.
+  | { type: 'scores'; payload: Scores };
 
 type HudModule = {
   hudEvent?: (type: string, payload: unknown) => void;
@@ -74,6 +102,23 @@ const ammo = document.getElementById('hud-ammo')!;
 const weaponName = document.getElementById('hud-weapon')!;
 const clip = document.getElementById('hud-clip')!;
 const reserve = document.getElementById('hud-reserve')!;
+const scoreboard = document.getElementById('hud-scoreboard')!;
+const sbServer = document.getElementById('sb-server')!;
+const sbMap = document.getElementById('sb-map')!;
+const sbTeams = {
+  CT: {
+    meta: document.getElementById('sb-ct-meta')!,
+    score: document.getElementById('sb-ct-score')!,
+    rows: document.getElementById('sb-ct-rows')!,
+  },
+  T: {
+    meta: document.getElementById('sb-t-meta')!,
+    score: document.getElementById('sb-t-score')!,
+    rows: document.getElementById('sb-t-rows')!,
+  },
+};
+const sbSpectators = document.getElementById('sb-spectators')!;
+const sbSpectatorNames = document.getElementById('sb-spectator-names')!;
 
 const headshotIcon = document.createElementNS(
   'http://www.w3.org/2000/svg',
@@ -83,6 +128,27 @@ headshotIcon.setAttribute('class', 'hud-icon');
 headshotIcon.setAttribute('viewBox', '0 0 24 24');
 headshotIcon.innerHTML =
   '<path fill-rule="evenodd" d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm0 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14zm0 4a3 3 0 1 1 0 6 3 3 0 0 1 0-6z"/>';
+
+function icon(className: string, path: string): SVGSVGElement {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('class', className);
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.innerHTML = `<path d="${path}"/>`;
+  return svg;
+}
+
+const deadIcon = icon(
+  'sb-icon dead',
+  'M12 2a9 9 0 0 0-9 9c0 3 1.5 5.3 3.5 6.6V21h3v-2h1v2h3v-2h1v2h3v-3.4c2-1.3 3.5-3.6 3.5-6.6a9 9 0 0 0-9-9zm-3.5 8a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm7 0a2 2 0 1 1 0 4 2 2 0 0 1 0-4z'
+);
+const bombIcon = icon(
+  'sb-icon bomb',
+  'M4 7h16v12H4zm2 2v8h12V9zm1 1h4v2H7zm6 0h4v2h-4zm-6 3h10v3H7zM9 3h6v4h-2V5h-2v2H9z'
+);
+const vipIcon = icon(
+  'sb-icon vip',
+  'M3 7l4.5 4L12 4l4.5 7L21 7l-2 12H5zm3 14h12v2H6z'
+);
 
 // Largest clip seen per weapon, used as its magazine size for low ammo.
 const maxClip = new Map<string, number>();
@@ -95,6 +161,8 @@ let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
 // The first money change after a reset is the server syncing the balance
 // (+$800 on connect, the new map's start money), not a purchase or reward.
 let moneySynced = false;
+// Last rendered scores, to skip identical snapshots (sent at 2 Hz).
+let lastScores = '';
 
 function setText(el: HTMLElement, text: string): void {
   if (el.textContent !== text) el.textContent = text;
@@ -180,6 +248,82 @@ function setWeapon(name: string, clipValue: number, reserveValue: number) {
   ammo.classList.toggle('low', low);
 }
 
+function byScore(a: ScorePlayer, b: ScorePlayer): number {
+  return b.frags - a.frags || a.deaths - b.deaths || a.id - b.id;
+}
+
+function scoreRow(player: ScorePlayer): HTMLElement {
+  const row = document.createElement('div');
+  row.className = 'sb-row';
+  if (player.dead) row.classList.add('dead');
+  if (player.local) row.classList.add('local');
+
+  const status = document.createElement('span');
+  status.className = 'sb-status';
+  if (player.dead) status.append(deadIcon.cloneNode(true));
+  else if (player.bomb) status.append(bombIcon.cloneNode(true));
+  else if (player.vip) status.append(vipIcon.cloneNode(true));
+
+  const name = document.createElement('span');
+  name.className = 'sb-name';
+  name.textContent = player.name;
+
+  const cells = [player.frags, player.deaths].map((value) => {
+    const cell = document.createElement('span');
+    cell.textContent = String(value);
+    return cell;
+  });
+
+  const ping = document.createElement('span');
+  ping.textContent = player.bot ? 'BOT' : String(player.ping);
+
+  row.append(status, name, ...cells, ping);
+  return row;
+}
+
+function renderScores(scores: Scores): void {
+  // Identical snapshots are common at 2 Hz; skip them without touching the DOM.
+  const key = JSON.stringify(scores);
+  if (key === lastScores) return;
+  lastScores = key;
+
+  setText(sbServer, scores.server);
+  setText(sbMap, scores.map);
+
+  const sorted = [...scores.players].sort(byScore);
+  for (const team of ['CT', 'T'] as const) {
+    const info = scores.teams[team];
+    const els = sbTeams[team];
+    setText(els.score, String(info.score));
+    setText(
+      els.meta,
+      `${info.players} ${info.players === 1 ? 'player' : 'players'} · ${info.avgPing} ms`
+    );
+    // Rows are built off-document and swapped in with one DOM write.
+    const rows = document.createDocumentFragment();
+    for (const player of sorted) {
+      if (player.team === team) rows.append(scoreRow(player));
+    }
+    els.rows.replaceChildren(rows);
+  }
+
+  const spectators = sorted.filter((p) => p.team !== 'CT' && p.team !== 'T');
+  setHidden(sbSpectators, spectators.length === 0);
+  sbSpectatorNames.replaceChildren(
+    ...spectators.map((player) => {
+      const el = document.createElement('span');
+      el.className = player.local ? 'sb-spectator local' : 'sb-spectator';
+      el.textContent = player.name;
+      return el;
+    })
+  );
+}
+
+function showScoreboard(visible: boolean): void {
+  setHidden(scoreboard, !visible);
+  hud.classList.toggle('scores-open', visible);
+}
+
 function reset(): void {
   for (const el of [health, armor, helmet, timer, money, ammo]) {
     setHidden(el, true);
@@ -191,6 +335,8 @@ function reset(): void {
   killTimers.clear();
   killfeed.replaceChildren();
   maxClip.clear();
+  showScoreboard(false);
+  lastScores = '';
   // Vitals and ammo stay hidden until the first alive event (sent the frame
   // after connect, or right after a reset's resend), so a player joining
   // mid-round as a spectator never sees them flash.
@@ -247,6 +393,12 @@ function handle(event: HudEvent): void {
     case 'reset':
       reset();
       break;
+    case 'scoreboard':
+      showScoreboard(event.payload.visible);
+      break;
+    case 'scores':
+      renderScores(event.payload);
+      break;
   }
 }
 
@@ -271,20 +423,6 @@ function onBridgeEvent(type: string, payload: unknown): void {
   handle({ type, payload } as HudEvent);
 }
 
-// Dims the HUD while Tab (the default +showscores key) is held so the native
-// scoreboard reads cleanly. Only while the game has the pointer, so Tab in the
-// console or menus is ignored. The event is not consumed; a rebound
-// scoreboard key is not detected.
-function onKey(event: KeyboardEvent): void {
-  if (event.key !== 'Tab') return;
-  const held = event.type === 'keydown' && !!document.pointerLockElement;
-  hud.classList.toggle('dimmed', held);
-}
-
-function undim(): void {
-  hud.classList.remove('dimmed');
-}
-
 /**
  * Shows the HTML HUD and hides the stock elements it replaces. Call after
  * engine.main() and before connecting, so no bridge event is missed.
@@ -293,26 +431,19 @@ export function attachHud(target: Xash3D): void {
   detachHud();
   engine = target;
   bridgeModule(target).hudEvent = onBridgeEvent;
-  window.addEventListener('keydown', onKey);
-  window.addEventListener('keyup', onKey);
-  window.addEventListener('blur', undim);
   setHudEnabled(true);
   fallbackTimer = setTimeout(() => {
     if (!bridgeSeen) setHudEnabled(false);
   }, FALLBACK_MS);
 }
 
-/** Hides the HUD and stops all its timers and listeners (connection lost). */
+/** Hides the HUD and stops all its timers (connection lost). */
 export function detachHud(): void {
   if (!engine) return;
   delete bridgeModule(engine).hudEvent;
   engine = undefined;
   bridgeSeen = false;
   clearTimeout(fallbackTimer);
-  window.removeEventListener('keydown', onKey);
-  window.removeEventListener('keyup', onKey);
-  window.removeEventListener('blur', undim);
   reset();
-  undim();
   hud.hidden = true;
 }

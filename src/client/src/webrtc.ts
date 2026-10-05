@@ -32,11 +32,14 @@ const WASM_MAXIMUM_PAGES = 32768;
  * rebuilt whenever the memory buffer changes.
  */
 class LiveHeapNet extends Net {
+  private readonly memory: WebAssembly.Memory;
+
   constructor(
     sender: ConstructorParameters<typeof Net>[0],
-    private readonly memory: WebAssembly.Memory
+    memory: WebAssembly.Memory
   ) {
     super(sender);
+    this.memory = memory;
   }
 
   init(em: NonNullable<Net['em']>) {

@@ -12,6 +12,7 @@ import {
   updateProgress,
 } from './desktop';
 import { attachHud, detachHud } from './hud';
+import { syncServerMaps } from './maps';
 import { cachePlayerName, getPlayerName } from './player';
 import { ConnectError, type Xash3DWebRTC } from './webrtc';
 
@@ -54,6 +55,7 @@ async function prepare() {
     stage = 'load';
     setPhase('loading');
     await loadGameFiles(engine, gamefiles.files);
+    await syncServerMaps(engine);
     setPhase('ready');
   } catch (error) {
     fail(stage, error);

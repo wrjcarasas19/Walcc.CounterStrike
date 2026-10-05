@@ -8,7 +8,7 @@
     "serve": "vite preview"
   },
   "dependencies": {
-    "cs16-client": "file:vendor/cs16-client-0.0.3.tgz",
+    "cs16-client": "file:vendor/cs16-client-0.0.4.tgz",
     "idb-keyval": "^6.2.2",
     "jszip": "^3.10.1",
     "xash3d-fwgs": "file:vendor/xash3d-fwgs-1.0.0.tgz"

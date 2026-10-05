@@ -552,9 +552,9 @@ canvas,
   display: none;
 }
 
-/* Tab held: the native scoreboard is drawn under the overlay. */
-#hud.dimmed {
-  opacity: 0.2;
+/* The other HUD elements fade while the scoreboard is open. */
+#hud.scores-open > :not(.hud-scoreboard) {
+  opacity: 0.25;
 }
 
 .hud-killfeed {
@@ -612,4 +612,245 @@ canvas,
   width: 1.1em;
   height: 1.1em;
   fill: var(--danger);
+}
+
+/* Scoreboard (Tab): the login panel look, centred over the game. */
+.hud-scoreboard {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(64em, calc(100% - 32px));
+  max-height: calc(100% - 32px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: rgba(21, 22, 15, 0.88);
+  border: 1px solid var(--border);
+  box-shadow:
+    0 0 0 1px #000,
+    0 20px 60px rgba(0, 0, 0, 0.6);
+  font-size: 1.05em;
+}
+
+.sb-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.8em;
+  padding: 0.7em 1.1em;
+  border-bottom: 1px solid var(--divider);
+  white-space: nowrap;
+}
+
+.sb-title {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 1.2em;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.sb-server {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.sb-map {
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.sb-teams {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: 0;
+}
+
+.sb-team {
+  min-width: 0;
+  padding: 0.6em 1.1em 0.8em;
+}
+
+.sb-team + .sb-team {
+  border-left: 1px solid var(--divider);
+}
+
+/* Portrait screens: CT above T, slightly larger text on the narrow panel. */
+@media (max-aspect-ratio: 1/1) {
+  .hud-scoreboard {
+    font-size: 1.15em;
+  }
+
+  .sb-teams {
+    grid-template-columns: 1fr;
+  }
+
+  .sb-team + .sb-team {
+    border-left: none;
+    border-top: 1px solid var(--divider);
+  }
+}
+
+.sb-team-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  padding-bottom: 0.4em;
+  border-bottom: 2px solid var(--team-color);
+  white-space: nowrap;
+}
+
+.sb-team.ct {
+  --team-color: var(--team-ct);
+}
+
+.sb-team.t {
+  --team-color: var(--team-t);
+}
+
+.sb-team-name {
+  font-weight: 700;
+  font-size: 1.1em;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--team-color);
+}
+
+.sb-team-meta {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.85em;
+  font-weight: 600;
+  color: var(--label);
+}
+
+.sb-team-score {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.7em;
+  line-height: 1;
+  color: var(--team-color);
+  font-variant-numeric: tabular-nums;
+}
+
+.sb-row {
+  display: grid;
+  grid-template-columns: 1.4em minmax(0, 1fr) 2em 2em 2.6em;
+  align-items: center;
+  column-gap: 0.6em;
+  padding: 0.18em 0.4em;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.sb-row > :nth-child(n + 3) {
+  text-align: right;
+}
+
+/* Labels shrink per cell so the grid columns match the rows below. */
+.sb-labels > span {
+  font-size: 0.75em;
+}
+
+.sb-labels {
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.sb-rows .sb-row:nth-child(even) {
+  background: rgba(255, 255, 255, 0.025);
+}
+
+/* Fixed line height: emoji fallback fonts would make a row taller. */
+.sb-name {
+  height: 1.4em;
+  line-height: 1.4em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sb-row.dead {
+  color: var(--muted);
+}
+
+.sb-rows .sb-row.local {
+  background: rgba(232, 163, 61, 0.14);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.sb-row.local .sb-name {
+  color: var(--accent);
+}
+
+.sb-row.dead.local .sb-name {
+  color: var(--accent-stripe);
+}
+
+.sb-status {
+  display: flex;
+}
+
+.sb-icon {
+  width: 1.15em;
+  height: 1.15em;
+  fill: var(--label);
+}
+
+.sb-icon.bomb {
+  fill: var(--danger);
+}
+
+.sb-icon.vip {
+  fill: var(--team-ct);
+}
+
+.sb-icon.dead {
+  fill: var(--muted);
+}
+
+.sb-spectators {
+  display: flex;
+  gap: 0.8em;
+  padding: 0.6em 1.1em;
+  border-top: 1px solid var(--divider);
+  font-weight: 600;
+  color: var(--label);
+}
+
+.sb-spectators-label {
+  flex: none;
+  font-size: 0.75em;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.sb-spectator-names {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2em 0.9em;
+  min-width: 0;
+}
+
+.sb-spectator {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sb-spectator.local {
+  color: var(--accent);
 }

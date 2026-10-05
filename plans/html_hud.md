@@ -4,7 +4,8 @@ Date: 2026-10-05 · Branch: new branch off `main` (suggested `html-hud`)
 
 ## Status
 
-Phases 0–3 are implemented; only the manual checks below are left.
+Phases 0–3 and the HTML scoreboard (Phase 4) are implemented; only the
+manual checks below are left.
 
 - **Client build (Phase 0):** `yohimik/webxash3d-fwgs` and `yohimik/cs16-client`
   are gone (404). The local checkout `/Users/wcarasas/Repos/webxash3d-fwgs` was
@@ -13,7 +14,10 @@ Phases 0–3 are implemented; only the manual checks below are left.
   `Velaron/cs16-client` fork network. Not pushed to an owned GitHub account
   yet. Build steps, provenance and the npm-cache gotcha are in
   `packages/cs16-client/BUILD-NOTES.md`; the C++ changes are kept as
-  `packages/cs16-client/html-hud.patch`. Output: `vendor/cs16-client-0.0.3.tgz`.
+  `packages/cs16-client/html-hud.patch`. Output: `vendor/cs16-client-0.0.4.tgz`
+  (0.0.3 had the HUD bridge without the scoreboard; the version was bumped
+  instead of overwriting 0.0.3 because npm caches `file:` tarballs by
+  integrity, see BUILD-NOTES).
 - **Bridge (Phases 0.2 / 1):** `EM_JS` works in the client side module, so
   `cl_dll/web_bridge.{h,cpp}` calls `Module.hudEvent(type, payload)` directly.
   The event contract (when each event fires, resends) is documented in
@@ -24,6 +28,8 @@ Phases 0–3 are implemented; only the manual checks below are left.
   seconds after connecting"), and a late bridge event turns the HTML HUD back
   on.
 - **States (Phase 3):** see the decisions under Phase 3.
+- **Scoreboard (Phase 4):** `scoreboard` / `scores` events, the stock
+  scoreboard is skipped with `hud_html 1`; see Phase 4.
 
 **Remaining manual verification:**
 - [ ] A real match round: buy, take damage, reload, die, respawn; values match
@@ -36,8 +42,18 @@ Phases 0–3 are implemented; only the manual checks below are left.
 - [ ] Join mid-round: no health/armor/ammo while dead or spectating.
 - [ ] Die and spectate: health/armor/ammo hidden; timer, money and kill feed
       stay.
-- [ ] Tab held in game dims the HUD; kill the server mid-game: overlay shows
-      and the HUD is gone.
+- [ ] Kill the server mid-game: overlay shows and the HUD is gone.
+- [ ] Hold Tab: HTML scoreboard opens at once, the rest of the HUD fades,
+      no stock scoreboard behind it; K/D update while held; release closes
+      it. Players, teams, scores and dead/bomb/VIP markers match
+      `hud_html 0`.
+- [ ] Die: the scoreboard shows during the death cam and closes when
+      spectating starts (stock behaviour). Round end / map end
+      intermission shows it.
+- [ ] `changelevel` while holding Tab: scoreboard closes on the reset.
+- [ ] Bots show `BOT` as ping; a player with a quoted / non-ASCII name
+      renders correctly. Ping may read 0 for real players (see Phase 4).
+- [ ] Phone (portrait): CT above T, fits the screen.
 
 Replace part of the in-game CS 1.6 HUD with an HTML/CSS overlay styled to match
 the new login page, while the engine keeps drawing everything tied to the 3D
@@ -47,14 +63,15 @@ world or the camera.
 
 **Moves to HTML:** health, armor (with helmet), money (with +/- change flash),
 current weapon + clip/reserve ammo, round timer (and bomb-planted state),
-kill feed.
+kill feed; the scoreboard since Phase 4.
 
 **Stays native (drawn by the game):** crosshair, damage-direction arcs, radar,
 names / spectator labels / voice icons over players, scope and flashbang
-effects, scoreboard, chat, text menus (buy / team select — `_vgui_menus 0` is
+effects, chat, text menus (buy / team select — `_vgui_menus 0` is
 already set in `main.ts`).
 
-Not in this plan: HTML scoreboard, HTML buy menu, HTML radar. They can follow
+Not in the original plan: HTML scoreboard (added as Phase 4), HTML buy
+menu, HTML radar. They can follow
 once the bridge exists.
 
 ## How it fits together
@@ -201,7 +218,7 @@ visible in fullscreen; the mouse is still captured; no layout break at
 - Dead or spectating: hide health/armor/ammo, keep timer and kill feed.
 - Map change and reconnect: `reset` clears the kill feed and state.
 - Scoreboard (Tab) or chat open: decide whether to dim the HTML HUD so it
-  doesn't overlap the native scoreboard.
+  doesn't overlap the native scoreboard (superseded by Phase 4).
 - Connection lost overlay (`#connection-lost`) sits above `#hud`.
 - Values arrive before the first `alive` event (joining mid-round).
 
@@ -221,24 +238,74 @@ visible in fullscreen; the mouse is still captured; no layout break at
   moment until the server sends fresh ones after spawn; acceptable.
   Edge: if the new map's money equals the old value the bridge sends nothing,
   so the first real purchase after it won't flash.
-- Tab held while the pointer is locked dims the whole HUD (`.dimmed`,
-  opacity 0.2) so the native scoreboard reads cleanly. The key event is only
-  observed, never consumed. Checking pointer lock skips Tab in the console and
-  menus; window blur undims. Rebinding `+showscores` to another key breaks
-  this (the HUD just won't dim). Chat is left alone: it is drawn
+- (Replaced in Phase 4.) A Tab key listener used to dim the HUD while the
+  native scoreboard was drawn; it is gone, the `scoreboard` event drives
+  the HTML scoreboard and the dimming now. Chat is left alone: it is drawn
   bottom/left-center, the kill feed is top-right.
 - `#connection-lost` moved inside `#game`, so it is part of the fullscreen
   element and stacks above `#hud` (z 3 vs 2 inside `#game`). No fullscreen
   exit needed. On disconnect `main.ts` calls `detachHud()`: removes
-  `Module.hudEvent`, clears the fallback and kill-feed timers, removes the key
-  listeners and hides `#hud`.
+  `Module.hudEvent`, clears the fallback and kill-feed timers, hides the
+  scoreboard and `#hud`.
 - `attachHud` detaches first, so calling it twice only resets the HUD.
 
 **Verify:** join mid-round, die and spectate, change map with `changelevel`,
 kill the server mid-game — no stale or overlapping HUD in any case.
 
+## Phase 4 — HTML scoreboard (as implemented)
+
+**C++ (`web_bridge.cpp`, `hud/scoreboard.cpp`):**
+- `scoreboard { visible }` is polled each frame in `WebBridge_Frame` and sent
+  on change. `visible` mirrors what `CHudScoreboard::Draw` decides:
+  `+showscores` held, `showscoreboard2`, local health 0, or intermission;
+  only once a `ScoreInfo` set the element's `HUD_DRAW` flag and while the HUD
+  is drawn at all (`hud_draw`, `HIDEHUD_ALL` outside intermission). So it
+  opens the frame after `+showscores`, during the death cam (health 0 until
+  the server moves the player to observer mode, which sets health 1, as in
+  the stock HUD) and at round-end / map-end intermission. Polling instead of
+  hooking the commands covers every one of those with one code path.
+- `scores` is a full snapshot: right before `scoreboard { visible: true }`
+  (so the page never shows the previous one), then every 0.5 s while
+  visible. Players are refreshed with `GetPlayerInfo` like the stock
+  scoreboard (`GetAllPlayersInfo`, plus slot 32, which it skips). Payload:
+  `{ map, server, teams: { CT, T: { score, players, avgPing } }, players:
+  [{ id, name, team ("CT" / "T" / "SPEC" / ""), frags, deaths, ping, dead,
+  bomb, vip, bot, local }] }`, players in slot order. Team score is the last
+  `TeamScore` (rounds won) captured by the bridge — the stock handler's
+  team lookup is off by one, so the bridge keys on the team name instead —
+  or the summed frags until one arrives, like the stock scoreboard.
+- The snapshot is built as JSON in C and handed to one `EM_JS` that runs
+  `JSON.parse`: one JS call per snapshot, the nested payload arrives
+  complete, and no per-player JS staging state. Strings are escaped (`"`,
+  `\`, control characters) and invalid / cut UTF-8 bytes become `?` (the
+  engine truncates names at 32 bytes, possibly mid-character). The buffer
+  is 16 KB, well above 32 players with fully escaped names; on overflow
+  nothing is sent.
+- With `hud_html` nonzero `CHudScoreboard::Draw` returns at once, so the
+  whole stock scoreboard (including `showscoreboard2`) is skipped. With 0 it
+  is unchanged. Events are sent either way.
+- `reset` (InitHUD) clears the bridge's scoreboard state and team scores; the
+  server resends `TeamScore` after InitHUD.
+- **Ping may read 0** for real players: a known Xash bug noted in
+  `CHudScoreboard::DrawPlayers` ("must be 0, until Xash's bug not fixed").
+  Bots report `bot: true` and show `BOT`, like the stock scoreboard.
+
+**Page (`hud.ts`, `index.html`, `style.css`):**
+- `#hud-scoreboard` inside `#hud`, centred, in the launcher panel style. CT
+  and T side by side (stacked on portrait screens), each with name, score,
+  player count and average ping; rows sorted by frags desc, deaths asc;
+  columns name / K / D / ping. Dead rows greyed with a skull, bomb and VIP
+  icons (inline SVG), local row highlighted in the accent colour,
+  spectators (`SPEC` and `""`) listed below. Names are set with
+  `textContent` only.
+- A snapshot identical to the last one is skipped; otherwise each team's
+  rows are built in a fragment and swapped in with one `replaceChildren`.
+- While open, the other HUD elements fade to 25 % (`#hud.scores-open`).
+- `reset` and `detachHud` hide it. With 32 players on a phone in portrait
+  the last rows are clipped.
+
 ## Release checklist
-- Fork tagged, tgz build command documented, `vendor/cs16-client-0.0.3.tgz`
+- Fork tagged, tgz build command documented, `vendor/cs16-client-0.0.4.tgz`
   committed.
 - `npx tsc --noEmit -p .` and `npm run build` pass.
 - `docker compose up --build`; two browser tabs play a round together and both
@@ -246,7 +313,6 @@ kill the server mid-game — no stale or overlapping HUD in any case.
 - Check one mobile browser with touch controls.
 
 ## Later
-- HTML scoreboard (needs `ScoreInfo` / `TeamInfo` events).
 - HTML buy menu: render from the `ShowMenu` text and send choices back with
   `engine.Cmd_ExecuteString('menuselect N')`.
 - HTML radar and damage arcs: need player position and yaw from the bridge.

@@ -120,6 +120,44 @@
             <span id="hud-reserve" class="hud-reserve"></span>
           </div>
         </div>
+
+        <div id="hud-scoreboard" class="hud-scoreboard" hidden>
+          <header class="sb-header">
+            <span class="sb-title">Scoreboard</span>
+            <span id="sb-server" class="sb-server"></span>
+            <span id="sb-map" class="sb-map"></span>
+          </header>
+          <div class="sb-teams">
+            <section class="sb-team ct">
+              <div class="sb-team-head">
+                <span class="sb-team-name">Counter-Terrorists</span>
+                <span id="sb-ct-meta" class="sb-team-meta"></span>
+                <span id="sb-ct-score" class="sb-team-score"></span>
+              </div>
+              <div class="sb-row sb-labels">
+                <span></span><span>Name</span><span>K</span><span>D</span
+                ><span>Ping</span>
+              </div>
+              <div id="sb-ct-rows" class="sb-rows"></div>
+            </section>
+            <section class="sb-team t">
+              <div class="sb-team-head">
+                <span class="sb-team-name">Terrorists</span>
+                <span id="sb-t-meta" class="sb-team-meta"></span>
+                <span id="sb-t-score" class="sb-team-score"></span>
+              </div>
+              <div class="sb-row sb-labels">
+                <span></span><span>Name</span><span>K</span><span>D</span
+                ><span>Ping</span>
+              </div>
+              <div id="sb-t-rows" class="sb-rows"></div>
+            </section>
+          </div>
+          <div id="sb-spectators" class="sb-spectators" hidden>
+            <span class="sb-spectators-label">Spectators</span>
+            <span id="sb-spectator-names" class="sb-spectator-names"></span>
+          </div>
+        </div>
       </div>
       <div id="connection-lost" class="overlay" role="alertdialog" hidden>
         <div class="overlay-panel">
