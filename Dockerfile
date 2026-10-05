@@ -21,6 +21,11 @@ RUN git init -q . \
     && git checkout -q FETCH_HEAD \
     && git submodule update --init --recursive
 
+# Fixes the fork's NET_SendLong freeing split-packet fragments twice, which
+# aborted the server whenever it sent a packet larger than the split size.
+COPY patches/engine/ /patches/engine/
+RUN git apply /patches/engine/*.patch
+
 RUN ./waf configure -T release -d --enable-lto --enable-openmp \
     && ./waf build
 
