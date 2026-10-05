@@ -13,6 +13,12 @@
   --accent-stripe: #c8862a;
   --load: #6f9a3d;
   --load-stripe: #567a2e;
+  --danger: #e0533d;
+  --gain: #8fc24e;
+  --team-ct: #7fb2e5;
+  --team-t: #e8a33d;
+  --hud-panel: rgba(21, 22, 15, 0.62);
+  --hud-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
   --font-display: 'Orbitron', sans-serif;
   --font-body: 'Rajdhani', sans-serif;
 }
@@ -46,8 +52,14 @@ canvas {
   left: 0;
 }
 
-canvas {
+canvas,
+#game {
   z-index: 1;
+}
+
+#game {
+  position: fixed;
+  inset: 0;
 }
 
 #desktop {
@@ -311,4 +323,293 @@ canvas {
 .overlay-panel .action-button {
   margin-top: 0;
   padding: 10px 18px;
+}
+
+@keyframes hud-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@keyframes hud-delta {
+  0% {
+    opacity: 0;
+    transform: translateY(0.4em);
+  }
+  15%,
+  70% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* The HUD sits above the canvas but never takes input, so pointer lock and
+   touch controls still reach the game. Sizes are in em off one viewport-based
+   font size. The top-left corner stays free for the native radar. */
+#hud {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  user-select: none;
+  font-family: var(--font-body);
+  font-size: clamp(10px, min(2vh, 1.6vw), 22px);
+  color: var(--text);
+  text-shadow: var(--hud-shadow);
+}
+
+#hud[hidden],
+#hud [hidden] {
+  display: none !important;
+}
+
+.hud-panel {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.35em 0.8em;
+  background: var(--hud-panel);
+  border: 1px solid var(--border);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+}
+
+.hud-icon {
+  width: 1.4em;
+  height: 1.4em;
+  flex: none;
+  fill: var(--accent);
+  filter: drop-shadow(var(--hud-shadow));
+}
+
+.hud-value {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.9em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-tag {
+  font-size: 0.8em;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--label);
+}
+
+.hud-vitals,
+.hud-loadout {
+  position: absolute;
+  bottom: 1.2em;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+}
+
+.hud-vitals {
+  left: 1.2em;
+  align-items: flex-start;
+}
+
+.hud-loadout {
+  right: 1.2em;
+  align-items: flex-end;
+}
+
+.hud-stat .hud-value {
+  min-width: 2.2ch;
+}
+
+#hud-health.low .hud-icon {
+  fill: var(--danger);
+}
+
+#hud-health.low .hud-value {
+  color: var(--danger);
+  animation: hud-pulse 1s ease-in-out infinite;
+}
+
+/* Right edge on the screen centre: the native scenario icon (bomb / hostage)
+   is still drawn just right of where the stock clock used to be. */
+.hud-timer {
+  position: absolute;
+  bottom: 1.2em;
+  right: 50%;
+}
+
+/* Portrait screens have no room between the corners: lift the clock above
+   both corner stacks instead. */
+@media (max-aspect-ratio: 1/1) {
+  .hud-timer {
+    bottom: 7.2em;
+    right: auto;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+}
+
+.hud-timer.panic .hud-value {
+  color: var(--danger);
+}
+
+.hud-bomb {
+  display: none;
+  font-weight: 700;
+  font-size: 1.1em;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--danger);
+  animation: hud-pulse 1s ease-in-out infinite;
+}
+
+.hud-timer.planted {
+  border-color: var(--danger);
+}
+
+.hud-timer.planted .hud-icon,
+.hud-timer.planted .hud-value {
+  display: none;
+}
+
+.hud-timer.planted .hud-bomb {
+  display: inline;
+}
+
+.hud-money {
+  position: relative;
+}
+
+.hud-money-sign {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.3em;
+  color: var(--gain);
+}
+
+.hud-money .hud-value {
+  font-size: 1.5em;
+}
+
+.hud-money-delta {
+  position: absolute;
+  right: 0.8em;
+  bottom: 100%;
+  margin-bottom: 0.2em;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.1em;
+  opacity: 0;
+}
+
+.hud-money-delta.gain,
+.hud-money-delta.loss {
+  animation: hud-delta 1.6s ease-out forwards;
+}
+
+.hud-money-delta.gain {
+  color: var(--gain);
+}
+
+.hud-money-delta.loss {
+  color: var(--danger);
+}
+
+.hud-ammo {
+  align-items: baseline;
+}
+
+.hud-weapon {
+  margin-right: 0.3em;
+  font-weight: 700;
+  font-size: 1em;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--label);
+}
+
+.hud-reserve {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.1em;
+  color: var(--label);
+}
+
+#hud-clip:not([hidden]) + .hud-reserve::before {
+  content: '/ ';
+  color: var(--muted);
+}
+
+.hud-ammo.low #hud-clip {
+  color: var(--danger);
+}
+
+/* Dead, spectating, or alive state not known yet (see reset() in hud.ts). */
+#hud:not([data-alive='true']) .hud-vitals,
+#hud:not([data-alive='true']) .hud-ammo {
+  display: none;
+}
+
+/* Tab held: the native scoreboard is drawn under the overlay. */
+#hud.dimmed {
+  opacity: 0.2;
+}
+
+.hud-killfeed {
+  position: absolute;
+  top: 1.2em;
+  right: 1.2em;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.3em;
+  max-width: 60%;
+}
+
+.hud-kill {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  max-width: 100%;
+  padding: 0.2em 0.7em;
+  background: var(--hud-panel);
+  border: 1px solid var(--divider);
+  font-weight: 700;
+  font-size: 1.05em;
+  white-space: nowrap;
+  transition: opacity 0.5s;
+}
+
+.hud-kill.fading {
+  opacity: 0;
+}
+
+.hud-kill-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hud-kill-name.ct {
+  color: var(--team-ct);
+}
+
+.hud-kill-name.t {
+  color: var(--team-t);
+}
+
+.hud-kill-weapon {
+  flex: none;
+  font-size: 0.8em;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--label);
+}
+
+.hud-kill .hud-icon {
+  width: 1.1em;
+  height: 1.1em;
+  fill: var(--danger);
 }

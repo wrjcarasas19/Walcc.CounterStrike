@@ -7,8 +7,10 @@ import gles3URL from 'xash3d-fwgs/libref_gles3compat.wasm?url';
 import { Xash3DWebRTC } from './webrtc';
 
 export function createEngine(): Xash3DWebRTC {
+  const canvas = document.getElementById('canvas') as HTMLCanvasElement;
+  redirectFullscreen(canvas, document.getElementById('game')!);
   return new Xash3DWebRTC({
-    canvas: document.getElementById('canvas') as HTMLCanvasElement,
+    canvas,
     module: {
       arguments: ['-windowed', '-game', 'cstrike'],
     },
@@ -27,4 +29,12 @@ export function createEngine(): Xash3DWebRTC {
       '/rwdir/filesystem_stdio.so': filesystemURL,
     },
   });
+}
+
+// SDL's fullscreen toggle calls requestFullscreen on the canvas itself
+// (emscripten_request_fullscreen_strategy("#canvas")), which would leave the
+// HTML HUD outside the fullscreen element. Fullscreen the wrapper instead.
+function redirectFullscreen(canvas: HTMLCanvasElement, game: HTMLElement) {
+  if (!game.requestFullscreen) return;
+  canvas.requestFullscreen = (options) => game.requestFullscreen(options);
 }

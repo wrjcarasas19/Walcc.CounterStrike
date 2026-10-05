@@ -11,6 +11,7 @@ import {
   type Stage,
   updateProgress,
 } from './desktop';
+import { attachHud, detachHud } from './hud';
 import { cachePlayerName, getPlayerName } from './player';
 import { ConnectError, type Xash3DWebRTC } from './webrtc';
 
@@ -134,6 +135,7 @@ function start(engine: Xash3DWebRTC): void {
     return '';
   };
   engine.onDisconnect = () => {
+    detachHud();
     showConnectionLost(() => {
       window.removeEventListener('beforeunload', confirmLeave);
       window.location.reload();
@@ -141,6 +143,7 @@ function start(engine: Xash3DWebRTC): void {
   };
 
   engine.main();
+  attachHud(engine);
   engine.Cmd_ExecuteString('_vgui_menus 0');
   if (!window.matchMedia('(hover: hover)').matches) {
     engine.Cmd_ExecuteString('touch_enable 1');

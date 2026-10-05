@@ -77,13 +77,57 @@
         </div>
       </form>
     </div>
-    <canvas id="canvas"></canvas>
-    <div id="connection-lost" class="overlay" role="alertdialog" hidden>
-      <div class="overlay-panel">
-        <div class="overlay-message">Connection to the server was lost</div>
-        <button id="reload-button" class="action-button" type="button">
-          Reload
-        </button>
+    <div id="game">
+      <canvas id="canvas"></canvas>
+      <div id="hud" data-alive="unknown" hidden>
+        <div id="hud-killfeed" class="hud-killfeed"></div>
+
+        <div class="hud-vitals">
+          <div id="hud-health" class="hud-panel hud-stat" hidden>
+            <svg class="hud-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M9 2h6v7h7v6h-7v7H9v-7H2V9h7z" />
+            </svg>
+            <span id="hud-health-value" class="hud-value"></span>
+          </div>
+          <div id="hud-armor" class="hud-panel hud-stat" hidden>
+            <svg class="hud-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 2l9 3.5v6c0 5.3-3.8 9.6-9 10.5-5.2-.9-9-5.2-9-10.5v-6z" />
+            </svg>
+            <span id="hud-armor-value" class="hud-value"></span>
+            <span id="hud-helmet" class="hud-tag" hidden>Helmet</span>
+          </div>
+        </div>
+
+        <div id="hud-timer" class="hud-panel hud-timer" hidden>
+          <svg class="hud-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M9 1h6v2h-2v1.1A9 9 0 1 1 11 4.1V3H9zm3 5a7 7 0 1 0 0 14 7 7 0 0 0 0-14zm-1 2h2v5h-2z"
+            />
+          </svg>
+          <span id="hud-timer-value" class="hud-value"></span>
+          <span class="hud-bomb">Bomb planted</span>
+        </div>
+
+        <div class="hud-loadout">
+          <div id="hud-money" class="hud-panel hud-money" hidden>
+            <span id="hud-money-delta" class="hud-money-delta"></span>
+            <span class="hud-money-sign">$</span>
+            <span id="hud-money-value" class="hud-value"></span>
+          </div>
+          <div id="hud-ammo" class="hud-panel hud-ammo" hidden>
+            <span id="hud-weapon" class="hud-weapon"></span>
+            <span id="hud-clip" class="hud-value"></span>
+            <span id="hud-reserve" class="hud-reserve"></span>
+          </div>
+        </div>
+      </div>
+      <div id="connection-lost" class="overlay" role="alertdialog" hidden>
+        <div class="overlay-panel">
+          <div class="overlay-message">Connection to the server was lost</div>
+          <button id="reload-button" class="action-button" type="button">
+            Reload
+          </button>
+        </div>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
