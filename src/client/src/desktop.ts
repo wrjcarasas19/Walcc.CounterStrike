@@ -1,6 +1,13 @@
-export type Phase = 'idle' | 'downloading' | 'loading' | 'ready' | 'error';
+export type Phase =
+  | 'idle'
+  | 'downloading'
+  | 'loading'
+  | 'ready'
+  | 'connecting'
+  | 'error';
 
-type Stage = 'download' | 'load';
+type ProgressStage = 'download' | 'load';
+export type Stage = ProgressStage | 'connect';
 
 const desktop = document.getElementById('desktop')!;
 const form = document.getElementById('launcher') as HTMLFormElement;
@@ -11,8 +18,14 @@ const actionButton = document.getElementById(
   'action-button'
 ) as HTMLButtonElement;
 
+const connectStatus = document.getElementById('connect-status')!;
+const connectionLost = document.getElementById('connection-lost')!;
+const reloadButton = document.getElementById(
+  'reload-button'
+) as HTMLButtonElement;
+
 const stages: Record<
-  Stage,
+  ProgressStage,
   { percent: HTMLElement; bar: HTMLElement; status: HTMLElement }
 > = {
   download: {
@@ -32,6 +45,7 @@ const ACTION_LABELS: Record<Phase, string> = {
   downloading: 'Downloading…',
   loading: 'Loading…',
   ready: 'Connect',
+  connecting: 'Connecting…',
   error: 'Retry',
 };
 
@@ -46,7 +60,9 @@ function refreshActionButton(): void {
   actionButton.disabled =
     phase === 'idle'
       ? !nicknameEntered()
-      : phase === 'downloading' || phase === 'loading';
+      : phase === 'downloading' ||
+        phase === 'loading' ||
+        phase === 'connecting';
 }
 
 nicknameInput.addEventListener('input', refreshActionButton);
@@ -70,7 +86,7 @@ export function onAction(handler: () => void): void {
 }
 
 export function updateProgress(
-  stage: Stage,
+  stage: ProgressStage,
   fraction: number,
   status: string
 ): void {
@@ -82,8 +98,17 @@ export function updateProgress(
   statusEl.classList.remove('error');
 }
 
+function statusElement(stage: Stage): HTMLElement {
+  return stage === 'connect' ? connectStatus : stages[stage].status;
+}
+
+export function setConnectStatus(message: string): void {
+  connectStatus.textContent = message;
+  connectStatus.classList.remove('error');
+}
+
 export function showError(stage: Stage, message: string): void {
-  const { status } = stages[stage];
+  const status = statusElement(stage);
   status.textContent = message;
   status.classList.add('error');
   setPhase('error');
@@ -91,6 +116,13 @@ export function showError(stage: Stage, message: string): void {
 
 export function removeDesktop(): void {
   desktop.remove();
+}
+
+export function showConnectionLost(onReload: () => void): void {
+  document.exitPointerLock?.();
+  reloadButton.onclick = onReload;
+  connectionLost.hidden = false;
+  reloadButton.focus();
 }
 
 refreshActionButton();

@@ -33,6 +33,7 @@
               type="text"
               placeholder="Enter nickname"
               autocomplete="nickname"
+              maxlength="31"
               autofocus
             />
           </div>
@@ -59,13 +60,32 @@
             <div id="load-status" class="progress-status"></div>
           </section>
 
-          <button id="action-button" class="action-button" type="submit" disabled>
+          <div
+            id="connect-status"
+            class="progress-status connect-status"
+            role="status"
+          ></div>
+
+          <button
+            id="action-button"
+            class="action-button"
+            type="submit"
+            disabled
+          >
             Download
           </button>
         </div>
       </form>
     </div>
     <canvas id="canvas"></canvas>
+    <div id="connection-lost" class="overlay" role="alertdialog" hidden>
+      <div class="overlay-panel">
+        <div class="overlay-message">Connection to the server was lost</div>
+        <button id="reload-button" class="action-button" type="button">
+          Reload
+        </button>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

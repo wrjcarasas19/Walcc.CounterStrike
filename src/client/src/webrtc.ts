@@ -21,18 +21,38 @@ function copyPacketBytes(data: unknown): Uint8Array<ArrayBuffer> | null {
   return copy;
 }
 
+export type ConnectErrorKind =
+  // The signaling WebSocket never opened (server down, refused or rate limited).
+  | 'unreachable'
+  // The signaling WebSocket closed before WebRTC finished.
+  | 'closed'
+  // Signaling worked but WebRTC never came up (usually UDP blocked).
+  | 'timeout'
+  | 'webrtc';
+
+export class ConnectError extends Error {
+  readonly kind: ConnectErrorKind;
+
+  constructor(kind: ConnectErrorKind, message: string) {
+    super(message);
+    this.name = 'ConnectError';
+    this.kind = kind;
+  }
+}
+
 export class Xash3DWebRTC extends Xash3D {
+  /** Called when an established connection to the game server is lost. */
+  onDisconnect?: (error: Error) => void;
+
   private channel?: RTCDataChannel;
-  private resolve?: (value?: unknown) => void;
+  private resolve?: () => void;
   private reject?: (reason: Error) => void;
   private ws?: WebSocket;
   private peer?: RTCPeerConnection;
   private candidates: RTCIceCandidateInit[] = [];
   private wasRemote = false;
   private timeout?: ReturnType<typeof setTimeout>;
-  private disconnected = false;
-  // Signaling messages are handled one at a time so overlapping offers
-  // can't interleave setRemoteDescription/createAnswer.
+  private connected = false;
   private signaling: Promise<void> = Promise.resolve();
 
   constructor(opts?: Xash3DOptions) {
@@ -40,37 +60,39 @@ export class Xash3DWebRTC extends Xash3D {
     this.net = new Net(this);
   }
 
-  async init() {
-    await Promise.all([super.init(), this.connect()]);
-  }
-
-  initConnection() {
+  private initConnection() {
     if (this.peer) return;
 
-    this.peer = new RTCPeerConnection();
-    this.peer.onicecandidate = (e) => {
+    const peer = new RTCPeerConnection();
+    this.peer = peer;
+    peer.onicecandidate = (e) => {
       if (!e.candidate) {
         return;
       }
       this.wsSend('candidate', e.candidate.toJSON());
     };
-    this.peer.onconnectionstatechange = () => {
-      const state = this.peer?.connectionState;
+    peer.onconnectionstatechange = () => {
+      const state = peer.connectionState;
       if (state === 'failed' || state === 'closed') {
-        this.fail(new Error(`WebRTC connection ${state}`));
+        this.fail(
+          new ConnectError('webrtc', `WebRTC connection ${state}`),
+          peer
+        );
       }
     };
     let channelsCount = 0;
-    this.peer.ondatachannel = (e) => {
+    peer.ondatachannel = (e) => {
       e.channel.binaryType = 'arraybuffer';
       if (e.channel.label === 'write') {
         e.channel.onmessage = (ee: MessageEvent<ArrayBuffer>) => {
+          if (this.peer !== peer) return;
           const incoming = this.net!.incoming;
-          // `size` is private in the typings but public at runtime.
-          while ((incoming as unknown as { size: number }).size >= MAX_INCOMING_PACKETS) {
+          while (
+            (incoming as unknown as { size: number }).size >=
+            MAX_INCOMING_PACKETS
+          ) {
             incoming.dequeue();
           }
-          // binaryType is 'arraybuffer', so each message is already a fresh buffer.
           incoming.enqueue({
             ip: [127, 0, 0, 1],
             port: 8080,
@@ -79,21 +101,28 @@ export class Xash3DWebRTC extends Xash3D {
         };
       }
       e.channel.onclose = () => {
-        this.fail(new Error(`Data channel "${e.channel.label}" closed`));
+        this.fail(
+          new ConnectError(
+            'webrtc',
+            `Data channel "${e.channel.label}" closed`
+          ),
+          peer
+        );
       };
       e.channel.onopen = () => {
+        if (this.peer !== peer) return;
         channelsCount += 1;
         if (e.channel.label === 'read') {
           this.channel = e.channel;
         }
         if (channelsCount === 2) {
+          this.connected = true;
           this.settle()?.resolve();
         }
       };
     };
   }
 
-  // Clears the pending connect() callbacks so it resolves or rejects only once.
   private settle() {
     if (!this.resolve || !this.reject) return undefined;
     const callbacks = { resolve: this.resolve, reject: this.reject };
@@ -106,18 +135,38 @@ export class Xash3DWebRTC extends Xash3D {
     return callbacks;
   }
 
-  private fail(error: Error) {
-    if (this.disconnected) return;
-    this.disconnected = true;
-    const pending = this.settle();
-    if (pending) {
-      this.ws?.close();
-      this.peer?.close();
-      pending.reject(error);
-      return;
+  // Closes the current WebSocket and peer without firing their handlers.
+  private teardown() {
+    const { ws, peer } = this;
+    this.ws = undefined;
+    this.peer = undefined;
+    this.channel = undefined;
+    if (ws) {
+      ws.onopen = ws.onerror = ws.onclose = ws.onmessage = null;
+      ws.close();
     }
-    // Already connected: the engine notices the silence and times out on its own.
-    console.warn('Connection to server lost:', error.message);
+    if (peer) {
+      peer.onicecandidate = null;
+      peer.onconnectionstatechange = null;
+      peer.ondatachannel = null;
+      peer.close();
+    }
+  }
+
+  // `peer` is the connection the event came from; events from a connection
+  // that has already been replaced or torn down are ignored.
+  private fail(error: Error, peer?: RTCPeerConnection) {
+    if (peer && peer !== this.peer) return;
+    const pending = this.settle();
+    const wasConnected = this.connected;
+    this.connected = false;
+    this.teardown();
+    if (pending) {
+      pending.reject(error);
+    } else if (wasConnected) {
+      console.warn('Connection to server lost:', error.message);
+      this.onDisconnect?.(error);
+    }
   }
 
   private wsSend(event: string, data: unknown) {
@@ -130,17 +179,21 @@ export class Xash3DWebRTC extends Xash3D {
     );
   }
 
-  private async handleSignal(parsed: { event: string; data: any }) {
+  private async handleSignal(
+    peer: RTCPeerConnection,
+    parsed: { event: string; data: any }
+  ) {
+    if (this.peer !== peer) return;
     switch (parsed.event) {
       case 'offer': {
-        await this.peer!.setRemoteDescription(parsed.data);
-        const answer = await this.peer!.createAnswer();
-        await this.peer!.setLocalDescription(answer);
+        await peer.setRemoteDescription(parsed.data);
+        const answer = await peer.createAnswer();
+        await peer.setLocalDescription(answer);
         this.wsSend('answer', answer);
         if (!this.wasRemote) {
           this.wasRemote = true;
           for (const c of this.candidates) {
-            await this.peer!.addIceCandidate(c);
+            await peer.addIceCandidate(c);
           }
           this.candidates = [];
         }
@@ -148,7 +201,7 @@ export class Xash3DWebRTC extends Xash3D {
       }
       case 'candidate':
         if (this.wasRemote) {
-          await this.peer!.addIceCandidate(parsed.data);
+          await peer.addIceCandidate(parsed.data);
         } else {
           this.candidates.push(parsed.data);
         }
@@ -156,30 +209,71 @@ export class Xash3DWebRTC extends Xash3D {
     }
   }
 
-  async connect() {
-    return new Promise((resolve, reject) => {
+  /**
+   * Opens the signaling WebSocket and WebRTC data channels to the game
+   * server. Resolves once both channels are open; rejects with a
+   * ConnectError. Safe to call again after a failure.
+   */
+  connect(): Promise<void> {
+    this.settle()?.reject(new ConnectError('closed', 'Connect restarted'));
+    this.teardown();
+    this.connected = false;
+    this.candidates = [];
+    this.wasRemote = false;
+    this.signaling = Promise.resolve();
+
+    return new Promise<void>((resolve, reject) => {
       this.resolve = resolve;
       this.reject = reject;
-      this.timeout = setTimeout(() => {
-        this.fail(new Error('Timed out connecting to the game server'));
-      }, CONNECT_TIMEOUT_MS);
 
       const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
       const host = window.location.host;
-      this.ws = new WebSocket(`${protocol}://${host}/websocket`);
-      this.ws.onopen = () => {
+      const ws = new WebSocket(`${protocol}://${host}/websocket`);
+      this.ws = ws;
+      let opened = false;
+
+      this.timeout = setTimeout(() => {
+        this.fail(
+          opened
+            ? new ConnectError(
+                'timeout',
+                'Timed out establishing the WebRTC connection'
+              )
+            : new ConnectError(
+                'unreachable',
+                'Timed out opening the signaling WebSocket'
+              )
+        );
+      }, CONNECT_TIMEOUT_MS);
+
+      // A browser can't see why a WebSocket handshake failed (e.g. HTTP 429
+      // or 403), so all failures before `open` count as unreachable.
+      const lost = () => {
+        if (this.ws !== ws) return;
+        if (this.connected) {
+          // The game runs over WebRTC; the signaling socket is not needed
+          // once connected, so losing it is not a disconnect.
+          this.ws = undefined;
+          return;
+        }
+        this.fail(
+          opened
+            ? new ConnectError('closed', 'Signaling WebSocket closed')
+            : new ConnectError('unreachable', 'Signaling WebSocket failed')
+        );
+      };
+      ws.onopen = () => {
+        opened = true;
         this.initConnection();
       };
-      this.ws.onerror = () => {
-        this.fail(new Error('Signaling WebSocket error'));
-      };
-      this.ws.onclose = () => {
-        this.fail(new Error('Signaling WebSocket closed'));
-      };
-      this.ws.onmessage = (e: MessageEvent) => {
+      ws.onerror = lost;
+      ws.onclose = lost;
+      ws.onmessage = (e: MessageEvent) => {
+        const peer = this.peer;
+        if (!peer) return;
         const parsed = JSON.parse(e.data);
         this.signaling = this.signaling
-          .then(() => this.handleSignal(parsed))
+          .then(() => this.handleSignal(peer, parsed))
           .catch((error) => {
             console.error(`Failed to handle "${parsed.event}" signal:`, error);
           });
@@ -193,7 +287,6 @@ export class Xash3DWebRTC extends Xash3D {
     if (!data || data.byteLength === 0) return;
     try {
       this.channel.send(data);
-    } catch {
-    }
+    } catch {}
   }
 }

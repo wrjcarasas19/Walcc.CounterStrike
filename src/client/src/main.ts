@@ -1,17 +1,23 @@
 import { createEngine } from './engine';
-import { getGameFiles } from './gamefiles';
+import { GameFilesError, getGameFiles } from './gamefiles';
 import {
   getPhase,
   onAction,
   removeDesktop,
+  setConnectStatus,
   setPhase,
+  showConnectionLost,
   showError,
+  type Stage,
   updateProgress,
 } from './desktop';
 import { cachePlayerName, getPlayerName } from './player';
-import type { Xash3DWebRTC } from './webrtc';
+import { ConnectError, type Xash3DWebRTC } from './webrtc';
+
+const GENERIC_ERROR = 'Failed to load game. Please try again later.';
 
 let engine: Xash3DWebRTC | undefined;
+let failedStage: Stage | undefined;
 
 onAction(() => {
   switch (getPhase()) {
@@ -20,11 +26,16 @@ onAction(() => {
       void prepare();
       break;
     case 'ready':
-      start(engine!);
+      void connect(engine!);
       break;
     case 'error':
-      // The engine may be half-initialized; start over from a clean page.
-      window.location.reload();
+      // Game files are already loaded, so a failed connect is retried in
+      // place; earlier failures start over.
+      if (failedStage === 'connect' && engine) {
+        void connect(engine);
+      } else {
+        window.location.reload();
+      }
       break;
   }
 });
@@ -33,18 +44,57 @@ setPhase('idle');
 
 async function prepare() {
   setPhase('downloading');
-  let stage: 'download' | 'load' = 'download';
+  let stage: Stage = 'download';
   try {
     engine = createEngine();
+    // Only the wasm engine starts here; the server connection waits for
+    // Connect so idle launchers don't hold server slots.
     const [gamefiles] = await Promise.all([getGameFiles(), engine.init()]);
     stage = 'load';
     setPhase('loading');
     await loadGameFiles(engine, gamefiles.files);
     setPhase('ready');
   } catch (error) {
-    console.error('Failed to load game:', error);
-    showError(stage, 'Failed to load game. Please try again later.');
+    fail(stage, error);
   }
+}
+
+async function connect(engine: Xash3DWebRTC) {
+  setPhase('connecting');
+  setConnectStatus('Connecting to the game server...');
+  try {
+    await engine.connect();
+  } catch (error) {
+    fail('connect', error);
+    return;
+  }
+  start(engine);
+}
+
+function fail(stage: Stage, error: unknown): void {
+  console.error(`Failed at the ${stage} stage:`, error);
+  failedStage = stage;
+  showError(stage, describeError(error));
+}
+
+function describeError(error: unknown): string {
+  if (error instanceof GameFilesError) {
+    return error.status === undefined
+      ? "Couldn't download the game files. Check your internet connection and try again."
+      : `Couldn't download the game files (HTTP ${error.status}). Please try again later.`;
+  }
+  if (error instanceof ConnectError) {
+    switch (error.kind) {
+      case 'unreachable':
+        return "Couldn't reach the game server. It may be offline or busy; please try again shortly.";
+      case 'closed':
+        return 'The game server closed the connection. Please try again.';
+      case 'timeout':
+      case 'webrtc':
+        return "Couldn't open a game connection. Port 27018 may be blocked by your network.";
+    }
+  }
+  return GENERIC_ERROR;
 }
 
 async function loadGameFiles(
@@ -78,6 +128,18 @@ function start(engine: Xash3DWebRTC): void {
   removeDesktop();
   const playerName = getPlayerName();
 
+  const confirmLeave = (event: BeforeUnloadEvent) => {
+    event.preventDefault();
+    event.returnValue = '';
+    return '';
+  };
+  engine.onDisconnect = () => {
+    showConnectionLost(() => {
+      window.removeEventListener('beforeunload', confirmLeave);
+      window.location.reload();
+    });
+  };
+
   engine.main();
   engine.Cmd_ExecuteString('_vgui_menus 0');
   if (!window.matchMedia('(hover: hover)').matches) {
@@ -93,9 +155,5 @@ function start(engine: Xash3DWebRTC): void {
   engine.Cmd_ExecuteString('cl_allowupload 0');
   engine.Cmd_ExecuteString('connect 127.0.0.1:8080');
 
-  window.addEventListener('beforeunload', (event) => {
-    event.preventDefault();
-    event.returnValue = '';
-    return '';
-  });
+  window.addEventListener('beforeunload', confirmLeave);
 }

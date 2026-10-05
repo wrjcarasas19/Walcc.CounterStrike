@@ -1,1 +1,6 @@
 node_modules
+.git
+dist
+*.zip
+plans
+src/client/dist

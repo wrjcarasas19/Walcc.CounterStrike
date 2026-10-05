@@ -2,7 +2,7 @@
 FROM debian:bookworm-slim AS engine
 
 RUN dpkg --add-architecture i386
-RUN apt update && apt upgrade -y && apt -y --no-install-recommends install aptitude
+RUN apt update && apt -y --no-install-recommends install aptitude
 RUN aptitude -y --without-recommends install git ca-certificates build-essential gcc-multilib g++-multilib libbsd-dev:i386 libsdl2-dev:i386 libfreetype-dev:i386 libopus-dev:i386 libbz2-dev:i386 libvorbis-dev:i386 libopusfile-dev:i386 libogg-dev:i386
 
 ENV PKG_CONFIG_PATH=/usr/lib/i386-linux-gnu/pkgconfig

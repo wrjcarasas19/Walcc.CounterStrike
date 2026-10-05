@@ -5,9 +5,13 @@ import (
 	"sync"
 )
 
+// FixedArray is a fixed-size slot table. Each slot has a generation that
+// changes whenever the slot is freed, so a holder of a stale (index,
+// generation) pair cannot Replace or Remove the slot after it was reused.
 type FixedArray[T any] struct {
 	data     []T
 	inUse    []bool
+	gen      []uint32
 	capacity byte
 	lock     sync.RWMutex
 	freeList []byte
@@ -23,25 +27,33 @@ func NewFixedArray[T any](size byte) *FixedArray[T] {
 	return &FixedArray[T]{
 		data:     make([]T, size),
 		inUse:    make([]bool, size),
+		gen:      make([]uint32, size),
 		capacity: size,
 		freeList: free,
 	}
 }
 
-// Add inserts a value and returns its index (O(1))
-func (fa *FixedArray[T]) Add(item T) (byte, error) {
+var (
+	errArrayFull       = errors.New("array is full")
+	errOutOfBounds     = errors.New("index out of bounds")
+	errNotInUse        = errors.New("index not in use")
+	errStaleGeneration = errors.New("stale slot generation")
+)
+
+// Add stores item in a free slot and returns its index and generation (O(1)).
+func (fa *FixedArray[T]) Add(item T) (byte, uint32, error) {
 	fa.lock.Lock()
 	defer fa.lock.Unlock()
 
 	if len(fa.freeList) == 0 {
-		return 0, errors.New("array is full")
+		return 0, 0, errArrayFull
 	}
 	idx := fa.freeList[len(fa.freeList)-1]
 	fa.freeList = fa.freeList[:len(fa.freeList)-1]
 
 	fa.data[idx] = item
 	fa.inUse[idx] = true
-	return idx, nil
+	return idx, fa.gen[idx], nil
 }
 
 // Get retrieves a value by index (O(1))
@@ -50,43 +62,54 @@ func (fa *FixedArray[T]) Get(index byte) (T, error) {
 	defer fa.lock.RUnlock()
 
 	var zero T
-	if index < 0 || index >= fa.capacity {
-		return zero, errors.New("index out of bounds")
+	if index >= fa.capacity {
+		return zero, errOutOfBounds
 	}
 	if !fa.inUse[index] {
-		return zero, errors.New("no item at index")
+		return zero, errNotInUse
 	}
 	return fa.data[index], nil
 }
 
-// Remove deletes the item at index (O(1))
-func (fa *FixedArray[T]) Remove(index byte) error {
+// check reports whether (index, generation) names a slot that is in use.
+// The caller must hold fa.lock.
+func (fa *FixedArray[T]) check(index byte, generation uint32) error {
+	if index >= fa.capacity {
+		return errOutOfBounds
+	}
+	if !fa.inUse[index] {
+		return errNotInUse
+	}
+	if fa.gen[index] != generation {
+		return errStaleGeneration
+	}
+	return nil
+}
+
+// Remove frees the slot if it still belongs to the given generation (O(1)).
+func (fa *FixedArray[T]) Remove(index byte, generation uint32) error {
 	fa.lock.Lock()
 	defer fa.lock.Unlock()
 
-	if index < 0 || index >= fa.capacity {
-		return errors.New("index out of bounds")
-	}
-	if !fa.inUse[index] {
-		return errors.New("index not in use")
+	if err := fa.check(index, generation); err != nil {
+		return err
 	}
 
 	var zero T
 	fa.data[index] = zero
 	fa.inUse[index] = false
+	fa.gen[index]++
 	fa.freeList = append(fa.freeList, index)
 	return nil
 }
 
-func (fa *FixedArray[T]) Replace(index byte, newValue T) error {
+// Replace overwrites the slot if it still belongs to the given generation.
+func (fa *FixedArray[T]) Replace(index byte, generation uint32, newValue T) error {
 	fa.lock.Lock()
 	defer fa.lock.Unlock()
 
-	if index < 0 || index >= fa.capacity {
-		return errors.New("index out of bounds")
-	}
-	if !fa.inUse[index] {
-		return errors.New("index not in use")
+	if err := fa.check(index, generation); err != nil {
+		return err
 	}
 	fa.data[index] = newValue
 	return nil

@@ -6,18 +6,17 @@ import (
 	"fmt"
 	"github.com/gorilla/websocket"
 	"github.com/pion/ice/v4"
-	"github.com/pion/interceptor"
 	"github.com/pion/logging"
-	"github.com/pion/rtcp"
-	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 	"github.com/yohimik/goxash3d-fwgs/pkg"
 	"io"
 	"math/rand"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
-	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -29,15 +28,10 @@ var packets = make(chan *goxash3d_fwgs.Packet, 256)
 var (
 	addr     = ":27016"
 	upgrader = websocket.Upgrader{
-		CheckOrigin: func(r *http.Request) bool { return true },
+		CheckOrigin: checkOrigin,
 	}
 
 	api *webrtc.API
-
-	// lock for peerConnections and trackLocals
-	listLock        sync.RWMutex
-	peerConnections []*peerConnectionState
-	trackLocals     map[string]*webrtc.TrackLocalStaticRTP
 
 	log = logging.NewDefaultLoggerFactory().NewLogger("sfu-ws")
 )
@@ -45,162 +39,6 @@ var (
 type websocketMessage struct {
 	Event string          `json:"event"`
 	Data  json.RawMessage `json:"data"`
-}
-
-type peerConnectionState struct {
-	peerConnection *webrtc.PeerConnection
-	websocket      *threadSafeWriter
-	signalsCount   int
-}
-
-const DefaultSignalsCount = 5
-
-// Add to list of tracks and fire renegotation for all PeerConnections.
-func addTrack(t *webrtc.TrackRemote) *webrtc.TrackLocalStaticRTP { // nolint
-	listLock.Lock()
-	defer func() {
-		listLock.Unlock()
-		signalPeerConnections()
-	}()
-
-	// Create a new TrackLocal with the same codec as our incoming
-	trackLocal, err := webrtc.NewTrackLocalStaticRTP(t.Codec().RTPCodecCapability, t.ID(), t.StreamID())
-	if err != nil {
-		panic(err)
-	}
-
-	trackLocals[t.ID()] = trackLocal
-
-	for _, con := range peerConnections {
-		con.signalsCount = DefaultSignalsCount
-	}
-
-	return trackLocal
-}
-
-// Remove from list of tracks and fire renegotation for all PeerConnections.
-func removeTrack(t *webrtc.TrackLocalStaticRTP) {
-	listLock.Lock()
-	defer func() {
-		listLock.Unlock()
-		signalPeerConnections()
-	}()
-
-	for _, con := range peerConnections {
-		con.signalsCount = DefaultSignalsCount
-	}
-
-	delete(trackLocals, t.ID())
-}
-
-// signalPeerConnections updates each PeerConnection so that it is getting all the expected media tracks.
-func signalPeerConnections() { // nolint
-	listLock.Lock()
-	defer func() {
-		listLock.Unlock()
-		dispatchKeyFrame()
-	}()
-
-	attemptSync := func() (tryAgain bool) {
-		for i := range peerConnections {
-			if peerConnections[i].signalsCount <= 0 {
-				continue
-			}
-
-			if peerConnections[i].peerConnection.ConnectionState() == webrtc.PeerConnectionStateClosed {
-				peerConnections = append(peerConnections[:i], peerConnections[i+1:]...)
-
-				return true // We modified the slice, start from the beginning
-			}
-
-			// map of sender we already are seanding, so we don't double send
-			existingSenders := map[string]bool{}
-
-			for _, sender := range peerConnections[i].peerConnection.GetSenders() {
-				if sender.Track() == nil {
-					continue
-				}
-
-				existingSenders[sender.Track().ID()] = true
-
-				// If we have a RTPSender that doesn't map to a existing track remove and signal
-				if _, ok := trackLocals[sender.Track().ID()]; !ok {
-					if err := peerConnections[i].peerConnection.RemoveTrack(sender); err != nil {
-						return true
-					}
-				}
-			}
-
-			// Don't receive videos we are sending, make sure we don't have loopback
-			for _, receiver := range peerConnections[i].peerConnection.GetReceivers() {
-				if receiver.Track() == nil {
-					continue
-				}
-
-				existingSenders[receiver.Track().ID()] = true
-			}
-
-			// Add all track we aren't sending yet to the PeerConnection
-			for trackID := range trackLocals {
-				if _, ok := existingSenders[trackID]; !ok {
-					if _, err := peerConnections[i].peerConnection.AddTrack(trackLocals[trackID]); err != nil {
-						return true
-					}
-				}
-			}
-
-			offer, err := peerConnections[i].peerConnection.CreateOffer(nil)
-			if err != nil {
-				return true
-			}
-
-			if err = peerConnections[i].peerConnection.SetLocalDescription(offer); err != nil {
-				return true
-			}
-
-			if err = peerConnections[i].websocket.WriteJSON("offer", offer); err != nil {
-				return true
-			}
-		}
-
-		return tryAgain
-	}
-
-	for syncAttempt := 0; ; syncAttempt++ {
-		if syncAttempt == 25 {
-			// Release the lock and attempt a sync in 3 seconds. We might be blocking a RemoveTrack or AddTrack
-			go func() {
-				time.Sleep(time.Second * 3)
-				signalPeerConnections()
-			}()
-
-			return
-		}
-
-		if !attemptSync() {
-			break
-		}
-	}
-}
-
-// dispatchKeyFrame sends a keyframe to all PeerConnections, used everytime a new user joins the call.
-func dispatchKeyFrame() {
-	listLock.Lock()
-	defer listLock.Unlock()
-
-	for i := range peerConnections {
-		for _, receiver := range peerConnections[i].peerConnection.GetReceivers() {
-			if receiver.Track() == nil {
-				continue
-			}
-
-			_ = peerConnections[i].peerConnection.WriteRTCP([]rtcp.Packet{
-				&rtcp.PictureLossIndication{
-					MediaSSRC: uint32(receiver.Track().SSRC()),
-				},
-			})
-		}
-	}
 }
 
 const (
@@ -225,19 +63,198 @@ func ReadLoop(d io.Reader, ip [4]byte) {
 		}
 		data := make([]byte, n)
 		copy(data, buffer[:n])
-		packets <- &goxash3d_fwgs.Packet{
-			IP:   ip,
-			Data: data,
+		select {
+		case packets <- &goxash3d_fwgs.Packet{IP: ip, Data: data}:
+		default:
+			// The engine is behind; drop rather than stall this client's
+			// data channel (and the SCTP association behind it).
+			countDroppedPacket()
+		}
+	}
+}
+
+const dropLogInterval = 5 * time.Second
+
+var (
+	droppedPacketsLock sync.Mutex
+	droppedPackets     int
+	lastDropLog        time.Time
+)
+
+// countDroppedPacket counts packets dropped because the engine queue is full
+// and logs the total at most once per dropLogInterval.
+func countDroppedPacket() {
+	droppedPacketsLock.Lock()
+	defer droppedPacketsLock.Unlock()
+	droppedPackets++
+	if now := time.Now(); now.Sub(lastDropLog) >= dropLogInterval {
+		log.Errorf("Engine packet queue full: dropped %d incoming packets", droppedPackets)
+		droppedPackets = 0
+		lastDropLog = now
+	}
+}
+
+const (
+	// maxConnectionsPerIP caps concurrent signaling WebSockets from one remote IP.
+	maxConnectionsPerIP = 4
+	// connectTimeout is how long a client has to open both data channels.
+	connectTimeout = 30 * time.Second
+	pingPeriod     = 20 * time.Second
+	pongWait       = 45 * time.Second
+	writeWait      = 10 * time.Second
+)
+
+var (
+	ipConnectionsLock sync.Mutex
+	ipConnections     = map[string]int{}
+
+	// ALLOWED_ORIGINS is a comma-separated list of extra origins (e.g.
+	// "http://localhost:5173") or "*" to accept any origin.
+	allowedOrigins = parseAllowedOrigins(os.Getenv("ALLOWED_ORIGINS"))
+)
+
+func parseAllowedOrigins(value string) map[string]bool {
+	origins := map[string]bool{}
+	for _, origin := range strings.Split(value, ",") {
+		origin = strings.TrimRight(strings.ToLower(strings.TrimSpace(origin)), "/")
+		if origin != "" {
+			origins[origin] = true
+		}
+	}
+	return origins
+}
+
+// checkOrigin accepts same-host pages, origins listed in ALLOWED_ORIGINS and
+// non-browser clients that send no Origin header.
+func checkOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	normalized := strings.TrimRight(strings.ToLower(origin), "/")
+	if allowedOrigins["*"] || allowedOrigins[normalized] {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(u.Host, r.Host)
+}
+
+func remoteHost(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+func acquireIP(host string) bool {
+	ipConnectionsLock.Lock()
+	defer ipConnectionsLock.Unlock()
+	if ipConnections[host] >= maxConnectionsPerIP {
+		return false
+	}
+	ipConnections[host]++
+	return true
+}
+
+func releaseIP(host string) {
+	ipConnectionsLock.Lock()
+	defer ipConnectionsLock.Unlock()
+	if ipConnections[host] <= 1 {
+		delete(ipConnections, host)
+		return
+	}
+	ipConnections[host]--
+}
+
+var errSessionClosed = errors.New("session closed")
+
+// gameSession owns the server slot of one player. The slot is allocated only
+// once both data channels are open and is released exactly once.
+type gameSession struct {
+	lock      sync.Mutex
+	closed    bool
+	read      io.ReadWriteCloser
+	write     io.ReadWriteCloser
+	slot      byte
+	slotGen   uint32
+	hasSlot   bool
+	connected chan struct{}
+}
+
+// channelOpened stores a detached data channel. When both channels are open it
+// allocates the slot and returns the reader and IP for ReadLoop (ready=true).
+func (s *gameSession) channelOpened(dst *io.ReadWriteCloser, d io.ReadWriteCloser) (reader io.Reader, ip [4]byte, ready bool, err error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	if s.closed {
+		_ = d.Close()
+		return nil, ip, false, errSessionClosed
+	}
+	*dst = d
+	if s.read == nil || s.write == nil {
+		return nil, ip, false, nil
+	}
+
+	index, gen, err := connections.Add(s.write)
+	if err != nil {
+		s.closed = true
+		return nil, ip, false, err
+	}
+	s.slot, s.slotGen, s.hasSlot = index, gen, true
+
+	for i := range ip {
+		ip[i] = byte(rand.Intn(256))
+	}
+	ip[0] = index
+	close(s.connected)
+	return s.read, ip, true, nil
+}
+
+// abandon closes a session that never finished connecting. It returns false
+// (and changes nothing) if both data channels are already open.
+func (s *gameSession) abandon() bool {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	if s.hasSlot {
+		return false
+	}
+	s.closed = true
+	return true
+}
+
+// release frees the slot (if any) and stops later channel opens from taking one.
+func (s *gameSession) release() {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	s.closed = true
+	if s.hasSlot {
+		s.hasSlot = false
+		if err := connections.Remove(s.slot, s.slotGen); err != nil {
+			log.Errorf("Failed to remove connection: %v", err)
 		}
 	}
 }
 
 // Handle incoming websockets.
 func websocketHandler(w http.ResponseWriter, r *http.Request) { // nolint
+	host := remoteHost(r)
+	if !acquireIP(host) {
+		log.Errorf("Refusing websocket from %s: more than %d connections", host, maxConnectionsPerIP)
+		http.Error(w, "Too many connections", http.StatusTooManyRequests)
+
+		return
+	}
+	defer releaseIP(host)
+
 	// Upgrade HTTP request to Websocket
 	unsafeConn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Errorf("Failed to upgrade HTTP to Websocket: ", err)
+		log.Errorf("Failed to upgrade HTTP to Websocket: %v", err)
 
 		return
 	}
@@ -258,14 +275,41 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) { // nolint
 	// When this frame returns close the PeerConnection
 	defer peerConnection.Close() //nolint
 
-	// Accept one audio track incoming
-	for _, typ := range []webrtc.RTPCodecType{webrtc.RTPCodecTypeAudio} {
-		if _, err := peerConnection.AddTransceiverFromKind(typ, webrtc.RTPTransceiverInit{
-			Direction: webrtc.RTPTransceiverDirectionRecvonly,
-		}); err != nil {
-			log.Errorf("Failed to add transceiver: %v", err)
+	// Runs before the PeerConnection closes; frees the slot exactly once.
+	session := &gameSession{connected: make(chan struct{})}
+	defer session.release()
 
-			return
+	closePeer := func() {
+		if err := peerConnection.Close(); err != nil {
+			log.Errorf("Failed to close PeerConnection: %v", err)
+		}
+	}
+
+	onChannelOpen := func(channel *webrtc.DataChannel, dst *io.ReadWriteCloser) func() {
+		return func() {
+			d, err := channel.Detach()
+			if err != nil {
+				log.Errorf("Failed to detach data channel: %v", err)
+				go closePeer()
+
+				return
+			}
+			reader, ip, ready, err := session.channelOpened(dst, d)
+			if err != nil {
+				if !errors.Is(err, errSessionClosed) {
+					log.Errorf("Failed to add connection: %v", err)
+					go closePeer()
+				}
+
+				return
+			}
+			if ready {
+				go func() {
+					ReadLoop(reader, ip)
+					// The client's read channel is gone; end the session.
+					closePeer()
+				}()
+			}
 		}
 	}
 
@@ -280,24 +324,7 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) { // nolint
 
 		return
 	}
-	ip := [4]byte{}
-	for i := range ip {
-		ip[i] = byte(rand.Intn(256))
-	}
-	index, err := connections.Add(nil)
-	if err != nil {
-		log.Errorf("Failed to add connection: %v", err)
-		return
-	}
-	ip[0] = index
-
-	readChannel.OnOpen(func() {
-		d, err := readChannel.Detach()
-		if err != nil {
-			panic(err)
-		}
-		go ReadLoop(d, ip)
-	})
+	readChannel.OnOpen(onChannelOpen(readChannel, &session.read))
 	defer readChannel.Close()
 
 	writeChannel, err := peerConnection.CreateDataChannel("write", &webrtc.DataChannelInit{
@@ -309,16 +336,8 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) { // nolint
 
 		return
 	}
-	writeChannel.OnOpen(func() {
-		d, err := writeChannel.Detach()
-		if err != nil {
-			panic(err)
-		}
-		connections.Replace(index, d)
-	})
+	writeChannel.OnOpen(onChannelOpen(writeChannel, &session.write))
 	defer writeChannel.Close()
-
-	defer connections.Remove(ip[0])
 
 	// Trickle ICE. Emit server candidate to client
 	peerConnection.OnICECandidate(func(i *webrtc.ICECandidate) {
@@ -333,57 +352,100 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) { // nolint
 		}
 	})
 
-	// If PeerConnection is closed remove it from global list
+	// The session lives as long as the PeerConnection: failed/closed ends it.
+	peerDone := make(chan struct{})
+	var peerDoneOnce sync.Once
 	peerConnection.OnConnectionStateChange(func(p webrtc.PeerConnectionState) {
 		switch p {
 		case webrtc.PeerConnectionStateFailed:
-			if err := peerConnection.Close(); err != nil {
-				log.Errorf("Failed to close PeerConnection: %v", err)
-			}
+			closePeer()
 		case webrtc.PeerConnectionStateClosed:
-			signalPeerConnections()
+			peerDoneOnce.Do(func() { close(peerDone) })
 		default:
 		}
 	})
 
-	peerConnection.OnTrack(func(t *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
-		// Create a track to fan out our incoming video to all peers
-		trackLocal := addTrack(t)
-		defer removeTrack(trackLocal)
+	// Keep the signaling socket alive through idle proxies/NATs.
+	if err := c.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
+		log.Errorf("Failed to set read deadline: %v", err)
 
-		buf := make([]byte, 1500)
-		rtpPkt := &rtp.Packet{}
-
-		for {
-			i, _, err := t.Read(buf)
-			if err != nil {
-				return
-			}
-
-			if err = rtpPkt.Unmarshal(buf[:i]); err != nil {
-				log.Errorf("Failed to unmarshal incoming RTP packet: %v", err)
-
-				return
-			}
-
-			rtpPkt.Extension = false
-			rtpPkt.Extensions = nil
-
-			if err = trackLocal.WriteRTP(rtpPkt); err != nil {
-				return
-			}
-		}
+		return
+	}
+	c.SetPongHandler(func(string) error {
+		return c.SetReadDeadline(time.Now().Add(pongWait))
 	})
 
-	// Add our new PeerConnection to global list
-	state := peerConnectionState{peerConnection, c, DefaultSignalsCount}
-	listLock.Lock()
-	peerConnections = append(peerConnections, &state)
-	listLock.Unlock()
+	// Send the single offer for this connection. The data channels are fixed
+	// up front, so there is never any renegotiation after the answer.
+	offer, err := peerConnection.CreateOffer(nil)
+	if err != nil {
+		log.Errorf("Failed to create offer: %v", err)
 
-	// Signal for the new PeerConnection
-	signalPeerConnections()
+		return
+	}
+	if err := peerConnection.SetLocalDescription(offer); err != nil {
+		log.Errorf("Failed to set local description: %v", err)
 
+		return
+	}
+	if err := c.WriteJSON("offer", offer); err != nil {
+		log.Errorf("Failed to send offer: %v", err)
+
+		return
+	}
+
+	wsDone := make(chan struct{})
+	go func() {
+		defer close(wsDone)
+		readSignaling(c, peerConnection)
+		// Finish the close now rather than when the PeerConnection ends.
+		_ = c.Close()
+	}()
+
+	stopPing := make(chan struct{})
+	defer close(stopPing)
+	go func() {
+		ticker := time.NewTicker(pingPeriod)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopPing:
+				return
+			case <-wsDone:
+				return
+			case <-ticker.C:
+				if err := c.WriteControl(websocket.PingMessage, nil, time.Now().Add(writeWait)); err != nil {
+					return
+				}
+			}
+		}
+	}()
+
+	timer := time.NewTimer(connectTimeout)
+	defer timer.Stop()
+	timedOut := false
+	select {
+	case <-session.connected:
+	case <-wsDone:
+	case <-peerDone:
+	case <-timer.C:
+		timedOut = true
+	}
+	if session.abandon() {
+		if timedOut {
+			log.Errorf("Closing websocket from %s: WebRTC not connected within %v", host, connectTimeout)
+		}
+
+		return
+	}
+
+	// Both data channels are open. Losing the signaling socket no longer ends
+	// the game; wait for the PeerConnection to fail or close.
+	<-peerDone
+}
+
+// readSignaling handles answer/candidate messages until the socket fails.
+func readSignaling(c *threadSafeWriter, peerConnection *webrtc.PeerConnection) {
 	message := &websocketMessage{}
 	for {
 		_, raw, err := c.ReadMessage()
@@ -426,13 +488,6 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) { // nolint
 
 				return
 			}
-			listLock.Lock()
-			state.signalsCount -= 1
-			isNeedSignaling := state.signalsCount > 0
-			listLock.Unlock()
-			if isNeedSignaling {
-				signalPeerConnections()
-			}
 		default:
 			log.Errorf("unknown message: %+v", message)
 		}
@@ -463,6 +518,7 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 type Server struct {
+	static http.Handler
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -470,22 +526,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/websocket":
 		websocketHandler(w, r)
 	default:
-		p := r.URL.Path
-		if r.URL.Path == "/" {
-			p = "index.html"
-		}
-		path := filepath.Join("public", p)
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			http.NotFound(w, r)
-			return
-		}
-		http.ServeFile(w, r, path)
+		s.static.ServeHTTP(w, r)
 	}
 }
 
 func runSFU() {
 	settingEngine := webrtc.SettingEngine{}
 	settingEngine.DetachDataChannels()
+
+	// IPv4 only: the NAT 1:1 IP below is an IPv4 address.
+	settingEngine.SetNetworkTypes([]webrtc.NetworkType{webrtc.NetworkTypeUDP4, webrtc.NetworkTypeTCP4})
 
 	port, ok := os.LookupEnv("PORT")
 	if ok {
@@ -496,36 +546,24 @@ func runSFU() {
 				panic(err)
 			}
 			settingEngine.SetICEUDPMux(udpMux)
+
+			// ICE-TCP on the same port, for networks that block UDP.
+			tcpListener, err := net.ListenTCP("tcp", &net.TCPAddr{Port: p})
+			if err != nil {
+				panic(err)
+			}
+			settingEngine.SetICETCPMux(webrtc.NewICETCPMux(nil, tcpListener, 8))
 		}
 	}
 
 	ip, ok := os.LookupEnv("IP")
 	if ok {
+		// Applies to all host candidates, UDP and TCP.
 		settingEngine.SetNAT1To1IPs([]string{ip}, webrtc.ICECandidateTypeHost)
 	}
 
-	m := &webrtc.MediaEngine{}
-	err := m.RegisterDefaultCodecs()
-	if err != nil {
-		panic(err)
-	}
-
-	i := &interceptor.Registry{}
-	err = webrtc.RegisterDefaultInterceptors(m, i)
-	if err != nil {
-		panic(err)
-	}
-	api = webrtc.NewAPI(webrtc.WithSettingEngine(settingEngine), webrtc.WithMediaEngine(m), webrtc.WithInterceptorRegistry(i))
-
-	// Init other state
-	trackLocals = map[string]*webrtc.TrackLocalStaticRTP{}
-
-	// request a keyframe every 3 seconds
-	go func() {
-		for range time.NewTicker(time.Second * 3).C {
-			dispatchKeyFrame()
-		}
-	}()
+	// Data channels only: no media codecs or RTP interceptors needed.
+	api = webrtc.NewAPI(webrtc.WithSettingEngine(settingEngine))
 
 	goxash3d_fwgs.DefaultXash3D.RegisterRecvfromCallback(func() *goxash3d_fwgs.Packet {
 		var packet *goxash3d_fwgs.Packet
@@ -549,7 +587,7 @@ func runSFU() {
 	})
 
 	// start HTTP server
-	if err := http.ListenAndServe(addr, &Server{}); err != nil { //nolint: gosec
+	if err := http.ListenAndServe(addr, &Server{static: newStaticHandler("public")}); err != nil { //nolint: gosec
 		log.Errorf("Failed to start http server: %v", err)
 	}
 }
