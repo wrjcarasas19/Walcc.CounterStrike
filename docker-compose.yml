@@ -1,4 +1,3 @@
----
 services:
   cs16-web-server:
     build: .
@@ -20,11 +19,11 @@ services:
     volumes:
       # The ban list (bans.json) and the leaderboard (leaderboard.db), kept
       # across restarts and image updates.
-      - cs16-data:/xashds/data
+      - /var/data/cs:/xashds/data
     ports:
       - "27016:27016"
       - "27018:27018/tcp"
       - "27018:27018/udp"
-
-volumes:
-  cs16-data:
+    labels:
+      project: cs
+      app: server
