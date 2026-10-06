@@ -9,7 +9,22 @@ services:
     environment:
       IP: 127.0.0.1
       PORT: 27018
+      # Set in .env (ignored by git); see .env.example. The F4 menu logs in
+      # with ADMIN_PASSWORD; without it, it falls back to RCON_PASSWORD.
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      RCON_PASSWORD: ${RCON_PASSWORD:-}
+      # Players (humans + bots) to keep in the game; 0 = no bots.
+      BOT_QUOTA: ${BOT_QUOTA:-0}
+      # 1 = list bots on /leaderboard too.
+      LEADERBOARD_BOTS: ${LEADERBOARD_BOTS:-0}
+    volumes:
+      # The ban list (bans.json) and the leaderboard (leaderboard.db), kept
+      # across restarts and image updates.
+      - cs16-data:/xashds/data
     ports:
       - "27016:27016"
       - "27018:27018/tcp"
       - "27018:27018/udp"
+
+volumes:
+  cs16-data:

@@ -29,6 +29,12 @@ import (
 type peerSlot struct {
 	write io.Writer
 	addr  [3]byte
+	// key is the addressKey of the remote address the player's WebSocket
+	// came from (what a ban is keyed by).
+	key string
+	// close ends the player's PeerConnection, which frees the slot and has
+	// the engine drop the player.
+	close func()
 }
 
 // owns reports whether ip is the address of this slot's player.
@@ -37,6 +43,40 @@ func (p *peerSlot) owns(ip [4]byte) bool {
 }
 
 var connections = NewFixedArray[*peerSlot](128)
+
+// bans is the ban list (bans.go), loaded in main before runSFU. Banned
+// addresses can't open the game WebSocket.
+var bans *banList
+
+// gamePeers is the peerDirectory of the players connected through runSFU.
+type gamePeers struct{}
+
+// keyOf returns the addressKey of the player the engine knows by ip.
+func (gamePeers) keyOf(ip [4]byte) (string, bool) {
+	peer, err := connections.Get(ip[0])
+	if err != nil || peer == nil || !peer.owns(ip) {
+		return "", false
+	}
+	return peer.key, true
+}
+
+// closeFrom ends every player's connection from key and returns how many
+// there were.
+func (gamePeers) closeFrom(key string) int {
+	n := 0
+	for _, peer := range connections.Items() {
+		if peer != nil && peer.key == key && peer.close != nil {
+			n++
+			go peer.close()
+		}
+	}
+	return n
+}
+
+// blockPlayerRcon drops rcon requests from players. It is set before runSFU
+// when the admin API is on, so the rcon password can't be guessed through a
+// game connection.
+var blockPlayerRcon bool
 
 var packets = make(chan *goxash3d_fwgs.Packet, 256)
 
@@ -78,6 +118,10 @@ func ReadLoop(d io.Reader, ip [4]byte) {
 		}
 		data := make([]byte, n)
 		copy(data, buffer[:n])
+		if blockPlayerRcon && isRconPacket(data) {
+			// With the admin API on, rcon is for the API only (console.go).
+			continue
+		}
 		select {
 		case packets <- &goxash3d_fwgs.Packet{IP: ip, Data: data}:
 		default:
@@ -190,6 +234,9 @@ var errSessionClosed = errors.New("session closed")
 // gameSession owns the server slot of one player. The slot is allocated only
 // once the game data channel is open and is released exactly once.
 type gameSession struct {
+	// key and closePeer are copied into the slot (peerSlot.key, .close).
+	key       string
+	closePeer func()
 	lock      sync.Mutex
 	closed    bool
 	slot      byte
@@ -210,7 +257,7 @@ func (s *gameSession) channelOpened(d io.ReadWriteCloser) (ip [4]byte, err error
 		return ip, errSessionClosed
 	}
 
-	peer := &peerSlot{write: d}
+	peer := &peerSlot{write: d, key: s.key, close: s.closePeer}
 	for i := range peer.addr {
 		peer.addr[i] = byte(rand.Intn(256))
 	}
@@ -257,6 +304,12 @@ func (s *gameSession) release() {
 // Handle incoming websockets.
 func websocketHandler(w http.ResponseWriter, r *http.Request) { // nolint
 	host := remoteHost(r)
+	if key := addressKey(host); bans.banned(key) {
+		log.Errorf("Refusing websocket from %s: banned (%s)", host, key)
+		http.Error(w, "Banned from this server", http.StatusForbidden)
+
+		return
+	}
 	if !acquireIP(host) {
 		log.Errorf("Refusing websocket from %s: more than %d connections", host, maxConnectionsPerIP)
 		http.Error(w, "Too many connections", http.StatusTooManyRequests)
@@ -289,15 +342,15 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) { // nolint
 	// When this frame returns close the PeerConnection
 	defer peerConnection.Close() //nolint
 
-	// Runs before the PeerConnection closes; frees the slot exactly once.
-	session := &gameSession{connected: make(chan struct{})}
-	defer session.release()
-
 	closePeer := func() {
 		if err := peerConnection.Close(); err != nil {
 			log.Errorf("Failed to close PeerConnection: %v", err)
 		}
 	}
+
+	// Runs before the PeerConnection closes; frees the slot exactly once.
+	session := &gameSession{connected: make(chan struct{}), key: addressKey(host), closePeer: closePeer}
+	defer session.release()
 
 	// One unordered channel without retransmits carries the game's UDP
 	// traffic both ways.
@@ -539,13 +592,40 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 type Server struct {
 	static http.Handler
 	maps   http.Handler
+	// admin is nil when the admin API is off (ADMIN_PASSWORD unset).
+	admin http.Handler
+	// status serves /status.json (status.go).
+	status http.Handler
+	// leaderboard serves /leaderboard (leaderboard.go); nil when the
+	// leaderboard database couldn't be opened.
+	leaderboard http.Handler
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/websocket":
 		websocketHandler(w, r)
+	case "/status.json":
+		if s.status == nil {
+			http.NotFound(w, r)
+			return
+		}
+		s.status.ServeHTTP(w, r)
+	case "/leaderboard":
+		if s.leaderboard == nil {
+			http.NotFound(w, r)
+			return
+		}
+		s.leaderboard.ServeHTTP(w, r)
 	default:
+		if strings.HasPrefix(r.URL.Path, "/admin/") {
+			if s.admin == nil {
+				http.NotFound(w, r)
+				return
+			}
+			s.admin.ServeHTTP(w, r)
+			return
+		}
 		if strings.HasPrefix(r.URL.Path, mapsPrefix) {
 			s.maps.ServeHTTP(w, r)
 			return
@@ -554,7 +634,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func runSFU() {
+// runSFU serves HTTP and WebRTC. admin and console are nil when the admin
+// API is off; query (server queries for /status.json) is always on;
+// leaderboard is nil when its database couldn't be opened.
+func runSFU(admin http.Handler, console *engineConsole, query *engineQuery, leaderboard http.Handler) {
 	settingEngine := webrtc.SettingEngine{}
 	settingEngine.DetachDataChannels()
 
@@ -602,6 +685,16 @@ func runSFU() {
 		return receive()
 	})
 	goxash3d_fwgs.DefaultXash3D.RegisterSendtoCallback(func(p goxash3d_fwgs.Packet) {
+		if p.IP == consoleAddr {
+			if console != nil {
+				console.deliver(p.Data)
+			}
+			return
+		}
+		if p.IP == queryAddr {
+			query.deliver(p.Data)
+			return
+		}
 		peer, err := connections.Get(p.IP[0])
 		if err != nil || peer == nil || !peer.owns(p.IP) {
 			return
@@ -616,8 +709,11 @@ func runSFU() {
 
 	// start HTTP server
 	if err := http.ListenAndServe(addr, &Server{
-		static: newStaticHandler("public"),
-		maps:   newMapsHandler(filepath.Join("cstrike", "maps")),
+		static:      newStaticHandler("public"),
+		maps:        newMapsHandler(filepath.Join("cstrike", "maps")),
+		admin:       admin,
+		status:      newStatusHandler(query),
+		leaderboard: leaderboard,
 	}); err != nil { //nolint: gosec
 		log.Errorf("Failed to start http server: %v", err)
 	}

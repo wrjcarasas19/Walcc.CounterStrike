@@ -1,4 +1,26 @@
 import type { Xash3D } from 'xash3d-fwgs';
+import { fetchLobbyStatus } from './lobby';
+import { getSettings } from './settings/store';
+import {
+  createSessionStats,
+  formatHeadshots,
+  formatKd,
+  type KillResult,
+} from './stats';
+import {
+  TEAM_NAMES,
+  createRoundStartDetector,
+  killsText,
+  mapResultText,
+  pickMapMvp,
+  pickRoundMvp,
+  roundReasonText,
+  roundScoreText,
+  roundTitle,
+  summaryRows,
+  type Intermission,
+  type RoundEnd,
+} from './rounds';
 
 // HTML replacement for part of the stock HUD. The game client (cs16-client,
 // web_bridge.cpp) calls Module.hudEvent(type, payload); the payloads are
@@ -9,8 +31,14 @@ type Team = 'CT' | 'T' | '';
 
 type ScoreTeam = { score: number; players: number; avgPing: number };
 
-type ScorePlayer = {
+export type ScorePlayer = {
+  /** Slot (entity index, from 1); reused by the next player in the slot. */
   id: number;
+  /**
+   * The server's userid, for `kick #<userid>`: unique per connection, 0 if
+   * the client couldn't read it. Missing before cs16-client 0.0.6.
+   */
+  userid?: number;
   name: string;
   // SPEC also covers unassigned players; '' before the first TeamInfo.
   team: Team | 'SPEC';
@@ -24,7 +52,7 @@ type ScorePlayer = {
   local: boolean;
 };
 
-type Scores = {
+export type Scores = {
   map: string;
   server: string;
   teams: { CT: ScoreTeam; T: ScoreTeam };
@@ -51,14 +79,20 @@ export type HudEvent =
         headshot: boolean;
         killerTeam: Team;
         victimTeam: Team;
+        /** Server userids, 0 for none; missing before cs16-client 0.0.7. */
+        killerUserid?: number;
+        victimUserid?: number;
       };
     }
   | { type: 'alive'; payload: { alive: boolean; spectating: boolean } }
   | { type: 'reset'; payload: Record<string, never> }
+  | { type: 'round'; payload: RoundEnd }
+  | { type: 'intermission'; payload: Intermission }
   | { type: 'scoreboard'; payload: { visible: boolean } }
   // From the menu library (mainui), not the game client.
   | { type: 'menu'; payload: { visible: boolean } }
-  // Sent right before scoreboard { visible: true }, then every 0.5 s.
+  // Sent right before scoreboard { visible: true }, then every 0.5 s; also
+  // every 0.5 s while the cvar hud_html_scores is 1 (see setLiveScores).
   | { type: 'scores'; payload: Scores };
 
 type HudModule = {
@@ -74,6 +108,8 @@ const PANIC_SECONDS = 20;
 const MAX_KILLS = 5;
 const KILL_TTL_MS = 6_000;
 const KILL_FADE_MS = 500;
+/** About mp_round_restart_delay (5 s): gone when the next round starts. */
+const ROUND_BANNER_MS = 5_000;
 
 const WEAPON_NAMES: Record<string, string> = {
   ak47: 'AK-47',
@@ -121,6 +157,21 @@ const sbTeams = {
 };
 const sbSpectators = document.getElementById('sb-spectators')!;
 const sbSpectatorNames = document.getElementById('sb-spectator-names')!;
+const sbSession = document.getElementById('sb-session')!;
+const sbSessionStats = document.getElementById('sb-session-stats')!;
+const toastText = document.getElementById('hud-toast-text')!;
+const roundBanner = document.getElementById('hud-round')!;
+const roundBannerTitle = document.getElementById('hud-round-title')!;
+const roundBannerReason = document.getElementById('hud-round-reason')!;
+const roundBannerScore = document.getElementById('hud-round-score')!;
+const roundBannerMvp = document.getElementById('hud-round-mvp')!;
+const summary = document.getElementById('hud-summary')!;
+const summaryResult = document.getElementById('sum-result')!;
+const summaryMap = document.getElementById('sum-map')!;
+const summaryMvp = document.getElementById('sum-mvp')!;
+const summaryRowsEl = document.getElementById('sum-rows')!;
+const summaryNext = document.getElementById('sum-next')!;
+const NEXT_MAP_UNKNOWN = 'The next map loads in a few seconds.';
 
 const headshotIcon = document.createElementNS(
   'http://www.w3.org/2000/svg',
@@ -159,21 +210,47 @@ const killTimers = new Set<ReturnType<typeof setTimeout>>();
 
 let engine: Xash3D | undefined;
 let bridgeSeen = false;
+// Who asked for live scores (setLiveScores).
+const liveScoreUsers = new Set<string>();
 let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
 // The first money change after a reset is the server syncing the balance
 // (+$800 on connect, the new map's start money), not a purchase or reward.
 let moneySynced = false;
 // Last rendered scores, to skip identical snapshots (sent at 2 Hz).
 let lastScores = '';
-const mapLoadListeners = new Set<() => void>();
+const eventListeners = new Set<(event: HudEvent) => void>();
+// Kills, deaths and streaks per player since the last reset (map change or
+// reconnect); see stats.ts.
+const sessionStats = createSessionStats();
+let lastSession = '';
+const roundStarts = createRoundStartDetector();
+let roundBannerTimer: ReturnType<typeof setTimeout> | undefined;
+let latestScores: Scores | undefined;
+let summaryMapName = '';
+let lastSummary = '';
+let nextMapRequest = 0;
+
+/** Session stats counted from the kill feed (cleared on every reset event). */
+export function getSessionStats() {
+  return sessionStats;
+}
 
 /**
- * Calls listener on every reset event (InitHUD: a map change or reconnect).
- * Returns a function that removes it.
+ * The name the local player connects with, used to spot its kills until a
+ * scores snapshot gives the name the server actually uses.
  */
-export function onMapLoad(listener: () => void): () => void {
-  mapLoadListeners.add(listener);
-  return () => mapLoadListeners.delete(listener);
+export function setLocalPlayerName(name: string): void {
+  sessionStats.setLocalName(name);
+}
+
+/**
+ * Calls listener with every bridge event, after the HUD has handled it. A
+ * reset event means InitHUD: a map change or reconnect. Returns a function
+ * that removes it.
+ */
+export function onHudEvent(listener: (event: HudEvent) => void): () => void {
+  eventListeners.add(listener);
+  return () => eventListeners.delete(listener);
 }
 
 function setText(el: HTMLElement, text: string): void {
@@ -232,6 +309,49 @@ function addKill(kill: Extract<HudEvent, { type: 'kill' }>['payload']): void {
     row.classList.add('fading');
     later(() => row.remove(), KILL_FADE_MS);
   }, KILL_TTL_MS);
+}
+
+function showToast(text: string): void {
+  toastText.textContent = text;
+  toastText.classList.remove('show');
+  // Restart the animation when toasts arrive back to back.
+  void toastText.offsetWidth;
+  toastText.classList.add('show');
+}
+
+function onKillCounted(result: KillResult): void {
+  const multiKill = result.local?.multiKill;
+  if (multiKill && getSettings().killStreakToasts) showToast(multiKill.label);
+  renderSession();
+}
+
+function renderSession(): void {
+  const stats = sessionStats.local();
+  const key = stats
+    ? [stats.kills, stats.deaths, stats.headshots, stats.bestStreak].join()
+    : '';
+  if (key === lastSession) return;
+  lastSession = key;
+  setHidden(sbSession, !stats);
+  if (!stats) return;
+  const items: [string, string][] = [
+    ['K', String(stats.kills)],
+    ['D', String(stats.deaths)],
+    ['K/D', formatKd(stats)],
+    ['HS', formatHeadshots(stats)],
+    ['Best streak', String(stats.bestStreak)],
+  ];
+  sbSessionStats.replaceChildren(
+    ...items.map(([label, value]) => {
+      const item = document.createElement('span');
+      item.className = 'sb-session-item';
+      const name = document.createElement('span');
+      name.className = 'sb-session-name';
+      name.textContent = label;
+      item.append(name, ` ${value}`);
+      return item;
+    })
+  );
 }
 
 function flashMoney(delta: number): void {
@@ -309,7 +429,9 @@ function renderScores(scores: Scores): void {
     setText(els.score, String(info.score));
     setText(
       els.meta,
-      `${info.players} ${info.players === 1 ? 'player' : 'players'} · ${info.avgPing} ms`
+      `${info.players} ${info.players === 1 ? 'player' : 'players'} · ${
+        info.avgPing
+      } ms`
     );
     // Rows are built off-document and swapped in with one DOM write.
     const rows = document.createDocumentFragment();
@@ -331,6 +453,139 @@ function renderScores(scores: Scores): void {
   );
 }
 
+function hideRoundBanner(): void {
+  clearTimeout(roundBannerTimer);
+  roundBannerTimer = undefined;
+  setHidden(roundBanner, true);
+}
+
+function showRoundBanner(end: RoundEnd): void {
+  if (!summary.hidden) return;
+  const winner = end.winner === 'CT' || end.winner === 'T' ? end.winner : '';
+  roundBanner.className = `hud-round ${teamClass(winner)}`;
+  setText(roundBannerTitle, roundTitle(end));
+  const reason = roundReasonText(end);
+  setText(roundBannerReason, reason);
+  setHidden(roundBannerReason, !reason);
+  const score = roundScoreText(end);
+  setText(roundBannerScore, score);
+  setHidden(roundBannerScore, !score);
+  const mvp =
+    end.reason === 'commencing' ? undefined : pickRoundMvp(sessionStats.all());
+  roundBannerMvp.replaceChildren();
+  if (mvp) {
+    const label = document.createElement('span');
+    label.className = 'hud-round-mvp-label';
+    label.textContent = 'MVP';
+    const name = document.createElement('span');
+    name.className = 'hud-round-mvp-name';
+    name.textContent = mvp.name;
+    roundBannerMvp.append(label, name, ` ${killsText(mvp.round.kills)}`);
+  }
+  setHidden(roundBannerMvp, !mvp);
+  setHidden(roundBanner, false);
+  clearTimeout(roundBannerTimer);
+  roundBannerTimer = setTimeout(hideRoundBanner, ROUND_BANNER_MS);
+}
+
+function summaryCell(text: string, className?: string): HTMLElement {
+  const cell = document.createElement('span');
+  if (className) cell.className = className;
+  cell.textContent = text;
+  return cell;
+}
+
+function renderSummary(): void {
+  const stats = sessionStats.all();
+  const players = latestScores?.players ?? [];
+  const rows = summaryRows(players, stats);
+  const map = latestScores?.map || summaryMapName;
+  const teams = latestScores?.teams;
+  const key = JSON.stringify([map, teams?.CT.score, teams?.T.score, rows]);
+  if (key === lastSummary) return;
+  lastSummary = key;
+
+  setText(summaryMap, map);
+  setText(
+    summaryResult,
+    teams ? mapResultText(teams.CT.score, teams.T.score) : ''
+  );
+  const mvp = pickMapMvp(stats);
+  summaryMvp.replaceChildren();
+  if (mvp) {
+    const label = document.createElement('span');
+    label.className = 'sum-mvp-label';
+    label.textContent = 'Map MVP';
+    const name = document.createElement('span');
+    name.className = 'sum-mvp-name';
+    name.textContent = mvp.name;
+    summaryMvp.append(
+      label,
+      name,
+      ` ${killsText(mvp.kills)} · ${formatHeadshots(mvp)} HS`
+    );
+  }
+  setHidden(summaryMvp, !mvp);
+
+  summaryRowsEl.replaceChildren(
+    ...rows.map((row) => {
+      const el = document.createElement('div');
+      el.className = 'sum-row';
+      if (row.local) el.classList.add('local');
+      if (row.frags === null) el.classList.add('left');
+      const team = row.team === 'CT' || row.team === 'T' ? row.team : '';
+      const name = summaryCell(row.name, `sum-name ${teamClass(team)}`);
+      if (team) name.title = TEAM_NAMES[team];
+      el.append(
+        name,
+        summaryCell(row.frags === null ? 'left' : String(row.frags)),
+        summaryCell(String(row.kills)),
+        summaryCell(String(row.deaths)),
+        summaryCell(formatHeadshots(row)),
+        summaryCell(String(row.bestStreak))
+      );
+      return el;
+    })
+  );
+}
+
+function showSummary(event: Intermission): void {
+  if (!event.active) {
+    hideSummary();
+    return;
+  }
+  summaryMapName = event.map;
+  hideRoundBanner();
+  lastSummary = '';
+  renderSummary();
+  setHidden(summary, false);
+  hud.classList.add('summary-open');
+  showNextMap(event.map);
+}
+
+/**
+ * The next map is a server cvar (amx_nextmap) the game client can't read;
+ * the server's /status.json has it. Only trusted while the server is still
+ * on the map that just ended.
+ */
+function showNextMap(map: string): void {
+  const request = ++nextMapRequest;
+  summaryNext.textContent = NEXT_MAP_UNKNOWN;
+  void fetchLobbyStatus().then((status) => {
+    if (request !== nextMapRequest || summary.hidden) return;
+    if (!status?.nextMap || status.map !== map) return;
+    summaryNext.textContent = `Next map: ${status.nextMap}.`;
+  });
+}
+
+function hideSummary(): void {
+  nextMapRequest++;
+  setHidden(summary, true);
+  hud.classList.remove('summary-open');
+  summaryRowsEl.replaceChildren();
+  lastSummary = '';
+}
+
 function showScoreboard(visible: boolean): void {
   setHidden(scoreboard, !visible);
   hud.classList.toggle('scores-open', visible);
@@ -349,6 +604,13 @@ function reset(): void {
   maxClip.clear();
   showScoreboard(false);
   lastScores = '';
+  toastText.classList.remove('show');
+  hideRoundBanner();
+  hideSummary();
+  roundStarts.reset();
+  latestScores = undefined;
+  sessionStats.reset();
+  renderSession();
   // Vitals and ammo stay hidden until the first alive event (sent the frame
   // after connect, or right after a reset's resend), so a player joining
   // mid-round as a spectator never sees them flash.
@@ -390,11 +652,17 @@ function handle(event: HudEvent): void {
       setText(timerValue, formatTime(seconds));
       timer.classList.toggle('planted', bombPlanted);
       timer.classList.toggle('panic', seconds <= PANIC_SECONDS);
+      if (roundStarts.timer(seconds)) {
+        sessionStats.startRound();
+        hideRoundBanner();
+      }
       break;
     }
-    case 'kill':
+    case 'kill': {
       addKill(event.payload);
+      onKillCounted(sessionStats.recordKill(event.payload, performance.now()));
       break;
+    }
     case 'alive': {
       const { alive, spectating } = event.payload;
       // Health and armor still describe the local player while spectating.
@@ -404,13 +672,22 @@ function handle(event: HudEvent): void {
     }
     case 'reset':
       reset();
-      for (const listener of mapLoadListeners) listener();
+      break;
+    case 'round':
+      showRoundBanner(event.payload);
+      break;
+    case 'intermission':
+      showSummary(event.payload);
       break;
     case 'scoreboard':
       showScoreboard(event.payload.visible);
       break;
     case 'scores':
       renderScores(event.payload);
+      sessionStats.updatePlayers(event.payload.players);
+      renderSession();
+      latestScores = event.payload;
+      if (!summary.hidden) renderSummary();
       break;
     case 'menu':
       // The menu is drawn inside the canvas, so the overlay would cover it.
@@ -425,6 +702,24 @@ function bridgeModule(target: Xash3D): HudModule {
   return target.em!.Module as HudModule;
 }
 
+/**
+ * Asks the client to send `scores` every 0.5 s even while the scoreboard is
+ * hidden (cvar hud_html_scores, cs16-client 0.0.6+; older builds ignore it).
+ * Each user (e.g. an admin tab) turns it on and off under its own name; it
+ * stays on while any user wants it, and across a reconnect.
+ */
+export function setLiveScores(user: string, enabled: boolean): void {
+  if (enabled) liveScoreUsers.add(user);
+  else liveScoreUsers.delete(user);
+  sendLiveScores();
+}
+
+function sendLiveScores(): void {
+  engine?.Cmd_ExecuteString(
+    `hud_html_scores ${liveScoreUsers.size > 0 ? 1 : 0}`
+  );
+}
+
 function setHudEnabled(enabled: boolean): void {
   hud.hidden = !enabled;
   engine?.Cmd_ExecuteString(`hud_html ${enabled ? 1 : 0}`);
@@ -437,7 +732,9 @@ function onBridgeEvent(type: string, payload: unknown): void {
     // Events can still show up after a slow connect fell back.
     if (hud.hidden) setHudEnabled(true);
   }
-  handle({ type, payload } as HudEvent);
+  const event = { type, payload } as HudEvent;
+  handle(event);
+  for (const listener of eventListeners) listener(event);
 }
 
 /**
@@ -449,6 +746,8 @@ export function attachHud(target: Xash3D): void {
   engine = target;
   bridgeModule(target).hudEvent = onBridgeEvent;
   setHudEnabled(true);
+  // A new engine starts with the cvar off.
+  if (liveScoreUsers.size > 0) sendLiveScores();
   fallbackTimer = setTimeout(() => {
     if (!bridgeSeen) setHudEnabled(false);
   }, FALLBACK_MS);

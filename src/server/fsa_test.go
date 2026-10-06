@@ -94,3 +94,17 @@ func TestFixedArrayFull(t *testing.T) {
 		t.Fatalf("Add to full array err = %v, want %v", err, errArrayFull)
 	}
 }
+
+func TestFixedArrayItems(t *testing.T) {
+	fa := NewFixedArray[string](4)
+	if items := fa.Items(); len(items) != 0 {
+		t.Fatalf("empty Items = %q", items)
+	}
+	fa.Add("a")
+	idx, gen, _ := fa.Add("b")
+	fa.Add("c")
+	fa.Remove(idx, gen)
+	if items := fa.Items(); len(items) != 2 || items[0] != "a" || items[1] != "c" {
+		t.Fatalf("Items = %q, want [a c]", items)
+	}
+}

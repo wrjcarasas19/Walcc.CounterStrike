@@ -348,7 +348,8 @@ canvas,
 
 /* The HUD sits above the canvas but never takes input, so pointer lock and
    touch controls still reach the game. Sizes are in em off one viewport-based
-   font size. The top-left corner stays free for the native radar. */
+   font size. The top-left corner stays free for the native radar.
+   --hud-scale and --hud-opacity come from the settings panel. */
 #hud {
   position: absolute;
   inset: 0;
@@ -356,7 +357,7 @@ canvas,
   pointer-events: none;
   user-select: none;
   font-family: var(--font-body);
-  font-size: clamp(10px, min(2vh, 1.6vw), 22px);
+  font-size: calc(clamp(10px, min(2vh, 1.6vw), 22px) * var(--hud-scale, 1));
   color: var(--text);
   text-shadow: var(--hud-shadow);
 }
@@ -552,9 +553,14 @@ canvas,
   display: none;
 }
 
-/* The other HUD elements fade while the scoreboard is open. */
-#hud.scores-open > :not(.hud-scoreboard) {
-  opacity: 0.25;
+/* The scoreboard and map summary stay opaque; the other HUD elements fade
+   further while the scoreboard is open. */
+#hud > :not(.hud-scoreboard, .hud-summary) {
+  opacity: var(--hud-opacity, 1);
+}
+
+#hud.scores-open > :not(.hud-scoreboard, .hud-summary) {
+  opacity: calc(0.25 * var(--hud-opacity, 1));
 }
 
 #hud.menu-open {
@@ -859,6 +865,7 @@ canvas,
   color: var(--accent);
 }
 
+/* Admin menu (F4); the settings panel (F3) uses the same look. */
 .admin-backdrop {
   position: absolute;
   inset: 0;
@@ -914,9 +921,59 @@ canvas,
   text-transform: uppercase;
 }
 
+.admin-tabs {
+  display: flex;
+  overflow-x: auto;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--divider);
+  scrollbar-width: none;
+}
+
+.admin-tab {
+  flex: none;
+  margin-bottom: -1px;
+  padding: 12px 14px 10px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: var(--label);
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.admin-tab:first-child {
+  margin-left: -14px;
+}
+
+.admin-tab:hover {
+  color: var(--text);
+}
+
+.admin-tab[aria-selected='true'] {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.admin-tab:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
 .admin-body {
   min-height: 0;
+  overflow-y: auto;
   padding: 20px 24px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.admin-tab-body {
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -967,4 +1024,1147 @@ canvas,
 .admin-map input:focus-visible + span {
   outline: 1px solid var(--accent);
   outline-offset: 1px;
+}
+
+.admin-cvars {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 14px 12px;
+}
+
+.admin-cvars .field-input,
+.admin-message .field-input {
+  width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
+}
+
+.admin-cvars select.field-input {
+  cursor: pointer;
+}
+
+.admin-cvars .field-input[aria-invalid='true'],
+.admin-message .field-input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+.admin-cvar-hint {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.admin-cvar-hint.error {
+  color: var(--danger);
+}
+
+.admin-note {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--label);
+}
+
+.action-button.admin-secondary {
+  margin-top: 0;
+  background: none;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+}
+
+.action-button.admin-secondary:hover:not(:disabled) {
+  background: rgba(232, 163, 61, 0.1);
+}
+
+.action-button.admin-secondary:disabled {
+  background: none;
+  border-color: var(--divider);
+}
+
+.admin-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.admin-presets .action-button {
+  flex: 1 1 120px;
+}
+
+.admin-players {
+  max-height: 40vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.admin-players:focus {
+  outline: none;
+}
+
+.admin-player {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 40px 32px auto;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 6px 8px 6px 10px;
+  background: var(--well);
+  border: 1px solid var(--border);
+}
+
+.admin-player.local {
+  border-color: rgba(232, 163, 61, 0.5);
+}
+
+.admin-player-who {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.admin-player-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--text);
+}
+
+.admin-player.local .admin-player-name {
+  color: var(--accent);
+}
+
+.admin-player-tags {
+  flex: none;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.admin-player-team,
+.admin-player-frags {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--label);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-player-team.ct {
+  color: var(--team-ct);
+}
+
+.admin-player-team.t {
+  color: var(--team-t);
+}
+
+.admin-player-button {
+  padding: 5px 10px;
+  background: none;
+  border: 1px solid var(--accent);
+  border-radius: 0;
+  color: var(--accent);
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.admin-player-button:hover:not(:disabled) {
+  background: rgba(232, 163, 61, 0.1);
+}
+
+.admin-player-button:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.admin-player-button:disabled {
+  border-color: var(--divider);
+  color: var(--muted);
+  cursor: default;
+}
+
+.admin-player-button.danger:not(:disabled) {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: var(--text);
+}
+
+.admin-player-button[hidden],
+.admin-player-tags[hidden],
+.admin-player-confirm[hidden] {
+  display: none;
+}
+
+.admin-player-confirm {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-player-confirm-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--danger);
+}
+
+/* Settings panel (F3). It lives outside #game so it also opens over the
+   login page. */
+.settings-backdrop {
+  position: fixed;
+  z-index: 4;
+}
+
+#settings-launcher-button {
+  margin-top: -6px;
+}
+
+.settings-actions {
+  display: flex;
+  gap: 8px;
+  padding: 14px 24px 18px;
+  border-top: 1px solid var(--divider);
+}
+
+.settings-actions .action-button {
+  flex: 1 1 0;
+  margin-top: 0;
+  padding: 12px;
+}
+
+.settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings-group + .settings-group {
+  padding-top: 14px;
+  border-top: 1px solid var(--divider);
+}
+
+.settings-group-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.settings-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.settings-field .field-input {
+  width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.settings-field-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.settings-value {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-range {
+  width: 100%;
+  height: 28px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.settings-toggle {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 10px;
+  padding: 10px 12px;
+  background: var(--well);
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.settings-toggle input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.settings-toggle:focus-within {
+  border-color: var(--accent);
+}
+
+.settings-toggle-label {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--text);
+}
+
+.settings-toggle-hint {
+  grid-column: 2;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+/* No keyboard on touch screens. */
+@media (hover: none) {
+  .settings-key-hint {
+    display: none;
+  }
+}
+
+/* In game with touch controls: top edge, in a gap of cs16-client's default
+   touch layout (left of the touch edit button, above the d-pad). */
+.settings-touch-button {
+  position: absolute;
+  top: 8px;
+  left: 26%;
+  z-index: 3;
+  width: 44px;
+  height: 44px;
+  padding: 9px;
+  display: flex;
+  background: var(--hud-panel);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.settings-touch-button[hidden] {
+  display: none;
+}
+
+.settings-touch-button svg {
+  width: 100%;
+  height: 100%;
+  fill: var(--accent);
+}
+
+/* Multi-kill toast (6.1): centred under the top edge, never takes input or
+   focus. The wrapper carries --hud-opacity, the text runs the animation. */
+@keyframes hud-toast {
+  0% {
+    opacity: 0;
+    transform: scale(1.3);
+  }
+  12%,
+  75% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.hud-toast {
+  position: absolute;
+  top: 18%;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.hud-toast-text {
+  display: block;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 1.8em;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent);
+  opacity: 0;
+}
+
+.hud-toast-text.show {
+  animation: hud-toast 2s ease-out forwards;
+}
+
+/* The local player's session stats under the scoreboard (6.1). */
+.sb-session {
+  display: flex;
+  align-items: baseline;
+  gap: 0.8em;
+  padding: 0.6em 1.1em;
+  border-top: 1px solid var(--divider);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.sb-session-label {
+  flex: none;
+  font-size: 0.75em;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.sb-session-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2em 1.2em;
+  min-width: 0;
+  color: var(--accent);
+}
+
+.sb-session-name {
+  font-size: 0.8em;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--label);
+}
+
+/* Round end banner (6.2): under the top edge, team coloured, never takes
+   input or focus. */
+.hud-round {
+  position: absolute;
+  top: 9%;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2em;
+  max-width: calc(100% - 32px);
+  padding: 0.5em 1.6em 0.6em;
+  background: var(--hud-panel);
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--team-color, var(--label));
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+  text-align: center;
+  animation: hud-round-in 0.25s ease-out;
+}
+
+.hud-round.ct {
+  --team-color: var(--team-ct);
+}
+
+.hud-round.t {
+  --team-color: var(--team-t);
+}
+
+@keyframes hud-round-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -0.6em);
+  }
+}
+
+.hud-round-title {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 1.6em;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--team-color, var(--text));
+}
+
+.hud-round-reason {
+  font-weight: 600;
+  color: var(--label);
+}
+
+.hud-round-score {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-round-mvp,
+.sum-mvp {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5em;
+  min-width: 0;
+  max-width: 100%;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.hud-round-mvp-label,
+.sum-mvp-label {
+  font-size: 0.8em;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.hud-round-mvp-name,
+.sum-mvp-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 700;
+}
+
+/* Map summary (6.2): shown at intermission in place of the scoreboard, gone
+   on the next map's reset. Pointer events stay off like the rest of #hud. */
+#hud.summary-open .hud-scoreboard {
+  display: none;
+}
+
+.hud-summary {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(52em, calc(100% - 32px));
+  max-height: calc(100% - 32px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: rgba(21, 22, 15, 0.88);
+  border: 1px solid var(--border);
+  box-shadow:
+    0 0 0 1px #000,
+    0 20px 60px rgba(0, 0, 0, 0.6);
+  font-size: 1.05em;
+}
+
+.sum-result {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 700;
+  color: var(--label);
+}
+
+.sum-mvp {
+  padding: 0.5em 1.1em;
+  border-bottom: 1px solid var(--divider);
+}
+
+.sum-table {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0.5em 1.1em;
+}
+
+.sum-rows {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sum-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 3.2em 2.2em 2.2em 2.8em 2.6em;
+  align-items: center;
+  column-gap: 0.6em;
+  padding: 0.18em 0.4em;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.sum-row > :nth-child(n + 2) {
+  text-align: right;
+}
+
+.sum-rows .sum-row:nth-child(even) {
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.sum-rows .sum-row.local {
+  background: rgba(232, 163, 61, 0.14);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.sum-row.left {
+  color: var(--muted);
+}
+
+.sum-name {
+  height: 1.4em;
+  line-height: 1.4em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sum-name.ct {
+  color: var(--team-ct);
+}
+
+.sum-name.t {
+  color: var(--team-t);
+}
+
+.sum-note {
+  margin: 0;
+  padding: 0.6em 1.1em;
+  border-top: 1px solid var(--divider);
+  font-size: 0.85em;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+/* Admin API login (ADMIN_PASSWORD): field + button, or the session line. */
+.admin-login-row {
+  display: flex;
+  gap: 8px;
+}
+
+.admin-login-row .field-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.admin-login-row .action-button,
+.admin-session .action-button {
+  margin-top: 0;
+  padding: 10px 14px;
+  font-size: 14px;
+}
+
+.admin-session {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.admin-session[hidden],
+.admin-login-row .action-button[hidden] {
+  display: none;
+}
+
+/* Players tab: Ban next to Kick, and the banned addresses (admin API). */
+.admin-player-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.admin-tab-body .field[hidden],
+.admin-player-actions[hidden],
+.admin-bans[hidden] {
+  display: none;
+}
+
+.admin-player.admin-ban {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.admin-ban-details {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.admin-note.error {
+  color: var(--danger);
+}
+
+/* Map tab: map vote picks (removable) and the vote buttons. */
+.admin-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.admin-button-row .action-button {
+  flex: 1 1 140px;
+}
+
+.admin-vote-maps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.admin-vote-maps:empty {
+  display: none;
+}
+
+.admin-vote-map {
+  padding: 6px 10px;
+  background: rgba(232, 163, 61, 0.1);
+  border: 1px solid var(--accent);
+  border-radius: 0;
+  color: var(--accent);
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.admin-vote-map::after {
+  content: ' \00d7';
+}
+
+.admin-vote-map:hover {
+  border-color: var(--accent-hover);
+  color: var(--accent-hover);
+}
+
+.admin-vote-map:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Radio and quick chat wheel (7): held on a key, or the touch button. The
+   layer covers the game so clicks and taps never reach it; the backdrop is
+   lighter than the menus' so the game stays visible. */
+.wheel-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  background: rgba(0, 0, 0, 0.2);
+  font-family: var(--font-body);
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+.wheel-backdrop[hidden] {
+  display: none;
+}
+
+/* Holding the key: the mouse moves the highlight, not a cursor. */
+.wheel-backdrop[data-mode='hold-key'] {
+  cursor: none;
+}
+
+.wheel-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px;
+}
+
+.wheel-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+
+.wheel-tab {
+  padding: 6px 12px;
+  background: var(--hud-panel);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  color: var(--label);
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  cursor: pointer;
+  text-shadow: var(--hud-shadow);
+}
+
+.wheel-tab[aria-pressed='true'] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.wheel-tab:focus-visible,
+.wheel-item:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.wheel {
+  position: relative;
+  flex: none;
+  width: min(72vmin, 420px);
+  height: min(72vmin, 420px);
+}
+
+.wheel-ring,
+.wheel-highlight {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  -webkit-mask: radial-gradient(circle closest-side, transparent 38%, #000 39%);
+  mask: radial-gradient(circle closest-side, transparent 38%, #000 39%);
+}
+
+.wheel-ring {
+  background: var(--hud-panel);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.wheel-highlight {
+  display: none;
+  background: conic-gradient(
+    from var(--from, 0deg),
+    rgba(232, 163, 61, 0.38) 0 var(--size, 0deg),
+    transparent 0
+  );
+}
+
+.wheel.has-selection .wheel-highlight {
+  display: block;
+}
+
+.wheel-items {
+  position: absolute;
+  inset: 0;
+}
+
+.wheel-item {
+  position: absolute;
+  width: 24%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 2px;
+  background: none;
+  border: none;
+  border-radius: 0;
+  color: var(--text);
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: clamp(11px, 2.4vmin, 15px);
+  line-height: 1.1;
+  text-align: center;
+  text-shadow: var(--hud-shadow);
+  cursor: pointer;
+}
+
+.wheel-item.selected {
+  color: var(--accent);
+}
+
+.wheel-item-key {
+  font-family: var(--font-display);
+  font-size: 0.8em;
+  color: var(--muted);
+}
+
+.wheel-item.selected .wheel-item-key {
+  color: var(--accent);
+}
+
+.wheel-centre {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 34%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+  pointer-events: none;
+  text-shadow: var(--hud-shadow);
+}
+
+.wheel-page {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(11px, 2.4vmin, 15px);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.wheel-hint {
+  font-size: clamp(10px, 1.9vmin, 12px);
+  font-weight: 600;
+  color: var(--label);
+}
+
+/* Where the held direction points (hold modes only). */
+.wheel-pointer {
+  position: absolute;
+  left: calc(50% - 5px);
+  top: calc(50% - 5px);
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px #000;
+  pointer-events: none;
+}
+
+.wheel-backdrop[data-mode='sticky'] .wheel-pointer {
+  display: none;
+}
+
+/* No keyboard on touch screens. */
+@media (hover: none) {
+  .wheel-item-key {
+    display: none;
+  }
+}
+
+/* Touch button: under the settings gear, in the same gap of cs16-client's
+   default touch layout (nothing visible there above the move zone). */
+.wheel-touch-button {
+  top: 64px;
+  touch-action: none;
+}
+
+/* Lobby status on the login page (lobby.ts). */
+.lobby {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.lobby[hidden],
+.lobby-players[hidden],
+.lobby-empty[hidden] {
+  display: none;
+}
+
+.lobby-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.lobby-time {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.lobby-summary {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.lobby-players {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 160px;
+  overflow-y: auto;
+  background: var(--well);
+  border: 1px solid var(--border);
+}
+
+.lobby-player {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 10px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.lobby-player + .lobby-player {
+  border-top: 1px solid var(--divider);
+}
+
+.lobby-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+
+.lobby-bot {
+  flex: none;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.lobby-frags {
+  flex: none;
+  min-width: 2ch;
+  font-weight: 700;
+  color: var(--label);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.lobby-empty {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* Leaderboard on the login page (leaderboard.ts): a closed section under
+   the lobby status. Fixed table layout so long names are cut off instead of
+   widening the page on phones. */
+.leaderboard {
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.leaderboard[hidden],
+.leaderboard-table[hidden] {
+  display: none;
+}
+
+.leaderboard-toggle {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.leaderboard-toggle::-webkit-details-marker {
+  display: none;
+}
+
+.leaderboard-toggle::before {
+  content: '\25B8';
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.leaderboard[open] .leaderboard-toggle::before {
+  content: '\25BE';
+}
+
+.leaderboard-toggle:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.leaderboard-scroll,
+.leaderboard .lobby-empty {
+  margin-top: 8px;
+}
+
+.leaderboard-scroll {
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--well);
+  border: 1px solid var(--border);
+}
+
+.leaderboard-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.leaderboard-table th {
+  position: sticky;
+  top: 0;
+  background: var(--well);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: left;
+}
+
+.leaderboard-table th,
+.leaderboard-table td {
+  padding: 4px 6px;
+}
+
+.leaderboard-table tbody tr {
+  border-top: 1px solid var(--divider);
+}
+
+.leaderboard-rank {
+  width: 2.6em;
+  color: var(--muted);
+}
+
+.leaderboard-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+
+.leaderboard-table .leaderboard-number {
+  width: 3.4em;
+  text-align: right;
+}
+
+/* Invite link (8.3): top of the settings panel. The field shows the link so
+   it can be copied by hand where the clipboard isn't available. */
+.invite-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* The field takes the spare width; on a narrow phone the button wraps onto
+   its own full-width line. 16px text keeps iOS from zooming on focus. */
+.invite-link {
+  flex: 999 1 160px;
+  min-width: 0;
+  padding: 10px 12px;
+}
+
+.invite-row .invite-copy {
+  flex: 1 0 auto;
+  margin-top: 0;
+  padding: 10px 14px;
+  font-size: 14px;
+}
+
+.invite .invite-status:empty {
+  display: none;
+}
+
+.invite-hint {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
 }

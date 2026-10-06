@@ -4,3 +4,4 @@ dist
 *.zip
 plans
 src/client/dist
+.env

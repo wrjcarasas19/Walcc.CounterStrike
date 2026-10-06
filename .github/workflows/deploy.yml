@@ -10,9 +10,17 @@
 #   VPS_PORT            Optional SSH port (default 22)
 #   VPS_IP              Optional public IP advertised for WebRTC (default: VPS_HOST)
 #   VPS_GAME_PORT       Optional WebRTC UDP/TCP port (default 27018)
+#   BOT_QUOTA           Optional players (humans + bots) to keep in the game,
+#                       0-32 (default 0: no bots). See README.
+#   LEADERBOARD_BOTS    Optional 1 to list bots on /leaderboard (default 0).
 #
 # Environment secrets:
 #   VPS_SSH_PRIVATE_KEY SSH private key for VPS_USER
+#   ADMIN_PASSWORD      Optional password for the F4 admin menu's login (at
+#                       least 8 characters; empty: the menu uses rcon). See README.
+#   RCON_PASSWORD       Optional rcon password for the F4 admin menu when
+#                       ADMIN_PASSWORD is empty (empty disables rcon). Plain
+#                       token, see README.
 name: Deploy to staging VPS
 
 on:
@@ -100,6 +108,10 @@ jobs:
       VPS_IP: ${{ vars.VPS_IP || vars.VPS_HOST }}
       VPS_GAME_PORT: ${{ vars.VPS_GAME_PORT || '27018' }}
       VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+      ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+      RCON_PASSWORD: ${{ secrets.RCON_PASSWORD }}
+      BOT_QUOTA: ${{ vars.BOT_QUOTA || '0' }}
+      LEADERBOARD_BOTS: ${{ vars.LEADERBOARD_BOTS || '0' }}
       DEPLOY_DIR: /opt/apps/cs
     steps:
       - name: Resolve image to deploy
@@ -159,15 +171,27 @@ jobs:
               environment:
                 IP: ${VPS_IP}
                 PORT: "${VPS_GAME_PORT}"
+                ADMIN_PASSWORD: \${ADMIN_PASSWORD:-}
+                RCON_PASSWORD: \${RCON_PASSWORD:-}
+                BOT_QUOTA: \${BOT_QUOTA:-0}
+                LEADERBOARD_BOTS: \${LEADERBOARD_BOTS:-0}
+              volumes:
+                - cs16-data:/xashds/data
               ports:
                 - "27016:27016"
                 - "${VPS_GAME_PORT}:${VPS_GAME_PORT}/tcp"
                 - "${VPS_GAME_PORT}:${VPS_GAME_PORT}/udp"
+          volumes:
+            cs16-data:
           EOF
           cat > /tmp/cs.env <<EOF
           CS16_IMAGE=${CS16_IMAGE}
           IP=${VPS_IP}
           PORT=${VPS_GAME_PORT}
+          ADMIN_PASSWORD=${ADMIN_PASSWORD}
+          RCON_PASSWORD=${RCON_PASSWORD}
+          BOT_QUOTA=${BOT_QUOTA}
+          LEADERBOARD_BOTS=${LEADERBOARD_BOTS}
           EOF
 
       - name: Sync files and start stack
@@ -200,7 +224,8 @@ jobs:
           EOF
 
           "${ssh_base[@]}" "$remote" "cat > '${DEPLOY_DIR}/docker-compose.yml'" < /tmp/cs-docker-compose.yml
-          "${ssh_base[@]}" "$remote" "cat > '${DEPLOY_DIR}/.env'" < /tmp/cs.env
+          # .env holds the passwords: readable by the deploy user only.
+          "${ssh_base[@]}" "$remote" "umask 077 && cat > '${DEPLOY_DIR}/.env' && chmod 600 '${DEPLOY_DIR}/.env'" < /tmp/cs.env
 
           "${ssh_base[@]}" "$remote" "bash -s" <<EOF
           set -euo pipefail

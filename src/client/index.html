@@ -25,6 +25,53 @@
         </header>
 
         <div class="launcher-body">
+          <section
+            id="lobby"
+            class="lobby"
+            aria-labelledby="lobby-label"
+            hidden
+          >
+            <div class="lobby-heading">
+              <span id="lobby-label" class="field-label">On the server</span>
+              <span id="lobby-time" class="lobby-time"></span>
+            </div>
+            <div id="lobby-summary" class="lobby-summary"></div>
+            <ul id="lobby-players" class="lobby-players" hidden></ul>
+            <div id="lobby-empty" class="lobby-empty" hidden></div>
+          </section>
+
+          <details id="leaderboard" class="leaderboard" hidden>
+            <summary class="leaderboard-toggle">
+              <span class="field-label">Top players</span>
+            </summary>
+            <div class="leaderboard-scroll">
+              <table id="leaderboard-table" class="leaderboard-table" hidden>
+                <thead>
+                  <tr>
+                    <th class="leaderboard-rank" scope="col">#</th>
+                    <th class="leaderboard-name" scope="col">Name</th>
+                    <th class="leaderboard-number" scope="col" title="Kills">
+                      K
+                    </th>
+                    <th class="leaderboard-number" scope="col" title="Deaths">
+                      D
+                    </th>
+                    <th class="leaderboard-number" scope="col">K/D</th>
+                    <th
+                      class="leaderboard-number"
+                      scope="col"
+                      title="Headshot kills"
+                    >
+                      HS
+                    </th>
+                  </tr>
+                </thead>
+                <tbody id="leaderboard-rows"></tbody>
+              </table>
+            </div>
+            <div id="leaderboard-note" class="lobby-empty"></div>
+          </details>
+
           <div class="field">
             <label class="field-label" for="nickname-input">Nickname</label>
             <input
@@ -74,6 +121,14 @@
           >
             Download
           </button>
+
+          <button
+            id="settings-launcher-button"
+            class="action-button admin-secondary"
+            type="button"
+          >
+            Settings
+          </button>
         </div>
       </form>
     </div>
@@ -81,6 +136,15 @@
       <canvas id="canvas"></canvas>
       <div id="hud" data-alive="unknown" hidden>
         <div id="hud-killfeed" class="hud-killfeed"></div>
+        <div class="hud-toast" aria-live="polite">
+          <span id="hud-toast-text" class="hud-toast-text"></span>
+        </div>
+        <div id="hud-round" class="hud-round" aria-live="polite" hidden>
+          <span id="hud-round-title" class="hud-round-title"></span>
+          <span id="hud-round-reason" class="hud-round-reason"></span>
+          <span id="hud-round-score" class="hud-round-score"></span>
+          <span id="hud-round-mvp" class="hud-round-mvp"></span>
+        </div>
 
         <div class="hud-vitals">
           <div id="hud-health" class="hud-panel hud-stat" hidden>
@@ -157,51 +221,127 @@
             <span class="sb-spectators-label">Spectators</span>
             <span id="sb-spectator-names" class="sb-spectator-names"></span>
           </div>
+          <div id="sb-session" class="sb-session" hidden>
+            <span class="sb-session-label">You this session</span>
+            <span id="sb-session-stats" class="sb-session-stats"></span>
+          </div>
         </div>
+
+        <div id="hud-summary" class="hud-summary" hidden>
+          <header class="sb-header">
+            <span class="sb-title">Map over</span>
+            <span id="sum-result" class="sum-result"></span>
+            <span id="sum-map" class="sb-map"></span>
+          </header>
+          <div id="sum-mvp" class="sum-mvp" hidden></div>
+          <div class="sum-table">
+            <div class="sum-row sb-labels">
+              <span>Name</span><span>Score</span><span>K</span><span>D</span
+              ><span>HS</span><span>Best</span>
+            </div>
+            <div id="sum-rows" class="sum-rows"></div>
+          </div>
+          <p class="sum-note">
+            K, D, HS and best streak count from when you joined.
+            <span id="sum-next">The next map loads in a few seconds.</span>
+          </p>
+        </div>
+      </div>
+      <button
+        id="settings-button"
+        class="settings-touch-button"
+        type="button"
+        aria-label="Settings"
+        hidden
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            fill-rule="evenodd"
+            d="M10.3 2h3.4l.5 2.6 1.6.9 2.5-.9 1.7 2.9-2 1.8v1.4l2 1.8-1.7 2.9-2.5-.9-1.6.9-.5 2.6h-3.4l-.5-2.6-1.6-.9-2.5.9-1.7-2.9 2-1.8V9.3l-2-1.8 1.7-2.9 2.5.9 1.6-.9zM12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7z"
+          />
+        </svg>
+      </button>
+      <button
+        id="wheel-button"
+        class="settings-touch-button wheel-touch-button"
+        type="button"
+        aria-label="Radio and team chat"
+        hidden
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            fill-rule="evenodd"
+            d="M4 4h16v11H9.5L5 19v-4H4zm3 4.5v2h2v-2zm4 0v2h2v-2zm4 0v2h2v-2z"
+          />
+        </svg>
+      </button>
+      <div id="wheel-menu" class="wheel-backdrop" hidden>
+        <div
+          id="wheel-panel"
+          class="wheel-layer"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Radio and team chat"
+        ></div>
       </div>
       <div id="admin-menu" class="admin-backdrop" hidden>
         <form
           id="admin-form"
           class="admin-panel"
           role="dialog"
+          aria-modal="true"
           aria-labelledby="admin-title"
           novalidate
         >
           <header class="admin-header">
-            <span id="admin-title" class="admin-title">Change map</span>
+            <span id="admin-title" class="admin-title">Admin</span>
             <span class="admin-hint">F4 / Esc to close</span>
           </header>
+          <div
+            id="admin-tabs"
+            class="admin-tabs"
+            role="tablist"
+            aria-labelledby="admin-title"
+          ></div>
           <div class="admin-body">
-            <div class="field">
-              <label class="field-label" for="admin-password">
+            <div id="admin-auth" class="field">
+              <label
+                id="admin-password-label"
+                class="field-label"
+                for="admin-password"
+              >
                 Rcon password
               </label>
-              <input
-                id="admin-password"
-                class="field-input"
-                type="password"
-                autocomplete="off"
-                maxlength="64"
-              />
+              <div class="admin-login-row">
+                <input
+                  id="admin-password"
+                  class="field-input"
+                  type="password"
+                  autocomplete="off"
+                  maxlength="64"
+                />
+                <button
+                  id="admin-login"
+                  class="action-button admin-secondary"
+                  type="button"
+                  hidden
+                >
+                  Log in
+                </button>
+              </div>
             </div>
-            <div class="field">
-              <span class="field-label" id="admin-maps-label">Map</span>
-              <div
-                id="admin-maps"
-                class="admin-maps"
-                role="radiogroup"
-                aria-labelledby="admin-maps-label"
-              ></div>
+            <div id="admin-session" class="admin-session" hidden>
+              <p class="admin-note">Logged in as admin.</p>
+              <button
+                id="admin-logout"
+                class="action-button admin-secondary"
+                type="button"
+              >
+                Log out
+              </button>
             </div>
+            <div id="admin-panels" class="admin-panels"></div>
             <div id="admin-status" class="progress-status" role="status"></div>
-            <button
-              id="admin-submit"
-              class="action-button"
-              type="submit"
-              disabled
-            >
-              Change map
-            </button>
           </div>
         </form>
       </div>
@@ -214,6 +354,33 @@
             Reload
           </button>
         </div>
+      </div>
+    </div>
+    <div id="settings-menu" class="admin-backdrop settings-backdrop" hidden>
+      <div
+        id="settings-panel"
+        class="admin-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-title"
+      >
+        <header class="admin-header">
+          <span id="settings-title" class="admin-title">Settings</span>
+          <span class="admin-hint settings-key-hint">F3 / Esc to close</span>
+        </header>
+        <div id="settings-body" class="admin-body"></div>
+        <footer class="settings-actions">
+          <button
+            id="settings-reset"
+            class="action-button admin-secondary"
+            type="button"
+          >
+            Reset to defaults
+          </button>
+          <button id="settings-close" class="action-button" type="button">
+            Close
+          </button>
+        </footer>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>

@@ -114,3 +114,17 @@ func (fa *FixedArray[T]) Replace(index byte, generation uint32, newValue T) erro
 	fa.data[index] = newValue
 	return nil
 }
+
+// Items returns the values of the slots in use, in slot order.
+func (fa *FixedArray[T]) Items() []T {
+	fa.lock.RLock()
+	defer fa.lock.RUnlock()
+
+	var items []T
+	for i, used := range fa.inUse {
+		if used {
+			items = append(items, fa.data[i])
+		}
+	}
+	return items
+}

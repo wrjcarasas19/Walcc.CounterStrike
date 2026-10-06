@@ -14,9 +14,15 @@ import {
   type Stage,
   updateProgress,
 } from './desktop';
-import { attachHud, detachHud } from './hud';
+import { attachHud, detachHud, setLocalPlayerName } from './hud';
+import { hasJoinParam, joinAction, withoutJoinParam } from './invite/link';
+import { startLeaderboard, stopLeaderboard } from './leaderboard';
+import { startLobby, stopLobby } from './lobby';
 import { startMapResync, stopMapResync, syncServerMaps } from './maps';
-import { cachePlayerName, getPlayerName } from './player';
+import { setInGame } from './modal';
+import { cachePlayerName, getPlayerName, savedPlayerName } from './player';
+import { attachSettings, detachSettings } from './settings';
+import { attachWheel, detachWheel } from './wheel';
 import { ConnectError, type Xash3DWebRTC } from './webrtc';
 
 const GENERIC_ERROR = 'Failed to load game. Please try again later.';
@@ -29,11 +35,17 @@ const RECONNECT_DELAYS_MS = [1_000, 3_000, 5_000];
 
 let engine: Xash3DWebRTC | undefined;
 let failedStage: Stage | undefined;
+// Opened from an invite link (?join=1): connect as soon as the game files
+// are loaded, without waiting for a click on Connect.
+let joinWhenReady = false;
 
 onAction(() => {
   switch (getPhase()) {
     case 'idle':
       cachePlayerName();
+      if (joinWhenReady) {
+        setConnectStatus(`Invite link: joining as ${getPlayerName()}.`);
+      }
       void prepare();
       break;
     case 'ready':
@@ -52,6 +64,38 @@ onAction(() => {
 });
 
 setPhase('idle');
+startLobby();
+startLeaderboard();
+handleInviteLink();
+
+/**
+ * Invite links (?join=1): with a saved nickname the download starts at once
+ * and the game connects when it's loaded (through connect() and start(), so
+ * the lobby and leaderboard polling stop as usual); without one the
+ * nickname field gets focus and the next Download goes on to connect.
+ * The parameter is removed from the address bar at once, so reloading the
+ * page later (e.g. after "Connection lost") doesn't join by itself.
+ *
+ * No click is needed: the download and the connection don't ask for a user
+ * gesture. Sound starts on the first key, click or tap (the engine resumes
+ * its AudioContext then), and the mouse is captured on the first click on
+ * the game, as after a normal Connect.
+ */
+function handleInviteLink(): void {
+  const action = joinAction(hasJoinParam(location.search), savedPlayerName());
+  const cleaned = withoutJoinParam(location.href);
+  if (cleaned !== undefined) history.replaceState(history.state, '', cleaned);
+  if (action === 'none') return;
+  joinWhenReady = true;
+  if (action === 'connect') {
+    cachePlayerName();
+    setConnectStatus(`Invite link: joining as ${getPlayerName()}.`);
+    void prepare();
+  } else {
+    setConnectStatus('Invite link: enter a nickname, then press Download.');
+    document.getElementById('nickname-input')?.focus();
+  }
+}
 
 async function prepare() {
   setPhase('downloading');
@@ -68,6 +112,11 @@ async function prepare() {
     setPhase('ready');
   } catch (error) {
     fail(stage, error);
+    return;
+  }
+  if (joinWhenReady && engine) {
+    joinWhenReady = false;
+    await connect(engine);
   }
 }
 
@@ -137,6 +186,8 @@ async function loadGameFiles(
 }
 
 function start(engine: Xash3DWebRTC): void {
+  stopLobby();
+  stopLeaderboard();
   removeDesktop();
   const playerName = getPlayerName();
 
@@ -150,6 +201,9 @@ function start(engine: Xash3DWebRTC): void {
       if (reconnected) return;
       stopMapResync();
       detachAdmin();
+      detachSettings();
+      detachWheel();
+      setInGame(false);
       detachHud();
       showConnectionLost(() => {
         window.removeEventListener('beforeunload', confirmLeave);
@@ -159,13 +213,17 @@ function start(engine: Xash3DWebRTC): void {
   };
 
   engine.main();
+  setInGame(true);
   attachHud(engine);
   attachAdmin(engine);
   engine.Cmd_ExecuteString('_vgui_menus 0');
-  if (!window.matchMedia('(hover: hover)').matches) {
-    engine.Cmd_ExecuteString('touch_enable 1');
-  }
+  const touch = !window.matchMedia('(hover: hover)').matches;
+  if (touch) engine.Cmd_ExecuteString('touch_enable 1');
+  // Saved settings (sensitivity, crosshair, volume) before connecting.
+  attachSettings(engine, touch);
+  attachWheel(engine, touch);
   engine.Cmd_ExecuteString(`name "${playerName}"`);
+  setLocalPlayerName(playerName);
   // Large cl_dlmax makes this dedicated server crash in Netchan_TransmitBits.
   engine.Cmd_ExecuteString('cl_dlmax 1400');
   engine.Cmd_ExecuteString('rate 25000');

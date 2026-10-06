@@ -4,6 +4,7 @@ go 1.24.4
 
 require (
 	github.com/gorilla/websocket v1.5.3
+	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/pion/ice/v4 v4.0.10
 	github.com/pion/logging v0.2.4
 	github.com/pion/webrtc/v4 v4.1.3
