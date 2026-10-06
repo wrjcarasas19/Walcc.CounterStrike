@@ -11,7 +11,7 @@ import {
   MESSAGE_MAX_LENGTH,
   checkMessage,
   type MessageColor,
-} from './message-text';
+} from '../message-text';
 
 // Server messages: sends the typed text to every player with AMX Mod X's
 // adminchat commands, through a server alias (see message-text.ts). No HUD

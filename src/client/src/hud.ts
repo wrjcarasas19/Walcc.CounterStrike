@@ -93,7 +93,24 @@ export type HudEvent =
   | { type: 'menu'; payload: { visible: boolean } }
   // Sent right before scoreboard { visible: true }, then every 0.5 s; also
   // every 0.5 s while the cvar hud_html_scores is 1 (see setLiveScores).
-  | { type: 'scores'; payload: Scores };
+  | { type: 'scores'; payload: Scores }
+  | { type: 'chat'; payload: ChatLine };
+
+/** One chat line from the client (cs16-client 0.0.8+), color codes stripped. */
+export type ChatLine = {
+  /** 'name': `name` is the old name, `text` the new one. 'notice': no sender. */
+  kind: 'say' | 'name' | 'radio' | 'notice';
+  /** Sender's slot (entity index), 0 if none. */
+  slot: number;
+  name: string;
+  team: Team | 'SPEC';
+  dead: boolean;
+  /** say_team; always true for radio, which only reaches teammates. */
+  teamOnly: boolean;
+  /** '' unless the map sends locations. */
+  location: string;
+  text: string;
+};
 
 type HudModule = {
   hudEvent?: (type: string, payload: unknown) => void;
@@ -108,6 +125,11 @@ const PANIC_SECONDS = 20;
 const MAX_KILLS = 5;
 const KILL_TTL_MS = 6_000;
 const KILL_FADE_MS = 500;
+const MAX_CHAT = 6;
+const CHAT_TTL_MS = 8_000;
+const CHAT_FADE_MS = 500;
+/** Lines kept for the chat history shown with the scoreboard. */
+const MAX_CHAT_HISTORY = 50;
 /** About mp_round_restart_delay (5 s): gone when the next round starts. */
 const ROUND_BANNER_MS = 5_000;
 
@@ -126,6 +148,7 @@ const WEAPON_NAMES: Record<string, string> = {
 
 const hud = document.getElementById('hud')!;
 const killfeed = document.getElementById('hud-killfeed')!;
+const chatFeed = document.getElementById('hud-chat')!;
 const health = document.getElementById('hud-health')!;
 const healthValue = document.getElementById('hud-health-value')!;
 const armor = document.getElementById('hud-armor')!;
@@ -159,6 +182,7 @@ const sbSpectators = document.getElementById('sb-spectators')!;
 const sbSpectatorNames = document.getElementById('sb-spectator-names')!;
 const sbSession = document.getElementById('sb-session')!;
 const sbSessionStats = document.getElementById('sb-session-stats')!;
+const sbChat = document.getElementById('sb-chat')!;
 const toastText = document.getElementById('hud-toast-text')!;
 const roundBanner = document.getElementById('hud-round')!;
 const roundBannerTitle = document.getElementById('hud-round-title')!;
@@ -206,7 +230,13 @@ const vipIcon = icon(
 // Largest clip seen per weapon, used as its magazine size for low ammo.
 const maxClip = new Map<string, number>();
 
-const killTimers = new Set<ReturnType<typeof setTimeout>>();
+type Timers = Set<ReturnType<typeof setTimeout>>;
+
+const killTimers: Timers = new Set();
+const chatTimers: Timers = new Set();
+// Last chat lines, oldest first; drawn in #sb-chat only while the scoreboard
+// is open. The live feed keeps its own elements and timers.
+const chatHistory: ChatLine[] = [];
 
 let engine: Xash3D | undefined;
 let bridgeSeen = false;
@@ -253,6 +283,19 @@ export function onHudEvent(listener: (event: HudEvent) => void): () => void {
   return () => eventListeners.delete(listener);
 }
 
+/**
+ * True while the HTML HUD is in use: the client has sent a bridge event
+ * (hud_html 1 on a cs16-client with the bridge) and the HUD is shown.
+ */
+export function isHudActive(): boolean {
+  return bridgeSeen && !hud.hidden;
+}
+
+/** True while the main menu (mainui, drawn in the canvas) is open. */
+export function isMenuOpen(): boolean {
+  return hud.classList.contains('menu-open');
+}
+
 function setText(el: HTMLElement, text: string): void {
   if (el.textContent !== text) el.textContent = text;
 }
@@ -281,12 +324,12 @@ function killName(name: string, team: Team): HTMLElement {
   return el;
 }
 
-function later(fn: () => void, ms: number): void {
+function later(timers: Timers, fn: () => void, ms: number): void {
   const id = setTimeout(() => {
-    killTimers.delete(id);
+    timers.delete(id);
     fn();
   }, ms);
-  killTimers.add(id);
+  timers.add(id);
 }
 
 function addKill(kill: Extract<HudEvent, { type: 'kill' }>['payload']): void {
@@ -305,10 +348,97 @@ function addKill(kill: Extract<HudEvent, { type: 'kill' }>['payload']): void {
   while (killfeed.childElementCount > MAX_KILLS) {
     killfeed.firstElementChild!.remove();
   }
-  later(() => {
-    row.classList.add('fading');
-    later(() => row.remove(), KILL_FADE_MS);
-  }, KILL_TTL_MS);
+  later(
+    killTimers,
+    () => {
+      row.classList.add('fading');
+      later(killTimers, () => row.remove(), KILL_FADE_MS);
+    },
+    KILL_TTL_MS
+  );
+}
+
+function chatPart(className: string, text: string): HTMLElement {
+  const el = document.createElement('span');
+  el.className = className;
+  el.textContent = text;
+  return el;
+}
+
+function chatName(name: string, team: ChatLine['team']): HTMLElement {
+  const color = team === 'CT' || team === 'T' ? teamClass(team) : 'spec';
+  return chatPart(`hud-chat-name ${color}`, name);
+}
+
+/**
+ * Builds one chat line: tags, name, location and message. Player text only
+ * goes in through textContent. Used by the feed and the history panel.
+ */
+function chatLine(line: ChatLine): HTMLElement {
+  const row = document.createElement('div');
+  row.className = `hud-chat-line ${line.kind}`;
+  if (line.kind === 'notice') {
+    row.append(chatPart('hud-chat-text', line.text));
+    return row;
+  }
+  if (line.kind === 'name') {
+    row.append(
+      chatName(line.name, line.team),
+      ' is now ',
+      chatName(line.text, line.team)
+    );
+    return row;
+  }
+
+  // Spectators are dead too; the stock chat shows only *SPEC* for them.
+  // Radio always reaches teammates only, so it gets RADIO and no TEAM.
+  const tags: string[] = [];
+  if (line.dead && line.team !== 'SPEC') tags.push('Dead');
+  if (line.team === 'SPEC') tags.push('Spec');
+  if (line.teamOnly && line.kind !== 'radio') tags.push('Team');
+  if (line.kind === 'radio') tags.push('Radio');
+  for (const tag of tags) row.append(chatPart('hud-chat-tag', tag), ' ');
+
+  row.append(chatName(line.name, line.team));
+  if (line.location) {
+    row.append(' ', chatPart('hud-chat-loc', `@ ${line.location}`));
+  }
+  row.append(': ', chatPart('hud-chat-text', line.text));
+  return row;
+}
+
+function addChat(line: ChatLine): void {
+  const row = chatLine(line);
+  chatFeed.append(row);
+  while (chatFeed.childElementCount > MAX_CHAT) {
+    chatFeed.firstElementChild!.remove();
+  }
+  later(
+    chatTimers,
+    () => {
+      row.classList.add('fading');
+      later(chatTimers, () => row.remove(), CHAT_FADE_MS);
+    },
+    CHAT_TTL_MS
+  );
+  addChatHistory(line);
+}
+
+function addChatHistory(line: ChatLine): void {
+  chatHistory.push(line);
+  if (chatHistory.length > MAX_CHAT_HISTORY) chatHistory.shift();
+  if (scoreboard.hidden) return;
+  sbChat.append(chatLine(line));
+  while (sbChat.childElementCount > MAX_CHAT_HISTORY) {
+    sbChat.firstElementChild!.remove();
+  }
+  showChatHistory();
+}
+
+/** Shows #sb-chat when it has lines, scrolled to the newest (at the bottom). */
+function showChatHistory(): void {
+  setHidden(sbChat, sbChat.childElementCount === 0);
+  sbChat.scrollTop = sbChat.scrollHeight;
 }
 
 function showToast(text: string): void {
@@ -587,8 +717,13 @@ function hideSummary(): void {
 }
 
 function showScoreboard(visible: boolean): void {
+  if (visible === !scoreboard.hidden) return;
   setHidden(scoreboard, !visible);
   hud.classList.toggle('scores-open', visible);
+  // The history is rebuilt on each open and dropped on close, so the 50
+  // lines are only in the page while Tab is held.
+  sbChat.replaceChildren(...(visible ? chatHistory.map(chatLine) : []));
+  showChatHistory();
 }
 
 function reset(): void {
@@ -601,6 +736,10 @@ function reset(): void {
   for (const id of killTimers) clearTimeout(id);
   killTimers.clear();
   killfeed.replaceChildren();
+  for (const id of chatTimers) clearTimeout(id);
+  chatTimers.clear();
+  chatFeed.replaceChildren();
+  chatHistory.length = 0;
   maxClip.clear();
   showScoreboard(false);
   lastScores = '';
@@ -663,6 +802,9 @@ function handle(event: HudEvent): void {
       onKillCounted(sessionStats.recordKill(event.payload, performance.now()));
       break;
     }
+    case 'chat':
+      addChat(event.payload);
+      break;
     case 'alive': {
       const { alive, spectating } = event.payload;
       // Health and armor still describe the local player while spectating.

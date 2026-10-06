@@ -1,4 +1,6 @@
 import { attachAdmin, detachAdmin } from './admin';
+// Before ./wheel: its key listeners must run before the wheel's (chat.ts).
+import { attachChat, detachChat } from './chat';
 import { createEngine } from './engine';
 import { GameFilesError, getGameFiles } from './gamefiles';
 import {
@@ -204,6 +206,7 @@ function start(engine: Xash3DWebRTC): void {
       detachSettings();
       detachWheel();
       setInGame(false);
+      detachChat();
       detachHud();
       showConnectionLost(() => {
         window.removeEventListener('beforeunload', confirmLeave);
@@ -214,10 +217,11 @@ function start(engine: Xash3DWebRTC): void {
 
   engine.main();
   setInGame(true);
+  const touch = !window.matchMedia('(hover: hover)').matches;
   attachHud(engine);
+  attachChat(engine, { touch });
   attachAdmin(engine);
   engine.Cmd_ExecuteString('_vgui_menus 0');
-  const touch = !window.matchMedia('(hover: hover)').matches;
   if (touch) engine.Cmd_ExecuteString('touch_enable 1');
   // Saved settings (sensitivity, crosshair, volume) before connecting.
   attachSettings(engine, touch);

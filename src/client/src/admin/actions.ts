@@ -12,7 +12,7 @@ import {
   centerCommand,
   chatCommand,
   type MessageColor,
-} from './message-text';
+} from '../message-text';
 
 // The typed actions the tabs send. With the admin API (ADMIN_PASSWORD set
 // on the server) they go to POST /admin/command as JSON and the server

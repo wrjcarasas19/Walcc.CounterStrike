@@ -563,6 +563,12 @@ canvas,
   opacity: calc(0.25 * var(--hud-opacity, 1));
 }
 
+/* The scoreboard shows the chat history instead (#sb-chat), so the live
+   feed is hidden rather than dimmed. Its lines and timers carry on. */
+#hud.scores-open > .hud-chat {
+  visibility: hidden;
+}
+
 #hud.menu-open {
   visibility: hidden;
 }
@@ -622,6 +628,257 @@ canvas,
   width: 1.1em;
   height: 1.1em;
   fill: var(--danger);
+}
+
+/* Chat feed: bottom left, above the health and armor panels (fixed, so lines
+   don't jump when the vitals hide on death). Newest line at the bottom. */
+.hud-chat {
+  position: absolute;
+  bottom: 7.4em;
+  left: 1.2em;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3em;
+  max-width: 40%;
+}
+
+/* Long messages wrap to 2 lines, then end in an ellipsis. */
+.hud-chat-line {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  max-width: 100%;
+  padding: 0.2em 0.7em;
+  background: var(--hud-panel);
+  border: 1px solid var(--divider);
+  font-weight: 600;
+  font-size: 1.05em;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  transition: opacity 0.5s;
+}
+
+.hud-chat-line.fading {
+  opacity: 0;
+}
+
+.hud-chat-tag {
+  font-size: 0.75em;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--label);
+}
+
+.hud-chat-name {
+  font-weight: 700;
+}
+
+.hud-chat-name.ct {
+  color: var(--team-ct);
+}
+
+.hud-chat-name.t {
+  color: var(--team-t);
+}
+
+.hud-chat-name.spec,
+.hud-chat-loc {
+  color: var(--muted);
+}
+
+.hud-chat-text {
+  color: var(--text);
+}
+
+.hud-chat-line.notice .hud-chat-text {
+  color: var(--accent);
+}
+
+/* Chat input (Y / U, chat.ts): where the feed's newest line would be; the
+   feed moves up above it while it is open. The only part of #hud that takes
+   clicks, and it stays fully visible whatever the HUD opacity. */
+.hud-chat-input {
+  position: absolute;
+  bottom: 7.4em;
+  left: 1.2em;
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  width: 40%;
+  min-width: 16em;
+  padding: 0.25em 0.7em;
+  background: var(--hud-panel);
+  border: 1px solid var(--divider);
+  pointer-events: auto;
+  user-select: text;
+}
+
+#hud > .hud-chat-input {
+  opacity: 1;
+}
+
+.hud-chat-input:focus-within {
+  border-color: var(--accent);
+}
+
+#hud.chat-open > .hud-chat {
+  bottom: 10.2em;
+}
+
+.hud-chat-input-label {
+  flex: none;
+  font-size: 0.8em;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--label);
+}
+
+.hud-chat-input.team .hud-chat-input-label {
+  color: var(--accent);
+}
+
+.hud-chat-input-field {
+  flex: 1;
+  min-width: 0;
+  padding: 0.15em 0;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 1.05em;
+  font-weight: 600;
+  text-shadow: none;
+}
+
+.hud-chat-input-count {
+  flex: none;
+  font-size: 0.8em;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.hud-chat-input-count:empty {
+  display: none;
+}
+
+.hud-chat-input-count.limit {
+  color: var(--danger);
+}
+
+/* Why the text can't be sent, just under the input. */
+.hud-chat-input-error {
+  position: absolute;
+  top: 100%;
+  left: -1px;
+  right: -1px;
+  margin-top: 0.3em;
+  padding: 0.2em 0.7em;
+  background: var(--hud-panel);
+  border: 1px solid var(--divider);
+  font-size: 0.8em;
+  font-weight: 600;
+  color: var(--danger);
+}
+
+.hud-chat-input-error:empty {
+  display: none;
+}
+
+/* Portrait: the clock sits above the corner stacks (see .hud-timer). */
+@media (max-aspect-ratio: 1/1) {
+  .hud-chat {
+    bottom: 10.4em;
+  }
+
+  .hud-chat-input {
+    bottom: 10.4em;
+  }
+
+  #hud.chat-open > .hud-chat {
+    bottom: 13.2em;
+  }
+}
+
+/* Touch controls: in the free gap of cs16-client's default touch layout,
+   right of the left button column and left of the buy / numbers buttons. */
+@media (hover: none) {
+  .hud-chat {
+    left: 22%;
+    max-width: 23%;
+  }
+
+  .hud-chat-input {
+    left: 22%;
+  }
+
+  /* iOS Safari zooms the page in on a focused field under 16px. */
+  .hud-chat-input-field {
+    font-size: 16px;
+  }
+
+  /* The Say / Team button makes the input about 40px tall. */
+  #hud.chat-open > .hud-chat {
+    bottom: calc(7.4em + 44px);
+  }
+}
+
+@media (hover: none) and (max-aspect-ratio: 1/1) {
+  #hud.chat-open > .hud-chat {
+    bottom: calc(10.4em + 44px);
+  }
+}
+
+/* With touch controls (chat.ts) the label becomes a Say / Team button, as
+   there's no U key. */
+.hud-chat-input.touch .hud-chat-input-label {
+  display: none;
+}
+
+.hud-chat-input-mode {
+  flex: none;
+  min-height: 32px;
+  padding: 0 0.8em;
+  background: none;
+  border: 1px solid var(--divider);
+  border-radius: 0;
+  color: var(--label);
+  font: inherit;
+  font-size: 0.8em;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-shadow: none;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.hud-chat-input.team .hud-chat-input-mode {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* On-screen keyboard open (chat.ts sets --chat-keyboard to the height it
+   covers): the input sits just above it, the feed above the input, and the
+   error line moves above the input. */
+#hud.chat-keyboard > .hud-chat-input {
+  bottom: calc(var(--chat-keyboard) + 0.6em);
+}
+
+#hud.chat-keyboard.chat-open > .hud-chat {
+  bottom: calc(var(--chat-keyboard) + 0.6em + 44px);
+}
+
+#hud.chat-keyboard .hud-chat-input-error {
+  top: auto;
+  bottom: 100%;
+  margin: 0 0 0.3em;
 }
 
 /* Scoreboard (Tab): the login panel look, centred over the game. */
@@ -1450,6 +1707,33 @@ canvas,
   color: var(--label);
 }
 
+/* Chat history (A.3), the scoreboard's last section; newest line at the
+   bottom. It gives up its height first when the panel runs out of room, so
+   it never covers the team tables. The HUD takes no input, so it only
+   scrolls from code (to the newest line). */
+.sb-chat {
+  flex: 0 1000 auto;
+  min-height: 0;
+  max-height: 9em;
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding: 0.4em 0.7em;
+  border-top: 1px solid var(--divider);
+}
+
+.sb-chat .hud-chat-line {
+  display: block;
+  padding: 0.12em 0.4em;
+  background: none;
+  border: none;
+  font-size: 0.95em;
+  line-height: 1.35;
+}
+
+.sb-chat .hud-chat-line:nth-child(even) {
+  background: rgba(255, 255, 255, 0.025);
+}
+
 /* Round end banner (6.2): under the top edge, team coloured, never takes
    input or focus. */
 .hud-round {
@@ -1942,6 +2226,15 @@ canvas,
 .wheel-touch-button {
   top: 64px;
   touch-action: none;
+}
+
+/* Chat button (chat.ts): left of the wheel button, still in that gap (the
+   hidden d-pad's spot, right of the radio and inventory buttons and above
+   the move zone), so the left thumb reaches it. */
+.chat-touch-button {
+  top: 64px;
+  left: calc(26% - 52px);
+  touch-action: manipulation;
 }
 
 /* Lobby status on the login page (lobby.ts). */

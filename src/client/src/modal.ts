@@ -58,6 +58,28 @@ let inGame = false;
 type ModalImpl = Modal & { options: ModalOptions };
 
 /**
+ * A page overlay that isn't a menu but takes the keyboard while open (the
+ * chat input). It handles its own keys in a capture listener registered
+ * after this module's. While it is open, Esc and ` reach it instead of being
+ * dropped here and anyModalOpen() is true (so the radio wheel stays shut);
+ * opening a menu (F3, F4) closes it.
+ */
+export type Overlay = {
+  isOpen(): boolean;
+  close(): void;
+};
+
+const overlays: Overlay[] = [];
+
+export function addOverlay(overlay: Overlay): void {
+  overlays.push(overlay);
+}
+
+function overlayOpen(): boolean {
+  return overlays.some((overlay) => overlay.isOpen());
+}
+
+/**
  * Tells the menus whether a game is running: blocked keys are only kept from
  * the engine, and the pointer lock only taken back, while it is.
  */
@@ -65,9 +87,9 @@ export function setInGame(running: boolean): void {
   inGame = running;
 }
 
-/** True while any of the menus is open. */
+/** True while any of the menus, or an overlay (the chat input), is open. */
 export function anyModalOpen(): boolean {
-  return modals.some((modal) => modal.isOpen());
+  return modals.some((modal) => modal.isOpen()) || overlayOpen();
 }
 
 function isToggleKey(modal: ModalImpl, event: KeyboardEvent): boolean {
@@ -85,6 +107,7 @@ export function createModal(options: ModalOptions): Modal {
     open() {
       if (modal.isOpen() || !options.canOpen()) return;
       for (const other of modals) other.close(false);
+      for (const overlay of overlays) overlay.close();
       document.exitPointerLock?.();
       backdrop.hidden = false;
       options.onOpen();
@@ -172,7 +195,12 @@ function trapFocus(panel: HTMLElement, event: KeyboardEvent): void {
 // hold-to-open menus, whose keydown the engine never saw.
 function onKey(event: KeyboardEvent): void {
   const current = modals.find((modal) => modal.isOpen());
-  if (!current && inGame && ENGINE_BLOCKED_KEYS.has(event.code)) {
+  if (
+    !current &&
+    inGame &&
+    ENGINE_BLOCKED_KEYS.has(event.code) &&
+    !overlayOpen()
+  ) {
     event.preventDefault();
     event.stopImmediatePropagation();
     return;

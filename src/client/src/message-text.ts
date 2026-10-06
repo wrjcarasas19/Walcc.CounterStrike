@@ -1,7 +1,8 @@
-// Checks the text of a server message and builds the commands that show it.
+// Checks the text of a message: admin server messages (the admin menu, which
+// also builds the commands that show them here) and player chat (chat.ts).
 // No DOM here, so it can be tested on its own.
 //
-// How a message travels (Xash3D FWGS d3bc7fab, AMX Mod X 1.10, see
+// How an admin message travels (Xash3D FWGS d3bc7fab, AMX Mod X 1.10, see
 // Dockerfile):
 // 1. The browser runs `rcon <command>`. Cmd_TokenizeString splits it into
 //    words (COM_ParseFileSafe): `"` starts a quoted word, `//` at the start
@@ -37,10 +38,27 @@
 // - `^`: colour codes in the engine console;
 // - `%`: format string in the game's TextMsg handler;
 // and the text can't contain `//`, which would cut it off. Several spaces
-// in a row become one (step 3 drops them).
+// in a row become one (step 3 drops them). src/server/admin_actions.go
+// checks admin messages again with the same rules.
+//
+// Player chat goes another way: the browser runs `say "<text>"` with
+// Cmd_ExecuteString, and the engine forwards the raw rest of the line (see
+// sendChat in chat.ts). Nothing splits the text into words, so `'` `,` `{`
+// `}` arrive unchanged and checkChatMessage allows them too; several spaces
+// in a row are kept. The rest of the list above still applies: `"` `;` `\`
+// `$` `^` `%`, non-ASCII and `//` are refused for chat as well (`%` because
+// the game turns it into a space, `$` for cmd_scripting, the others to keep
+// one simple rule for the player and the console line).
 
-/** Longest message, in characters. */
+/** Longest admin message, in characters. */
 export const MESSAGE_MAX_LENGTH = 120;
+
+/**
+ * Longest chat message, in characters. Host_Say cuts the text at 125 bytes
+ * minus the length of its format name (as few as 104 for a dead player), so
+ * the limit stays under that and nothing is cut by the server.
+ */
+export const CHAT_MAX_LENGTH = 100;
 
 /** Colours `amx_csay` knows (English names from adminchat.txt). */
 export const MESSAGE_COLORS = [
@@ -60,11 +78,32 @@ export type MessageColor = (typeof MESSAGE_COLORS)[number];
 /** Server-side alias the message is put in; see the top of this file. */
 const ALIAS = 'web_msg';
 
-const ALLOWED = /^[ !#&()*+\-./0-9:<=>?@A-Z[\]_`a-z|~]*$/;
-const NOT_ALLOWED = /[^ !#&()*+\-./0-9:<=>?@A-Z[\]_`a-z|~]/gu;
+/** The characters a message may contain, and what is said about `//`. */
+type MessageRules = {
+  allowed: RegExp;
+  notAllowed: RegExp;
+  slashes: string;
+  maxLength: number;
+};
+
+const ADMIN_RULES: MessageRules = {
+  allowed: /^[ !#&()*+\-./0-9:<=>?@A-Z[\]_`a-z|~]*$/,
+  notAllowed: /[^ !#&()*+\-./0-9:<=>?@A-Z[\]_`a-z|~]/gu,
+  slashes: 'Not allowed: //. The server would cut the message off there.',
+  maxLength: MESSAGE_MAX_LENGTH,
+};
+
+// The admin set plus ' , { } (see the top of this file).
+const CHAT_RULES: MessageRules = {
+  allowed: /^[ !#&'()*+,\-./0-9:<=>?@A-Z[\]_`a-z{|}~]*$/,
+  notAllowed: /[^ !#&'()*+,\-./0-9:<=>?@A-Z[\]_`a-z{|}~]/gu,
+  slashes: 'Not allowed: //. Remove it to send the message.',
+  maxLength: CHAT_MAX_LENGTH,
+};
 
 export type MessageCheck =
-  { ok: true; text: string } | { ok: false; error: string };
+  | { ok: true; text: string }
+  | { ok: false; error: string };
 
 /** Names a character for an error message. */
 function describe(char: string): string {
@@ -75,15 +114,15 @@ function describe(char: string): string {
 }
 
 /**
- * Checks a message typed in the menu. Spaces at both ends are trimmed (the
- * engine drops them anyway); nothing else is changed: any other character
- * that can't be sent is reported, never removed.
+ * Spaces at both ends are trimmed (the engine or the game drops them
+ * anyway); nothing else is changed: any other character that can't be sent
+ * is reported, never removed.
  */
-export function checkMessage(raw: string): MessageCheck {
+function check(raw: string, rules: MessageRules): MessageCheck {
   const text = raw.trim();
   if (text === '') return { ok: false, error: 'Type a message.' };
-  if (!ALLOWED.test(text)) {
-    const bad = [...new Set(Array.from(text.match(NOT_ALLOWED) ?? []))];
+  if (!rules.allowed.test(text)) {
+    const bad = [...new Set(Array.from(text.match(rules.notAllowed) ?? []))];
     const names = [...new Set(bad.map(describe))];
     return {
       ok: false,
@@ -92,20 +131,25 @@ export function checkMessage(raw: string): MessageCheck {
       } to send the message.`,
     };
   }
-  if (text.includes('//')) {
-    return {
-      ok: false,
-      error: 'Not allowed: //. The server would cut the message off there.',
-    };
-  }
+  if (text.includes('//')) return { ok: false, error: rules.slashes };
   const length = Array.from(text).length;
-  if (length > MESSAGE_MAX_LENGTH) {
+  if (length > rules.maxLength) {
     return {
       ok: false,
-      error: `Too long: ${length} characters, the limit is ${MESSAGE_MAX_LENGTH}.`,
+      error: `Too long: ${length} characters, the limit is ${rules.maxLength}.`,
     };
   }
   return { ok: true, text };
+}
+
+/** Checks a server message typed in the admin menu. */
+export function checkMessage(raw: string): MessageCheck {
+  return check(raw, ADMIN_RULES);
+}
+
+/** Checks a chat message typed in the HUD's chat input (say / say_team). */
+export function checkChatMessage(raw: string): MessageCheck {
+  return check(raw, CHAT_RULES);
 }
 
 function checked(raw: string): string {
