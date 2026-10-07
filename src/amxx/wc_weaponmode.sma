@@ -10,6 +10,10 @@
 // The value is kept over sv_restart and set back to 0 on every map change
 // (plugin_init runs once per map).
 //
+// The weapon modes don't mix with the game modes (wc_gamemode.amxx): while
+// wc_gamemode isn't 0, the mode stays off and a non-zero wc_weaponmode is
+// set back to 0 with a chat line saying why.
+//
 // AMX Mod X on Xash3D can't hook or bind cvars (its gamedata doesn't match
 // the engine), so the plugin polls the cvar once a second. Weapons are kept
 // out three ways: buy commands are refused, weapons on the ground
@@ -27,6 +31,7 @@
 #include <fakemeta>
 #include <fun>
 #include <hamsandwich>
+#include "wc_weapons.inc"
 
 #define PLUGIN  "Web weapon mode"
 #define VERSION "1.0"
@@ -40,8 +45,6 @@
 #define TASK_SPAWN 4200
 
 const ALWAYS_ALLOWED = (1 << CSW_KNIFE) | (1 << CSW_C4)
-const PISTOLS = (1 << CSW_P228) | (1 << CSW_ELITE) | (1 << CSW_FIVESEVEN) | (1 << CSW_USP) | (1 << CSW_GLOCK18) | (1 << CSW_DEAGLE)
-const GRENADES = (1 << CSW_HEGRENADE) | (1 << CSW_FLASHBANG) | (1 << CSW_SMOKEGRENADE)
 
 // Weapons YaPB bots may not buy or pick up in pistols mode (its buy aliases).
 new const YAPB_NOT_PISTOLS[] = "m3;xm1014;mp5;tmp;p90;mac10;ump45;ak47;sg552;m4a1;galil;famas;aug;scout;awp;g3sg1;sg550;m249;shield;hegren;flash;sgren"
@@ -63,43 +66,10 @@ new const PISTOL_MODELS[][] = {
 	"models/w_deagle.mdl"
 }
 
-// Buy items that aren't weapons (weapons use their CSW_ id).
-#define ITEM_PRIAMMO 33
-#define ITEM_SECAMMO 34
-#define ITEM_SHIELD  35
-
-enum _:BuyAlias { ALIAS_NAME[16], ALIAS_ITEM }
-
-// Every buy alias the game knows (CS 1.6 and its alternative names).
-new const BUY_ALIASES[][BuyAlias] = {
-	{ "p228", CSW_P228 }, { "228compact", CSW_P228 },
-	{ "glock", CSW_GLOCK18 }, { "9x19mm", CSW_GLOCK18 },
-	{ "usp", CSW_USP }, { "km45", CSW_USP },
-	{ "deagle", CSW_DEAGLE }, { "nighthawk", CSW_DEAGLE },
-	{ "elites", CSW_ELITE }, { "fiveseven", CSW_FIVESEVEN }, { "fn57", CSW_FIVESEVEN },
-	{ "m3", CSW_M3 }, { "12gauge", CSW_M3 },
-	{ "xm1014", CSW_XM1014 }, { "autoshotgun", CSW_XM1014 },
-	{ "mac10", CSW_MAC10 }, { "tmp", CSW_TMP }, { "mp", CSW_TMP },
-	{ "mp5", CSW_MP5NAVY }, { "smg", CSW_MP5NAVY },
-	{ "ump45", CSW_UMP45 }, { "p90", CSW_P90 }, { "c90", CSW_P90 },
-	{ "galil", CSW_GALIL }, { "defender", CSW_GALIL },
-	{ "famas", CSW_FAMAS }, { "clarion", CSW_FAMAS },
-	{ "ak47", CSW_AK47 }, { "cv47", CSW_AK47 },
-	{ "m4a1", CSW_M4A1 }, { "sg552", CSW_SG552 }, { "krieg552", CSW_SG552 },
-	{ "aug", CSW_AUG }, { "bullpup", CSW_AUG },
-	{ "scout", CSW_SCOUT }, { "awp", CSW_AWP }, { "magnum", CSW_AWP },
-	{ "g3sg1", CSW_G3SG1 }, { "d3au1", CSW_G3SG1 },
-	{ "sg550", CSW_SG550 }, { "krieg550", CSW_SG550 },
-	{ "m249", CSW_M249 },
-	{ "hegren", CSW_HEGRENADE }, { "flash", CSW_FLASHBANG }, { "sgren", CSW_SMOKEGRENADE },
-	{ "shield", ITEM_SHIELD },
-	{ "primammo", ITEM_PRIAMMO }, { "buyammo1", ITEM_PRIAMMO },
-	{ "secammo", ITEM_SECAMMO }, { "buyammo2", ITEM_SECAMMO }
-}
-
 new const MODE_NAMES[][] = { "off", "knife only", "pistols only" }
 
 new g_pMode
+new g_pGameMode
 new g_pYbJason
 new g_pYbRestricted
 // The mode the plugin enforces; follows the cvar on each poll.
@@ -128,13 +98,19 @@ public plugin_init()
 	set_task(1.0, "Poll", TASK_POLL, _, _, "b")
 }
 
+public plugin_cfg()
+{
+	// Registered by wc_gamemode.amxx (any plugin order).
+	g_pGameMode = get_cvar_pointer("wc_gamemode")
+}
+
 // Weapon bits the mode lets a player keep.
 AllowedWeapons(mode)
 {
 	switch (mode)
 	{
 		case MODE_KNIFE: return ALWAYS_ALLOWED
-		case MODE_PISTOLS: return ALWAYS_ALLOWED | PISTOLS
+		case MODE_PISTOLS: return ALWAYS_ALLOWED | WC_PISTOLS
 	}
 	return -1
 }
@@ -144,6 +120,13 @@ ReadMode()
 	new mode = get_pcvar_num(g_pMode)
 	if (mode < MODE_OFF || mode > MODE_PISTOLS)
 		return MODE_OFF
+	if (mode != MODE_OFF && g_pGameMode && get_pcvar_num(g_pGameMode) != 0)
+	{
+		set_pcvar_num(g_pMode, MODE_OFF)
+		log_amx("Weapon mode %s ignored: a game mode is on", MODE_NAMES[mode])
+		client_print(0, print_chat, "[Server] Knife only and pistols only are off during Gun Game and Deathmatch.")
+		return MODE_OFF
+	}
 	return mode
 }
 
@@ -203,11 +186,11 @@ Enforce(id, bool:spawned)
 		for (new wid = 1; wid <= CSW_P90; wid++)
 		{
 			if (removed & (1 << wid))
-				StripWeapon(id, wid)
+				WcStripWeapon(id, wid)
 		}
 	}
 
-	if (g_mode == MODE_PISTOLS && spawned && !(pev(id, pev_weapons) & PISTOLS))
+	if (g_mode == MODE_PISTOLS && spawned && !(pev(id, pev_weapons) & WC_PISTOLS))
 	{
 		if (cs_get_user_team(id) == CS_TEAM_CT)
 		{
@@ -225,41 +208,16 @@ Enforce(id, bool:spawned)
 		engclient_cmd(id, "weapon_knife")
 }
 
-StripWeapon(id, wid)
-{
-	new name[32]
-	get_weaponname(wid, name, charsmax(name))
-	new ent = -1
-	while ((ent = engfunc(EngFunc_FindEntityByString, ent, "classname", name)) > 0)
-	{
-		if (pev(ent, pev_owner) == id)
-			break
-	}
-	if (ent <= 0)
-		return
-
-	if ((1 << wid) & GRENADES)
-		cs_set_user_bpammo(id, wid, 0)
-	if (get_user_weapon(id) == wid)
-		ExecuteHamB(Ham_Weapon_RetireWeapon, ent)
-	if (!ExecuteHamB(Ham_RemovePlayerItem, id, ent))
-		return
-	ExecuteHamB(Ham_Item_Kill, ent)
-	set_pev(id, pev_weapons, pev(id, pev_weapons) & ~(1 << wid))
-}
-
 // Buy commands: the VGUI buy menu and console aliases send the item's
 // alias; the old-style menus send menuselect. (The cstrike module's
 // CS_OnBuyAttempt forward never fires on Xash3D, so the plugin hooks the
 // commands itself.)
 RegisterBuyCommands()
 {
-	for (new i = 0; i < sizeof BUY_ALIASES; i++)
-		register_clcmd(BUY_ALIASES[i][ALIAS_NAME], "OnBuyAlias")
-	register_clcmd("cl_autobuy", "OnAutoBuy")
-	register_clcmd("cl_setautobuy", "OnAutoBuy")
-	register_clcmd("cl_rebuy", "OnAutoBuy")
-	register_clcmd("cl_setrebuy", "OnAutoBuy")
+	for (new i = 0; i < sizeof WC_BUY_ALIASES; i++)
+		register_clcmd(WC_BUY_ALIASES[i][WC_ALIAS_NAME], "OnBuyAlias")
+	for (new i = 0; i < sizeof WC_AUTOBUY_COMMANDS; i++)
+		register_clcmd(WC_AUTOBUY_COMMANDS[i], "OnAutoBuy")
 	register_clcmd("menuselect", "OnMenuSelect")
 }
 
@@ -267,9 +225,9 @@ bool:BuyAllowed(item)
 {
 	switch (item)
 	{
-		case ITEM_PRIAMMO, ITEM_SHIELD, CSW_HEGRENADE, CSW_FLASHBANG, CSW_SMOKEGRENADE:
+		case WC_ITEM_PRIAMMO, WC_ITEM_SHIELD, CSW_HEGRENADE, CSW_FLASHBANG, CSW_SMOKEGRENADE:
 			return false
-		case ITEM_SECAMMO:
+		case WC_ITEM_SECAMMO:
 			return g_mode == MODE_PISTOLS
 	}
 	return (AllowedWeapons(g_mode) & (1 << item)) != 0
@@ -287,10 +245,10 @@ public OnBuyAlias(id)
 		return PLUGIN_CONTINUE
 	new command[16]
 	read_argv(0, command, charsmax(command))
-	for (new i = 0; i < sizeof BUY_ALIASES; i++)
+	for (new i = 0; i < sizeof WC_BUY_ALIASES; i++)
 	{
-		if (equali(command, BUY_ALIASES[i][ALIAS_NAME]))
-			return BuyAllowed(BUY_ALIASES[i][ALIAS_ITEM]) ? PLUGIN_CONTINUE : RefuseBuy(id)
+		if (equali(command, WC_BUY_ALIASES[i][WC_ALIAS_NAME]))
+			return BuyAllowed(WC_BUY_ALIASES[i][WC_ALIAS_ITEM]) ? PLUGIN_CONTINUE : RefuseBuy(id)
 	}
 	return PLUGIN_CONTINUE
 }

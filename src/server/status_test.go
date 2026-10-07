@@ -167,6 +167,39 @@ func TestApplyRules(t *testing.T) {
 		if !reflect.DeepEqual(st.TimeLimit, tt.limit) || !reflect.DeepEqual(st.TimeLeft, tt.left) || st.NextMap != tt.nextMap {
 			t.Errorf("%s: got limit %v left %v next %q", tt.testName, st.TimeLimit, st.TimeLeft, st.NextMap)
 		}
+		if st.GameMode != 0 {
+			t.Errorf("%s: got game mode %d", tt.testName, st.GameMode)
+		}
+	}
+}
+
+func TestApplyRulesGameMode(t *testing.T) {
+	tests := []struct {
+		value string
+		want  int
+	}{
+		{"0", 0},
+		{"1", 1},
+		{"2", 2},
+		// Out of range or not a whole number: shown as classic.
+		{"3", 0},
+		{"-1", 0},
+		{"1.5", 0},
+		{"gungame", 0},
+		{"", 0},
+	}
+	for _, tt := range tests {
+		var st serverStatus
+		applyRules(&st, map[string]string{"wc_gamemode": tt.value})
+		if st.GameMode != tt.want {
+			t.Errorf("wc_gamemode %q: got %d, want %d", tt.value, st.GameMode, tt.want)
+		}
+	}
+	// Without the plugin the cvar isn't in the reply at all.
+	var st serverStatus
+	applyRules(&st, map[string]string{"mp_timelimit": "30"})
+	if st.GameMode != 0 {
+		t.Errorf("no wc_gamemode: got %d", st.GameMode)
 	}
 }
 
@@ -219,7 +252,7 @@ func TestEngineQueryStatus(t *testing.T) {
 		'I': {infoReplyPacket("de_dust2", 2, 16, 1)},
 		// A stray print packet first: ignored.
 		'U': {[]byte(printPrefix + "x"), playersReplyPacket(testPlayer{"Walter", 3, 60}, testPlayer{"[POD]Bot", 1, -1})},
-		'V': {rulesReplyPacket("mp_timelimit", "30", "amx_timeleft", "29:58", "amx_nextmap", "de_inferno")},
+		'V': {rulesReplyPacket("mp_timelimit", "30", "amx_timeleft", "29:58", "amx_nextmap", "de_inferno", "wc_gamemode", "1")},
 	})
 	st, err := e.q.status(context.Background())
 	if err != nil {
@@ -229,7 +262,7 @@ func TestEngineQueryStatus(t *testing.T) {
 	want := serverStatus{
 		Map: "de_dust2", PlayerCount: 2, MaxPlayers: 16, Bots: 1,
 		Players:   []statusPlayer{{Name: "Walter", Frags: 3}, {Name: "[POD]Bot", Frags: 1, Bot: true}},
-		TimeLimit: &limit, TimeLeft: &left, NextMap: "de_inferno",
+		TimeLimit: &limit, TimeLeft: &left, NextMap: "de_inferno", GameMode: 1,
 	}
 	if !reflect.DeepEqual(st, want) {
 		t.Fatalf("got %+v, want %+v", st, want)
@@ -364,7 +397,7 @@ func TestStatusHandler(t *testing.T) {
 	source := &fakeStatusSource{st: serverStatus{
 		Map: "de_dust2", PlayerCount: 2, MaxPlayers: 16, Bots: 1,
 		Players:   []statusPlayer{{Name: `<img src=x onerror=alert(1)>`, Frags: 5}, {Name: "Bot", Frags: 0, Bot: true}},
-		TimeLimit: &limit, TimeLeft: &left, NextMap: "de_aztec",
+		TimeLimit: &limit, TimeLeft: &left, NextMap: "de_aztec", GameMode: 2,
 	}}
 	h, _ := newTestStatus(source)
 	w := getStatus(h, "203.0.113.7:4000", nil)
@@ -381,7 +414,7 @@ func TestStatusHandler(t *testing.T) {
 	if strings.Contains(raw, "<img") {
 		t.Errorf("name not escaped: %s", raw)
 	}
-	want := `{"map":"de_dust2","playerCount":2,"maxPlayers":16,"bots":1,"players":[{"name":"\u003cimg src=x onerror=alert(1)\u003e","frags":5},{"name":"Bot","frags":0,"bot":true}],"timeLimit":30,"timeLeft":600,"nextMap":"de_aztec"}`
+	want := `{"map":"de_dust2","playerCount":2,"maxPlayers":16,"bots":1,"players":[{"name":"\u003cimg src=x onerror=alert(1)\u003e","frags":5},{"name":"Bot","frags":0,"bot":true}],"timeLimit":30,"timeLeft":600,"nextMap":"de_aztec","gameMode":2}`
 	if raw != want {
 		t.Errorf("body\n%s\nwant\n%s", raw, want)
 	}

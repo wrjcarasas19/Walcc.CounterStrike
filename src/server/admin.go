@@ -116,16 +116,16 @@ func (a *adminAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, map[string]bool{"loggedIn": a.loggedIn(r)})
 	case "/admin/login":
-		if a.checkPost(w, r) {
+		if checkPost(w, r) {
 			a.login(w, r)
 		}
 	case "/admin/logout":
-		if a.checkPost(w, r) {
+		if checkPost(w, r) {
 			http.SetCookie(w, a.cookie(r, "", -1))
 			writeJSON(w, http.StatusOK, map[string]bool{"loggedIn": false})
 		}
 	case "/admin/command":
-		if !a.checkPost(w, r) {
+		if !checkPost(w, r) {
 			return
 		}
 		if !a.loggedIn(r) {
@@ -138,8 +138,9 @@ func (a *adminAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// checkPost refuses anything but a same-origin JSON POST.
-func (a *adminAPI) checkPost(w http.ResponseWriter, r *http.Request) bool {
+// checkPost refuses anything but a same-origin JSON POST, and limits the
+// body to adminMaxBody. The admin API and /names/ (names.go) use it.
+func checkPost(w http.ResponseWriter, r *http.Request) bool {
 	if r.Method != http.MethodPost {
 		writeJSONError(w, http.StatusMethodNotAllowed, "use POST")
 		return false
@@ -306,11 +307,16 @@ func (a *adminAPI) cookie(r *http.Request, value string, maxAge int) *http.Cooki
 		Path:     "/admin/",
 		MaxAge:   maxAge,
 		HttpOnly: true,
-		// Behind a TLS-terminating proxy the request itself is plain HTTP.
-		// Trusting the header here can only make the cookie stricter.
-		Secure:   r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"),
+		Secure:   httpsRequest(r),
 		SameSite: http.SameSiteStrictMode,
 	}
+}
+
+// httpsRequest says whether the page came over https, for a cookie's Secure
+// flag. Behind a TLS-terminating proxy the request itself is plain HTTP.
+// Trusting X-Forwarded-Proto here can only make a cookie stricter.
+func httpsRequest(r *http.Request) bool {
+	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 }
 
 // clientKey is the address wrong passwords are counted under.

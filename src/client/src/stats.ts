@@ -115,10 +115,16 @@ export function formatHeadshots(
   return `${Math.round((stats.headshots / stats.kills) * 100)}%`;
 }
 
+/** Head-to-head enemy kills between two players (this map). */
+export type Duel = { aKills: number; bKills: number };
+
 export type SessionStats = ReturnType<typeof createSessionStats>;
 
 export function createSessionStats(windowMs = MULTI_KILL_WINDOW_MS) {
   const players = new Map<string, PlayerStats>();
+  // killer -> victim -> enemy kills of killer on victim. Team kills and
+  // suicides are not counted, like the kills column and the leaderboard.
+  const duels = new Map<string, Map<string, number>>();
   // userid -> name in the last scores snapshot that had it.
   const names = new Map<number, string>();
   let localName = '';
@@ -149,9 +155,40 @@ export function createSessionStats(windowMs = MULTI_KILL_WINDOW_MS) {
     return stats && copy(stats);
   }
 
+  function addDuelKills(killer: string, victim: string, kills: number): void {
+    if (killer === victim || kills <= 0) return;
+    let row = duels.get(killer);
+    if (!row) {
+      row = new Map();
+      duels.set(killer, row);
+    }
+    row.set(victim, (row.get(victim) ?? 0) + kills);
+  }
+
+  /** Moves (or merges) from's pairs, as killer and as victim, to to. */
+  function renameDuels(from: string, to: string): void {
+    const own = duels.get(from);
+    if (own) {
+      duels.delete(from);
+      for (const [victim, kills] of own) {
+        addDuelKills(to, victim, kills);
+      }
+    }
+    for (const [killer, row] of [...duels]) {
+      const kills = row.get(from);
+      if (kills === undefined) continue;
+      row.delete(from);
+      // A pair between the two merged names would be a player against
+      // themself: dropped.
+      addDuelKills(killer, to, kills);
+      if (row.size === 0) duels.delete(killer);
+    }
+  }
+
   function rename(from: string, to: string): void {
     if (from === to) return;
     if (localName === from) localName = to;
+    renameDuels(from, to);
     const old = players.get(from);
     if (!old) return;
     players.delete(from);
@@ -210,6 +247,7 @@ export function createSessionStats(windowMs = MULTI_KILL_WINDOW_MS) {
       }
       killer.streak += 1;
       killer.bestStreak = Math.max(killer.bestStreak, killer.streak);
+      addDuelKills(kill.killer, kill.victim, 1);
       died(victim, false);
 
       const result: KillResult = { counted: true, kind: 'kill' };
@@ -252,7 +290,22 @@ export function createSessionStats(windowMs = MULTI_KILL_WINDOW_MS) {
       }
     },
 
+    /**
+     * Player stats as a copy; get(name)?.streak is the player's current
+     * kill streak (enemy kills since their last death).
+     */
     get,
+
+    /**
+     * Enemy kills of a on b and of b on a since the last reset (this map).
+     * Team kills don't count. Zero for unknown names.
+     */
+    duel(a: string, b: string): Duel {
+      return {
+        aKills: duels.get(a)?.get(b) ?? 0,
+        bKills: duels.get(b)?.get(a) ?? 0,
+      };
+    },
 
     /**
      * The local player's stats (all zero before its first kill or death);
@@ -279,6 +332,7 @@ export function createSessionStats(windowMs = MULTI_KILL_WINDOW_MS) {
      */
     reset(): void {
       players.clear();
+      duels.clear();
       lastLocalKill = -Infinity;
       multiKill = 0;
     },

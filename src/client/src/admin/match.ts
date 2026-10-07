@@ -1,4 +1,5 @@
 import { onHudEvent, type HudEvent } from '../hud';
+import { fetchLobbyStatus, gameModeName } from '../lobby';
 import {
   expectEffect,
   hasPassword,
@@ -19,12 +20,27 @@ import {
   type CvarDef,
   type CvarName,
 } from './cvars';
-import { PRESETS, type Preset } from './presets';
+import { getNextMap, onNextMapChange, refreshNextMap } from './map';
+import {
+  AFTER_FUN_MAP_VALUES,
+  FUN_MAP_PREFIXES,
+  FUN_MAP_VALUES,
+  isFunMap,
+  PRESETS,
+  type Preset,
+} from './presets';
 
 // Match settings: game mode presets, one cvar per field, plus "Restart
 // round". rcon has no reply and cvar changes have no HUD event, so settings
 // only show "Sent". A restart (also the end of every preset) is confirmed by
 // the round timer jumping.
+//
+// The game modes (wc_gamemode: Gun Game, Deathmatch) and the weapon modes
+// (wc_weaponmode: knife only, pistols only) don't mix: the weapon mode
+// plugin ignores wc_weaponmode while a game mode is on. So that the admin
+// knows why, the tab doesn't send a weapon mode while it knows a game mode
+// is on (from what it sent, or from /status.json when the tab is shown) and
+// says so instead.
 
 const FIELDS: readonly CvarName[] = [
   'mp_friendlyfire',
@@ -34,6 +50,11 @@ const FIELDS: readonly CvarName[] = [
   'mp_freezetime',
   'mp_buytime',
   'mp_maxrounds',
+  'wc_gamemode',
+  'wc_dm_fraglimit',
+  'wc_gg_kills_per_level',
+  'wc_gg_suicide_penalty',
+  'wc_gg_join_lowest',
   'wc_weaponmode',
 ];
 
@@ -48,6 +69,9 @@ for (const { label, values } of PRESETS) {
 
 // sv_restart 1 restarts after one second; the rest covers the round trip.
 const RESTART_TIMEOUT_MS = 5_000;
+// /status.json is cached for 2 s and the plugin reads the cvar once a
+// second, so a status read this soon after sending wc_gamemode may be old.
+const GAME_MODE_SETTLE_MS = 5_000;
 
 const APPLIES_TEXT: Record<CvarDef['applies'], string> = {
   now: 'Applies now',
@@ -73,7 +97,7 @@ presetGroup.setAttribute('aria-labelledby', 'admin-presets-label');
 const presetLabel = document.createElement('span');
 presetLabel.className = 'field-label';
 presetLabel.id = 'admin-presets-label';
-presetLabel.textContent = 'Game mode';
+presetLabel.textContent = 'Presets';
 const presetRow = document.createElement('div');
 presetRow.className = 'admin-presets';
 const presetButtons = PRESETS.map((preset) => {
@@ -90,7 +114,11 @@ const presetButtons = PRESETS.map((preset) => {
 });
 const presetNote = document.createElement('p');
 presetNote.className = 'admin-note';
-presetGroup.append(presetLabel, presetRow, presetNote);
+// Which game mode is on, and that the weapon modes are off during one.
+const modeNote = document.createElement('p');
+modeNote.className = 'admin-note';
+modeNote.setAttribute('aria-live', 'polite');
+presetGroup.append(presetLabel, presetRow, presetNote, modeNote);
 
 const grid = document.createElement('div');
 grid.className = 'admin-cvars';
@@ -147,6 +175,10 @@ cfgNote.textContent = `Reset on map change: ${fields
   .map(({ def }) => `${def.label} ${cfgText(def)}`)
   .join(', ')}.`;
 
+// Fun maps run their own settings when they load (presets.ts).
+const funMapNote = document.createElement('p');
+funMapNote.className = 'admin-note';
+
 const apply = document.createElement('button');
 apply.className = 'action-button';
 apply.type = 'submit';
@@ -159,7 +191,7 @@ restart.type = 'button';
 restart.disabled = true;
 restart.textContent = 'Restart round';
 
-panel.append(presetGroup, grid, cfgNote, apply, restart);
+panel.append(presetGroup, grid, cfgNote, funMapNote, apply, restart);
 
 for (const field of fields) {
   field.input.addEventListener('input', () => {
@@ -176,8 +208,15 @@ let lastTimer: number | undefined;
 // The last preset sent this session and what happened since.
 let lastPreset:
   { preset: Preset; restart?: EffectResult; mapChanged: boolean } | undefined;
+// wc_gamemode as far as this tab knows: undefined until read or sent.
+let gameMode: number | undefined;
+// When this session last sent wc_gamemode (Date.now()), 0 if never.
+let gameModeSentAt = 0;
 renderPresetNote();
+renderModeNote();
+renderFunMapNote();
 onHudEvent(trackEvent);
+onNextMapChange(renderFunMapNote);
 
 function trackEvent(event: HudEvent): void {
   if (event.type === 'timer') lastTimer = event.payload.seconds;
@@ -185,7 +224,9 @@ function trackEvent(event: HudEvent): void {
     lastTimer = undefined;
     if (lastPreset) lastPreset.mapChanged = true;
     renderPresetNote();
-    // The weapon mode plugin has just put its value back.
+    // The game and weapon mode plugins have just put their values back.
+    gameMode = CVARS.wc_gamemode.mapReset;
+    renderModeNote();
     for (const field of fields) {
       if (field.def.mapReset !== undefined) field.sent = undefined;
       renderHint(field);
@@ -255,6 +296,10 @@ function refresh(): void {
 
 /** "Friendly fire off, Start money $16000, ...": shown as the tooltip. */
 function presetSummary({ values }: Preset): string {
+  return valuesSummary(values);
+}
+
+function valuesSummary(values: Preset['values']): string {
   return FIELDS.filter((name) => values[name] !== undefined)
     .map((name) => {
       const def = CVARS[name];
@@ -263,6 +308,57 @@ function presetSummary({ values }: Preset): string {
       return `${def.label} ${value}${def.unit ? ` ${def.unit}` : ''}`;
     })
     .join(', ');
+}
+
+function renderFunMapNote(): void {
+  const prefixes = FUN_MAP_PREFIXES.join(', ').replace(/, ([^,]*)$/, ' and $1');
+  let text =
+    `${prefixes} maps set ${valuesSummary(FUN_MAP_VALUES)} when they load, ` +
+    'over what is set here. The map after one goes back to ' +
+    `${valuesSummary(AFTER_FUN_MAP_VALUES)}.`;
+  const next = getNextMap();
+  if (next !== undefined && isFunMap(next)) {
+    text = `The next map, ${next}, has its own settings. ${text}`;
+  }
+  funMapNote.textContent = text;
+}
+
+function renderModeNote(): void {
+  const name = gameMode === undefined ? '' : gameModeName(gameMode);
+  modeNote.textContent = name
+    ? `${name} is on. Knife only and pistols only don't work in it: ` +
+      'pick Casual, Competitive or Warmup (or Game mode Classic) first.'
+    : '';
+  modeNote.hidden = name === '';
+}
+
+/** Reads the game mode from the lobby status (A2S_RULES). */
+async function refreshGameMode(): Promise<void> {
+  const asked = Date.now();
+  const status = await fetchLobbyStatus();
+  // Something sent since (or just before) the request wins.
+  if (!status || asked - gameModeSentAt < GAME_MODE_SETTLE_MS) return;
+  gameMode = status.gameMode;
+  renderModeNote();
+}
+
+/**
+ * Why `values` can't be sent: a weapon mode while a game mode is (or would
+ * be) on. undefined if it can.
+ */
+function weaponModeBlocked(
+  values: Partial<Record<CvarName, number>>
+): string | undefined {
+  const weapon = values.wc_weaponmode;
+  const mode = values.wc_gamemode ?? gameMode;
+  if (!weapon || !mode) return undefined;
+  const name = gameModeName(mode) || 'a game mode';
+  const weaponName = choiceName(CVARS.wc_weaponmode, weapon);
+  return (
+    `Not sent: ${weaponName.charAt(0).toUpperCase()}${weaponName.slice(1)} ` +
+    `doesn't work during ${name}. Pick Casual, Competitive or Warmup (or ` +
+    'Game mode Classic) first.'
+  );
 }
 
 function renderPresetNote(): void {
@@ -312,6 +408,11 @@ async function applyPreset(preset: Preset): Promise<void> {
  * a value is invalid or nothing could be sent.
  */
 export function sendCvars(values: Partial<Record<CvarName, number>>): boolean {
+  const blocked = weaponModeBlocked(values);
+  if (blocked) {
+    setStatus(blocked, true);
+    return false;
+  }
   const commands: [Field, number, string][] = [];
   for (const [name, value] of Object.entries(values)) {
     const field = fields.find(({ def }) => def.name === name);
@@ -333,6 +434,11 @@ export function sendCvars(values: Partial<Record<CvarName, number>>): boolean {
     }
     field.sent = value;
     renderHint(field);
+    if (field.def.name === 'wc_gamemode') {
+      gameMode = value;
+      gameModeSentAt = Date.now();
+      renderModeNote();
+    }
   }
   return true;
 }
@@ -400,6 +506,12 @@ export const matchTab: AdminTab = {
   id: 'match',
   label: 'Match',
   panel,
+  // The fun map note depends on the next map, read on the Map tab; the
+  // weapon mode note on the game mode, read from the lobby status.
+  show: () => {
+    refreshNextMap();
+    void refreshGameMode();
+  },
   submit: applySettings,
   refresh,
   focusTarget: () => fields[0].input,

@@ -53,3 +53,47 @@ func TestGamePeers(t *testing.T) {
 	default:
 	}
 }
+
+type nopChannel struct{}
+
+func (nopChannel) Read([]byte) (int, error)    { return 0, nil }
+func (nopChannel) Write(b []byte) (int, error) { return len(b), nil }
+func (nopChannel) Close() error                { return nil }
+
+// The device token hash a session was opened with goes into its slot, for
+// as long as the slot is this player's.
+func TestGameSessionDevice(t *testing.T) {
+	var peers gamePeers
+	withDevice := &gameSession{connected: make(chan struct{}), key: "198.51.100.9", device: "ab12"}
+	ip, err := withDevice.channelOpened(nopChannel{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	without := &gameSession{connected: make(chan struct{}), key: "198.51.100.10"}
+	ip2, err := without.channelOpened(nopChannel{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// release queues an engine drop of the address: take it back out so
+	// TestRequestDropQueuesUntilRun only sees its own.
+	t.Cleanup(func() {
+		without.release()
+		for i := 0; i < 2; i++ {
+			<-dropRequests
+		}
+	})
+
+	if hash, ok := peers.deviceOf(ip); !ok || hash != "ab12" {
+		t.Fatalf("deviceOf = %q, %v", hash, ok)
+	}
+	if hash, ok := peers.deviceOf(ip2); !ok || hash != "" {
+		t.Fatalf("deviceOf without a cookie = %q, %v", hash, ok)
+	}
+	if _, ok := peers.deviceOf([4]byte{ip[0], ip[1] + 1, ip[2], ip[3]}); ok {
+		t.Fatal("deviceOf matched another address in the same slot")
+	}
+	withDevice.release()
+	if hash, ok := peers.deviceOf(ip); ok {
+		t.Fatalf("deviceOf after release = %q", hash)
+	}
+}

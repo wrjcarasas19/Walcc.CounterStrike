@@ -1,4 +1,4 @@
-import * as b from '/Users/wcarasas/Repos/Walcc.CounterStrike/src/client/src/admin/bot-commands.ts';
+import * as b from '../../src/client/src/admin/bot-commands.ts';
 const ok = (c: boolean, m: string) => { if (!c) { console.log('FAIL', m); process.exitCode = 1; } };
 ok(b.addBotCommand('CT') === 'yb add_ct' && b.addBotCommand('T') === 'yb add_t', 'add');
 ok(b.kickBotCommand() === 'yb kick' && b.kickAllBotsCommand() === 'yb kickall instant', 'kick');

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { parseSettings, defaultSettings, checkSetting, cvarCommands, hudStyle, serializeSettings } from '/Users/wcarasas/Repos/Walcc.CounterStrike/src/client/src/settings/schema.ts';
+import { parseSettings, defaultSettings, checkSetting, cvarCommands, hudStyle, serializeSettings } from '../../src/client/src/settings/schema.ts';
 const d = defaultSettings();
 console.log(cvarCommands(d), hudStyle(d));
 assert.deepEqual(parseSettings(null), d);

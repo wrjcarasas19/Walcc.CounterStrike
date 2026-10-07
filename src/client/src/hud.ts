@@ -1,10 +1,23 @@
 import type { Xash3D } from 'xash3d-fwgs';
+import { announce, getAnnouncerOptions } from './announcer';
+import { createAnnouncerTriggers, modeSound } from './announcer-rules';
+import {
+  MODE_EVENT_CLIENT_VERSION,
+  gunGameStrip,
+  isGunGame,
+  levelToast,
+  parseModeState,
+  versionAtLeast,
+  type ModeState,
+} from './gamemode';
+import type { KillInfo } from './killinfo';
 import { fetchLobbyStatus } from './lobby';
 import { getSettings } from './settings/store';
 import {
   createSessionStats,
   formatHeadshots,
   formatKd,
+  type KillEvent,
   type KillResult,
 } from './stats';
 import {
@@ -94,7 +107,12 @@ export type HudEvent =
   // Sent right before scoreboard { visible: true }, then every 0.5 s; also
   // every 0.5 s while the cvar hud_html_scores is 1 (see setLiveScores).
   | { type: 'scores'; payload: Scores }
-  | { type: 'chat'; payload: ChatLine };
+  | { type: 'chat'; payload: ChatLine }
+  | { type: 'mode'; payload: ModeState }
+  // To the victim of a player kill, right after its `kill` event
+  // (cs16-client 0.0.10+, wc_html_hud 1): see killinfo.ts. Read it with
+  // parseKillInfo; the "Killed by" card (killcard.ts) shows it.
+  | { type: 'killinfo'; payload: KillInfo };
 
 /** One chat line from the client (cs16-client 0.0.8+), color codes stripped. */
 export type ChatLine = {
@@ -184,6 +202,15 @@ const sbSession = document.getElementById('sb-session')!;
 const sbSessionStats = document.getElementById('sb-session-stats')!;
 const sbChat = document.getElementById('sb-chat')!;
 const toastText = document.getElementById('hud-toast-text')!;
+const levelToastText = document.getElementById('hud-level-toast-text')!;
+const gg = document.getElementById('hud-gg')!;
+const ggLevel = document.getElementById('hud-gg-level')!;
+const ggWeapon = document.getElementById('hud-gg-weapon')!;
+const ggNext = document.getElementById('hud-gg-next')!;
+const ggLeader = document.getElementById('hud-gg-leader')!;
+const ggWinner = document.getElementById('hud-gg-winner')!;
+const protect = document.getElementById('hud-protect')!;
+const protectFill = document.getElementById('hud-protect-fill')!;
 const roundBanner = document.getElementById('hud-round')!;
 const roundBannerTitle = document.getElementById('hud-round-title')!;
 const roundBannerReason = document.getElementById('hud-round-reason')!;
@@ -259,6 +286,19 @@ let latestScores: Scores | undefined;
 let summaryMapName = '';
 let lastSummary = '';
 let nextMapRequest = 0;
+// Last `mode` event (Gun Game / Deathmatch), undefined in classic.
+let modeState: ModeState | undefined;
+let protectTimer: ReturnType<typeof setTimeout> | undefined;
+// Announcer triggers (first blood, last man...) per round; see
+// announcer-rules.ts.
+const announcer = createAnnouncerTriggers();
+let lobbyModeRequest = 0;
+// The game client forwards the server's WcMode message (cs16-client
+// 0.0.10+): tell the server, so it stops drawing its own HUD message.
+const modeEventSupported = versionAtLeast(
+  __CS16_CLIENT_VERSION__,
+  MODE_EVENT_CLIENT_VERSION
+);
 
 /** Session stats counted from the kill feed (cleared on every reset event). */
 export function getSessionStats() {
@@ -449,10 +489,90 @@ function showToast(text: string): void {
   toastText.classList.add('show');
 }
 
-function onKillCounted(result: KillResult): void {
+function showLevelToast(text: string): void {
+  levelToastText.textContent = text;
+  levelToastText.classList.remove('show');
+  void levelToastText.offsetWidth;
+  levelToastText.classList.add('show');
+}
+
+function hideProtection(): void {
+  clearTimeout(protectTimer);
+  protectTimer = undefined;
+  setHidden(protect, true);
+}
+
+/** The bar empties over `ms`, then hides (or earlier, on a new event). */
+function showProtection(ms: number): void {
+  clearTimeout(protectTimer);
+  protectFill.style.transition = 'none';
+  protectFill.style.transform = 'scaleX(1)';
+  setHidden(protect, false);
+  // Start the transition from full after the reset above is applied.
+  void protectFill.offsetWidth;
+  protectFill.style.transition = `transform ${ms}ms linear`;
+  protectFill.style.transform = 'scaleX(0)';
+  protectTimer = setTimeout(hideProtection, ms);
+}
+
+function renderMode(state: ModeState): void {
+  const toast = levelToast(modeState, state);
+  if (toast) showLevelToast(toast);
+  const sound = modeSound(modeState, state);
+  if (sound) announce(sound);
+  announcer.setGameMode(state.mode);
+  modeState = state.mode === 0 ? undefined : state;
+
+  setHidden(gg, !isGunGame(modeState));
+  hud.classList.toggle('gun-game', isGunGame(modeState));
+  if (isGunGame(modeState)) {
+    const strip = gunGameStrip(modeState);
+    setText(ggLevel, strip.level);
+    setText(ggWeapon, strip.weapon);
+    setText(ggNext, strip.next);
+    setHidden(ggNext, !strip.next);
+    setText(ggLeader, strip.leader);
+    setHidden(ggLeader, !strip.leader || !!strip.winner);
+    setText(ggWinner, strip.winner);
+    setHidden(ggWinner, !strip.winner);
+  }
+
+  if (state.protection > 0) showProtection(state.protection);
+  else hideProtection();
+}
+
+function onKillCounted(kill: KillEvent, result: KillResult): void {
   const multiKill = result.local?.multiKill;
   if (multiKill && getSettings().killStreakToasts) showToast(multiKill.label);
+  const call = announcer.kill(
+    kill,
+    result,
+    sessionStats.localName(),
+    getAnnouncerOptions()
+  );
+  if (call.firstBlood) showToast(`${call.firstBlood} drew first blood`);
+  if (call.sound) announce(call.sound);
   renderSession();
+}
+
+/** Last man standing, checked on each scores snapshot. */
+function announceScores(scores: Scores): void {
+  const sound = announcer.scores(scores.players);
+  if (sound) announce(sound);
+}
+
+/**
+ * Before cs16-client 0.0.10 the page gets no `mode` event, so the game mode
+ * for the announcer (first blood and last man per map in Gun Game and
+ * Deathmatch) comes from /status.json, asked at each map and round start.
+ */
+function refreshAnnouncerMode(): void {
+  if (modeEventSupported) return;
+  const request = ++lobbyModeRequest;
+  void fetchLobbyStatus().then((status) => {
+    if (request !== lobbyModeRequest || !status) return;
+    announcer.setGameMode(status.gameMode);
+  });
 }
 
 function renderSession(): void {
@@ -744,16 +864,25 @@ function reset(): void {
   showScoreboard(false);
   lastScores = '';
   toastText.classList.remove('show');
+  levelToastText.classList.remove('show');
+  modeState = undefined;
+  setHidden(gg, true);
+  hud.classList.remove('gun-game');
+  hideProtection();
   hideRoundBanner();
   hideSummary();
   roundStarts.reset();
   latestScores = undefined;
   sessionStats.reset();
   renderSession();
+  announcer.reset();
+  // A new map starts without a mode until the plugin sends one.
+  if (modeEventSupported) announcer.setGameMode(0);
   // Vitals and ammo stay hidden until the first alive event (sent the frame
   // after connect, or right after a reset's resend), so a player joining
   // mid-round as a spectator never sees them flash.
   hud.dataset.alive = 'unknown';
+  delete hud.dataset.spectating;
 }
 
 function handle(event: HudEvent): void {
@@ -794,12 +923,17 @@ function handle(event: HudEvent): void {
       if (roundStarts.timer(seconds)) {
         sessionStats.startRound();
         hideRoundBanner();
+        announcer.roundStart();
+        refreshAnnouncerMode();
       }
       break;
     }
     case 'kill': {
       addKill(event.payload);
-      onKillCounted(sessionStats.recordKill(event.payload, performance.now()));
+      onKillCounted(
+        event.payload,
+        sessionStats.recordKill(event.payload, performance.now())
+      );
       break;
     }
     case 'chat':
@@ -810,10 +944,14 @@ function handle(event: HudEvent): void {
       // Health and armor still describe the local player while spectating.
       const shown = alive && !spectating ? 'true' : 'false';
       if (hud.dataset.alive !== shown) hud.dataset.alive = shown;
+      // The engine draws its spectator bars then (see .hud-killcard).
+      const spec = String(spectating);
+      if (hud.dataset.spectating !== spec) hud.dataset.spectating = spec;
       break;
     }
     case 'reset':
       reset();
+      refreshAnnouncerMode();
       break;
     case 'round':
       showRoundBanner(event.payload);
@@ -828,12 +966,16 @@ function handle(event: HudEvent): void {
       renderScores(event.payload);
       sessionStats.updatePlayers(event.payload.players);
       renderSession();
+      announceScores(event.payload);
       latestScores = event.payload;
       if (!summary.hidden) renderSummary();
       break;
     case 'menu':
       // The menu is drawn inside the canvas, so the overlay would cover it.
       hud.classList.toggle('menu-open', event.payload.visible);
+      break;
+    case 'mode':
+      renderMode(parseModeState(event.payload));
       break;
   }
 }
@@ -865,6 +1007,14 @@ function sendLiveScores(): void {
 function setHudEnabled(enabled: boolean): void {
   hud.hidden = !enabled;
   engine?.Cmd_ExecuteString(`hud_html ${enabled ? 1 : 0}`);
+  // Userinfo for the game mode plugin: with 1 it sends WcMode (the `mode`
+  // event) instead of drawing its HUD message; wc_killinfo also sends
+  // WcKillInfo (the `killinfo` event, same client release) only then. Set before connecting, and
+  // sent to the server again when it changes. Older clients never set it,
+  // so the plugin keeps drawing for them.
+  if (modeEventSupported) {
+    engine?.Cmd_ExecuteString(`setinfo wc_html_hud ${enabled ? 1 : 0}`);
+  }
 }
 
 function onBridgeEvent(type: string, payload: unknown): void {

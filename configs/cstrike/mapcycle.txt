@@ -1,1 +1,8 @@
 de_dust2
+fy_iceworld
+cs_assault
+aim_map
+de_inferno
+awp_india
+fy_pool_day
+de_nuke

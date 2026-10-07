@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -64,6 +64,13 @@
                     >
                       HS
                     </th>
+                    <th
+                      class="leaderboard-number"
+                      scope="col"
+                      title="Gun Game wins"
+                    >
+                      GG
+                    </th>
                   </tr>
                 </thead>
                 <tbody id="leaderboard-rows"></tbody>
@@ -82,7 +89,13 @@
               autocomplete="nickname"
               maxlength="31"
               autofocus
+              aria-describedby="nickname-status"
             />
+            <div
+              id="nickname-status"
+              class="field-note"
+              aria-live="polite"
+            ></div>
           </div>
 
           <section id="download-section" class="progress-section">
@@ -139,6 +152,9 @@
         <div class="hud-toast" aria-live="polite">
           <span id="hud-toast-text" class="hud-toast-text"></span>
         </div>
+        <div class="hud-toast hud-level-toast" aria-live="polite">
+          <span id="hud-level-toast-text" class="hud-toast-text"></span>
+        </div>
         <div id="hud-round" class="hud-round" aria-live="polite" hidden>
           <span id="hud-round-title" class="hud-round-title"></span>
           <span id="hud-round-reason" class="hud-round-reason"></span>
@@ -190,7 +206,9 @@
           </div>
           <div id="hud-armor" class="hud-panel hud-stat" hidden>
             <svg class="hud-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12 2l9 3.5v6c0 5.3-3.8 9.6-9 10.5-5.2-.9-9-5.2-9-10.5v-6z" />
+              <path
+                d="M12 2l9 3.5v6c0 5.3-3.8 9.6-9 10.5-5.2-.9-9-5.2-9-10.5v-6z"
+              />
             </svg>
             <span id="hud-armor-value" class="hud-value"></span>
             <span id="hud-helmet" class="hud-tag" hidden>Helmet</span>
@@ -206,6 +224,29 @@
           <span id="hud-timer-value" class="hud-value"></span>
           <span class="hud-bomb">Bomb planted</span>
         </div>
+
+        <div id="hud-gg" class="hud-panel hud-gg" hidden>
+          <span id="hud-gg-level" class="hud-gg-level"></span>
+          <span id="hud-gg-weapon" class="hud-gg-weapon"></span>
+          <span id="hud-gg-next" class="hud-gg-next"></span>
+          <span id="hud-gg-leader" class="hud-gg-leader"></span>
+          <span id="hud-gg-winner" class="hud-gg-winner"></span>
+        </div>
+
+        <div id="hud-protect" class="hud-protect" hidden>
+          <span class="hud-protect-label">Spawn protection</span>
+          <span class="hud-protect-track">
+            <span id="hud-protect-fill" class="hud-protect-fill"></span>
+          </span>
+        </div>
+
+        <div
+          id="hud-killcard"
+          class="hud-killcard"
+          role="status"
+          aria-live="polite"
+          hidden
+        ></div>
 
         <div class="hud-loadout">
           <div id="hud-money" class="hud-panel hud-money" hidden>

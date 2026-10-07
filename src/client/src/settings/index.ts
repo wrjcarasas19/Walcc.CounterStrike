@@ -2,6 +2,7 @@ import type { Xash3D } from 'xash3d-fwgs';
 import { onHudEvent } from '../hud';
 import { createInviteSection } from '../invite';
 import { createModal, type Modal } from '../modal';
+import { createNameSection, refreshNameSection } from '../names';
 import {
   cvarCommands,
   formatNumber,
@@ -222,6 +223,7 @@ const modal: Modal = createModal({
   onOpen() {
     opener = document.activeElement as HTMLElement | null;
     render(getSettings());
+    refreshNameSection();
     controls.get(SETTING_KEYS[0])?.focus.focus();
   },
   onClose() {
@@ -235,7 +237,10 @@ const modal: Modal = createModal({
 buildPanel();
 // The invite link sits here because this panel is the one every player can
 // open, both in game and on the login page.
-body.prepend(createInviteSection());
+// "Your name" (claimed names) goes right under it, for the same reason.
+const inviteSection = createInviteSection();
+body.prepend(inviteSection);
+inviteSection.after(createNameSection());
 render(getSettings());
 applyHud(getSettings());
 

@@ -44,6 +44,11 @@ func TestStaticHandler(t *testing.T) {
 	mustWrite(t, filepath.Join(dir, "favicon.ico"), []byte{0, 1, 2})
 	wasm := append([]byte("\x00asm\x01\x00\x00\x00"), make([]byte, 4096)...)
 	mustWrite(t, filepath.Join(dir, "assets", "game-abc.so"), wasm)
+	// Opus in WebM (EBML header) and an MP3 frame without an ID3 tag.
+	webm := append([]byte("\x1a\x45\xdf\xa3"), make([]byte, 64)...)
+	mp3 := append([]byte("\xff\xfb\x50\xc4"), make([]byte, 64)...)
+	mustWrite(t, filepath.Join(dir, "sounds", "headshot.webm"), webm)
+	mustWrite(t, filepath.Join(dir, "sounds", "headshot.mp3"), mp3)
 	h := newStaticHandler(dir)
 
 	get := func(target string, header http.Header) *http.Response {
@@ -98,6 +103,15 @@ func TestStaticHandler(t *testing.T) {
 		res = get("/assets/game-abc.so", header)
 		if ct := res.Header.Get("Content-Type"); ct != "application/wasm" {
 			t.Fatalf(".so (%v): Content-Type %q", header, ct)
+		}
+	}
+
+	// Sounds: audio types (not sniffed), not gzipped, revalidated.
+	for target, want := range map[string]string{"/sounds/headshot.webm": "audio/webm", "/sounds/headshot.mp3": "audio/mpeg"} {
+		res = get(target, gzipHeader)
+		if res.StatusCode != http.StatusOK || res.Header.Get("Content-Type") != want ||
+			res.Header.Get("Content-Encoding") != "" || res.Header.Get("Cache-Control") != "no-cache" {
+			t.Fatalf("%s: status %d, headers %v", target, res.StatusCode, res.Header)
 		}
 	}
 

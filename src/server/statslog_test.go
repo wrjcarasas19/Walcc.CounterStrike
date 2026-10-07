@@ -50,9 +50,33 @@ func TestParseLogLine(t *testing.T) {
 			logEvent{Kind: logChangedName, Player: human("Walter", 7, "CT"), Value: `Walter "W" <2>`}},
 		{`10/06/2026 - 12:34:56: "Walter<7><ID_1a2b3c><CT>" disconnected`,
 			logEvent{Kind: logDisconnected, Player: human("Walter", 7, "CT")}},
+		// A fall death (killed by the world), real line from the image.
+		{`10/07/2026 - 00:44:51: "wind<18><BOT><CT>" committed suicide with "worldspawn" (world)`,
+			logEvent{Kind: logSuicide, Player: bot("wind", 18, "CT"), Weapon: "worldspawn"}},
+		{`10/07/2026 - 00:44:51: "a (world)<18><BOT><CT>" committed suicide with "x" (world)` + "\r\n",
+			logEvent{Kind: logSuicide, Player: bot("a (world)", 18, "CT"), Weapon: "x"}},
 		{`10/06/2026 - 12:34:56: "<7><ID_1a2b3c><SPECTATOR>" committed suicide with "worldspawn"`,
 			logEvent{Kind: logSuicide, Player: human("", 7, "SPECTATOR"), Weapon: "worldspawn"}},
+		// Gun Game win (wc_gamemode.amxx): AMXX writes ID_BOT for bots.
+		{`10/07/2026 - 01:12:40: "Walter<7><ID_1a2b3c><CT>" triggered "wc_gg_win"`,
+			logEvent{Kind: logGunGameWin, Player: human("Walter", 7, "CT")}},
+		{`10/07/2026 - 01:12:40: "x" triggered "wc_gg_win<3><ID_BOT><TERRORIST>" triggered "wc_gg_win"` + "\r\n",
+			logEvent{Kind: logGunGameWin, Player: idBot(`x" triggered "wc_gg_win`, 3, "TERRORIST")}},
+		// Not a win: something else after it.
+		{`10/07/2026 - 01:12:40: "Walter<7><ID_1a2b3c><CT>" triggered "wc_gg_win" (level "24")`,
+			logEvent{Kind: logPlayerOther, Player: human("Walter", 7, "CT")}},
+		{`10/07/2026 - 01:12:40: "Walter<7><ID_1a2b3c><CT>" triggered "wc_gg_winner"`,
+			logEvent{Kind: logPlayerOther, Player: human("Walter", 7, "CT")}},
 		{`10/06/2026 - 15:39:19: Server shutdown`, logEvent{Kind: logShutdown}},
+		// Connections, real lines from the image (E.3): the engine writes
+		// the slot index where the auth goes; a browser player has the
+		// SFU's made-up address, a bot "local".
+		{`10/07/2026 - 12:11:18: "Capture<3><2><>" connected, address "0.84.74.120:12345"`,
+			logEvent{Kind: logConnected, Player: logPlayer{Name: "Capture", UserID: 3, Auth: "2"}, Value: "0.84.74.120:12345"}},
+		{`10/07/2026 - 12:09:30: "Ender Wiggin<2><1><>" connected, address "local"`,
+			logEvent{Kind: logConnected, Player: logPlayer{Name: "Ender Wiggin", UserID: 2, Auth: "1"}, Value: "local"}},
+		{`10/07/2026 - 12:11:18: "a<1><2><> b<3><2><>" connected, address "0.84.74.120:12345"` + "\r\n",
+			logEvent{Kind: logConnected, Player: logPlayer{Name: "a<1><2><> b", UserID: 3, Auth: "2"}, Value: "0.84.74.120:12345"}},
 	} {
 		got, ok := parseLogLine(tc.line)
 		if !ok || !reflect.DeepEqual(got, tc.want) {
@@ -66,8 +90,6 @@ func TestParseLogLineIgnored(t *testing.T) {
 		"",
 		`10/06/2026 - 15:32:52: Log file started (file "logs/L1006000.log") (game "") (version "49/0.21/3772")`,
 		`10/06/2026 - 15:33:02: Server cvar "mp_roundtime" = "1"`,
-		// The engine's own line has the slot where the auth goes.
-		`10/06/2026 - 15:33:02: "Savage|420|<1><0><>" connected, address "local"`,
 		`10/06/2026 - 15:33:03: World triggered "Game_Commencing" (CT "1") (T "0")`,
 		`10/06/2026 - 15:39:19: Team "CT" scored "0" with "3" players`,
 		`10/06/2026 - 15:39:19: World triggered "Restart_Round_(1_second)"`,
@@ -77,9 +99,26 @@ func TestParseLogLineIgnored(t *testing.T) {
 		`10/06/26 - 15:33:31: "a<1><BOT><CT>" killed "b<2><BOT><TERRORIST>" with "usp"`,
 		`10/06/2026 - 15:33:31: "a<1><BOT><CT>" killed "b<2><BOT><TERR`,
 		`10/06/2026 - 15:33:31: "a<x><BOT><CT>" killed "b<2><BOT><TERRORIST>" with "usp"`,
+		`10/07/2026 - 00:44:51: "a<1><BOT><CT>" committed suicide with "worldspawn" (other)`,
 	} {
 		if ev, ok := parseLogLine(line); ok {
 			t.Errorf("parseLogLine(%q) = %+v, want ignored", line, ev)
+		}
+	}
+}
+
+func TestLogAddressIP(t *testing.T) {
+	for address, want := range map[string][4]byte{
+		"0.84.74.120:12345": {0, 84, 74, 120},
+		"3.1.2.3:27005":     {3, 1, 2, 3},
+	} {
+		if got, ok := logAddressIP(address); !ok || got != want {
+			t.Errorf("logAddressIP(%q) = %v, %v; want %v", address, got, ok, want)
+		}
+	}
+	for _, address := range []string{"local", "", "loopback", "0.84.74.120", "[::1]:27005", "1.2.3:4", "1.2.3.4:x", "1.2.3.4:5 "} {
+		if got, ok := logAddressIP(address); ok {
+			t.Errorf("logAddressIP(%q) = %v, want not ok", address, got)
 		}
 	}
 }

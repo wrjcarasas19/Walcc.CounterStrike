@@ -32,6 +32,11 @@ type peerSlot struct {
 	// key is the addressKey of the remote address the player's WebSocket
 	// came from (what a ban is keyed by).
 	key string
+	// device is the hex SHA-256 of the wc_player cookie (claimed names,
+	// names.go) the WebSocket was opened with, or "" without one. Which
+	// name that device owns is looked up when it matters, so a claim
+	// released while the player is connected stops counting at once.
+	device string
 	// close ends the player's PeerConnection, which frees the slot and has
 	// the engine drop the player.
 	close func()
@@ -58,6 +63,17 @@ func (gamePeers) keyOf(ip [4]byte) (string, bool) {
 		return "", false
 	}
 	return peer.key, true
+}
+
+// deviceOf returns the device token hash (peerSlot.device) of the player
+// the engine knows by ip; ok is false if ip isn't a connected player's.
+// The hash is "" for a player without a wc_player cookie.
+func (gamePeers) deviceOf(ip [4]byte) (hash string, ok bool) {
+	peer, err := connections.Get(ip[0])
+	if err != nil || peer == nil || !peer.owns(ip) {
+		return "", false
+	}
+	return peer.device, true
 }
 
 // closeFrom ends every player's connection from key and returns how many
@@ -234,8 +250,10 @@ var errSessionClosed = errors.New("session closed")
 // gameSession owns the server slot of one player. The slot is allocated only
 // once the game data channel is open and is released exactly once.
 type gameSession struct {
-	// key and closePeer are copied into the slot (peerSlot.key, .close).
+	// key, device and closePeer are copied into the slot (peerSlot.key,
+	// .device, .close).
 	key       string
+	device    string
 	closePeer func()
 	lock      sync.Mutex
 	closed    bool
@@ -257,7 +275,7 @@ func (s *gameSession) channelOpened(d io.ReadWriteCloser) (ip [4]byte, err error
 		return ip, errSessionClosed
 	}
 
-	peer := &peerSlot{write: d, key: s.key, close: s.closePeer}
+	peer := &peerSlot{write: d, key: s.key, device: s.device, close: s.closePeer}
 	for i := range peer.addr {
 		peer.addr[i] = byte(rand.Intn(256))
 	}
@@ -349,7 +367,10 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) { // nolint
 	}
 
 	// Runs before the PeerConnection closes; frees the slot exactly once.
-	session := &gameSession{connected: make(chan struct{}), key: addressKey(host), closePeer: closePeer}
+	// The page's own WebSocket carries the wc_player cookie (same origin,
+	// Path=/). Only its hash is kept.
+	device, _ := deviceTokenHash(r)
+	session := &gameSession{connected: make(chan struct{}), key: addressKey(host), device: device, closePeer: closePeer}
 	defer session.release()
 
 	// One unordered channel without retransmits carries the game's UDP
@@ -599,6 +620,10 @@ type Server struct {
 	// leaderboard serves /leaderboard (leaderboard.go); nil when the
 	// leaderboard database couldn't be opened.
 	leaderboard http.Handler
+	// duel serves /duel (duel.go); nil like leaderboard.
+	duel http.Handler
+	// names serves /names/ (names.go); nil like leaderboard.
+	names http.Handler
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -617,7 +642,21 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.leaderboard.ServeHTTP(w, r)
+	case "/duel":
+		if s.duel == nil {
+			http.NotFound(w, r)
+			return
+		}
+		s.duel.ServeHTTP(w, r)
 	default:
+		if strings.HasPrefix(r.URL.Path, "/names/") {
+			if s.names == nil {
+				http.NotFound(w, r)
+				return
+			}
+			s.names.ServeHTTP(w, r)
+			return
+		}
 		if strings.HasPrefix(r.URL.Path, "/admin/") {
 			if s.admin == nil {
 				http.NotFound(w, r)
@@ -634,10 +673,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// runSFU serves HTTP and WebRTC. admin and console are nil when the admin
-// API is off; query (server queries for /status.json) is always on;
-// leaderboard is nil when its database couldn't be opened.
-func runSFU(admin http.Handler, console *engineConsole, query *engineQuery, leaderboard http.Handler) {
+// runSFU serves HTTP and WebRTC. admin is nil when the admin API is off,
+// console when both the admin API and the leaderboard are off; query (server queries for /status.json) is always on;
+// leaderboard, duel and names are nil when their database couldn't be
+// opened.
+func runSFU(admin http.Handler, console *engineConsole, query *engineQuery, leaderboard, duel, names http.Handler) {
 	settingEngine := webrtc.SettingEngine{}
 	settingEngine.DetachDataChannels()
 
@@ -714,6 +754,8 @@ func runSFU(admin http.Handler, console *engineConsole, query *engineQuery, lead
 		admin:       admin,
 		status:      newStatusHandler(query),
 		leaderboard: leaderboard,
+		duel:        duel,
+		names:       names,
 	}); err != nil { //nolint: gosec
 		log.Errorf("Failed to start http server: %v", err)
 	}

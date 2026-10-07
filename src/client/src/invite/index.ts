@@ -79,7 +79,7 @@ function showStatus(status: HTMLElement, text: string, clear: boolean): void {
 // server may be plain HTTP, so fall back to selecting the field and
 // execCommand('copy'), which still works there during a click. If both fail
 // the link stays selected for a manual copy.
-async function copyLink(input: HTMLInputElement): Promise<boolean> {
+export async function copyLink(input: HTMLInputElement): Promise<boolean> {
   const link = input.value;
   if (window.isSecureContext && navigator.clipboard?.writeText) {
     try {

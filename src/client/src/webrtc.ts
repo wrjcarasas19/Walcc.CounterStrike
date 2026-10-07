@@ -214,6 +214,15 @@ export class Xash3DWebRTC extends Xash3D {
     }
   }
 
+  /**
+   * Drops the connection on purpose: onDisconnect runs as for a lost one,
+   * so main.ts opens a new connection (a new signaling WebSocket, which
+   * carries the current cookies) and joins again.
+   */
+  rejoin() {
+    if (this.connected) this.fail(new Error('Rejoining'), this.peer);
+  }
+
   private wsSend(event: string, data: unknown) {
     if (this.ws?.readyState !== WebSocket.OPEN) return;
     this.ws.send(

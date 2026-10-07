@@ -36,7 +36,8 @@ import (
 //     sv_expose_player_list 0.
 //   - 'V' (A2S_RULES) -> 'E': every FCVAR_SERVER cvar, which includes
 //     mp_timelimit, AMX Mod X's amx_timeleft ("MM:SS", updated every 0.8 s
-//     by timeleft.amxx) and amx_nextmap.
+//     by timeleft.amxx), amx_nextmap and our wc_gamemode
+//     (src/amxx/wc_gamemode.sma).
 //
 // Answers are cached for statusCacheTTL and concurrent requests share one
 // engine query, so the engine sees at most three small packets per
@@ -91,7 +92,16 @@ type serverStatus struct {
 	TimeLeft *int `json:"timeLeft"`
 	// NextMap is amx_nextmap ("" without AMX Mod X).
 	NextMap string `json:"nextMap,omitempty"`
+	// GameMode is wc_gamemode: 1 Gun Game, 2 Deathmatch; 0 (left out) for
+	// a classic game or when unknown.
+	GameMode int `json:"gameMode,omitempty"`
 }
+
+// Values of wc_gamemode (src/amxx/wc_gamemode.sma).
+const (
+	gameModeClassic    = 0
+	gameModeDeathmatch = 2
+)
 
 type statusPlayer struct {
 	Name  string `json:"name"`
@@ -318,7 +328,8 @@ func parseRulesReply(body []byte) map[string]string {
 
 var timeLeftPattern = regexp.MustCompile(`^([0-9]{1,5}):([0-5][0-9])$`)
 
-// applyRules fills the time limit, time left and next map from the cvars.
+// applyRules fills the time limit, time left, next map and game mode from
+// the cvars.
 func applyRules(st *serverStatus, rules map[string]string) {
 	if v, err := strconv.ParseFloat(rules["mp_timelimit"], 64); err == nil && v >= 0 && !math.IsInf(v, 0) {
 		st.TimeLimit = &v
@@ -331,6 +342,9 @@ func applyRules(st *serverStatus, rules map[string]string) {
 	}
 	if name := rules["amx_nextmap"]; len(name) <= 64 && mapNamePattern.MatchString(name) {
 		st.NextMap = name
+	}
+	if mode, err := strconv.Atoi(rules["wc_gamemode"]); err == nil && mode > gameModeClassic && mode <= gameModeDeathmatch {
+		st.GameMode = mode
 	}
 }
 

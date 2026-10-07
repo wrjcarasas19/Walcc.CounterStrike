@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import {
   PAGES, itemCommand, checkChatLine, sectorAt, sectorAngle, itemIndexForKey,
   stepPage, clampVector, wheelKeyMatches, PAGE_ITEMS_MAX,
-} from '/Users/wcarasas/Repos/Walcc.CounterStrike/src/client/src/wheel/items.ts';
-import { checkSetting, defaultSettings, parseSettings } from '/Users/wcarasas/Repos/Walcc.CounterStrike/src/client/src/settings/schema.ts';
+} from '../../src/client/src/wheel/items.ts';
+import { checkSetting, defaultSettings, parseSettings } from '../../src/client/src/settings/schema.ts';
 
 // Every item's command is a radio command or a quoted say_team line.
 const radio = new Set(['coverme','takepoint','holdpos','regroup','followme','takingfire','go','fallback','sticktog','getinpos','stormfront','report','roger','enemyspot','needbackup','sectorclear','inposition','reportingin','getout','negative','enemydown']);

@@ -5,7 +5,7 @@
 # engine wrapper) and new modules are downloaded into a named volume.
 # Build and module caches are kept in named volumes (the cgo SQLite build
 # takes minutes under emulation the first time).
-cd /Users/wcarasas/Repos/Walcc.CounterStrike
+cd "$(dirname "$0")/../.." || exit 1
 docker run --rm \
 	-v "$PWD/src/server:/src/src/server" \
 	-v "$PWD/go.mod:/host/go.mod:ro" -v "$PWD/go.sum:/host/go.sum:ro" \

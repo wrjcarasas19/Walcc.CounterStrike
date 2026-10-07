@@ -1,4 +1,4 @@
-import { parseLobbyStatus, summaryText, timeLeftText, sortPlayers } from '/Users/wcarasas/Repos/Walcc.CounterStrike/src/client/src/lobby.ts';
+import { parseLobbyStatus, summaryText, timeLeftText, sortPlayers } from '../../src/client/src/lobby.ts';
 const ok = (cond: boolean, m: string) => { if (!cond) { console.log('FAIL', m); process.exitCode = 1; } };
 const good = { map: 'de_dust2', playerCount: 5, maxPlayers: 16, bots: 3, players: [{ name: 'b', frags: 1 }, { name: '<img>', frags: 7, bot: true }, { name: 'a', frags: 1 }], timeLimit: 30, timeLeft: 727, nextMap: 'de_aztec' };
 const s = parseLobbyStatus(good)!;

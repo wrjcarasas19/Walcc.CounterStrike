@@ -1,4 +1,4 @@
-import { inviteLink, hasJoinParam, withoutJoinParam, joinAction } from '/Users/wcarasas/Repos/Walcc.CounterStrike/src/client/src/invite/link.ts';
+import { inviteLink, hasJoinParam, withoutJoinParam, joinAction } from '../../src/client/src/invite/link.ts';
 const ok = (cond: boolean, m: string) => { if (!cond) { console.log('FAIL', m); process.exitCode = 1; } };
 ok(inviteLink('http://1.2.3.4:27016', '/') === 'http://1.2.3.4:27016/?join=1', 'link root ' + inviteLink('http://1.2.3.4:27016', '/'));
 ok(inviteLink('https://cs.example', '/play/index.html') === 'https://cs.example/play/index.html?join=1', 'link path');

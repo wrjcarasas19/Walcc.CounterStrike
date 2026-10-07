@@ -119,27 +119,50 @@ function checkAmxxMap(map: string): void {
 /** A banned address, as the admin API lists it (banEntry in bans.go). */
 export type BanEntry = { address: string; name: string; bannedAt: string };
 
+/** A claimed name, as the admin API lists it (claimEntry in admin_names.go). */
+export type ClaimEntry = {
+  name: string;
+  created: string;
+  /** Browsers signed in to it. */
+  devices: number;
+  lastSeen: string;
+};
+
 /**
  * Actions only the admin API has: bans are kept by the Go server, by the
  * player's real address, which rcon can't reach (src/server/admin_bans.go);
  * nextmap reads amx_nextmap, and only the API gets the engine's answer
- * (src/server/admin_maps.go).
+ * (src/server/admin_maps.go); claimed names live in the Go server's
+ * database (src/server/admin_names.go).
  */
 export type ApiOnlyAction =
   | { action: 'bans' }
   | { action: 'nextmap' }
   | { action: 'ban'; userid: number; slot: number }
-  | { action: 'unban'; address: string };
+  | { action: 'unban'; address: string }
+  | { action: 'claims' }
+  | { action: 'release_claim'; name: string };
 
 // An IPv4 address or an IPv6 /64, as the server lists them.
 const BAN_ADDRESS_PATTERN = /^(?:[0-9.]{7,15}|[0-9a-f:]{2,39}\/64)$/;
 const SLOT_MAX = 64;
+/** The longest name the server's release_claim takes (statsNameMax). */
+const CLAIM_NAME_MAX_BYTES = 64;
 
 /** Throws if a value of an API-only action is invalid. */
 export function checkApiOnlyAction(action: ApiOnlyAction): void {
   switch (action.action) {
     case 'bans':
     case 'nextmap':
+    case 'claims':
+      return;
+    case 'release_claim':
+      if (
+        action.name.trim() === '' ||
+        new TextEncoder().encode(action.name).length > CLAIM_NAME_MAX_BYTES
+      ) {
+        throw new Error(`Not a claimed name: ${action.name}`);
+      }
       return;
     case 'ban':
       checkWhole('userid', action.userid, 1, USERID_MAX);

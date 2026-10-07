@@ -1,4 +1,4 @@
-import { checkMessage, chatCommand, centerCommand, aliasCommands } from '/Users/wcarasas/Repos/Walcc.CounterStrike/src/client/src/admin/message-text.ts';
+import { checkMessage, chatCommand, centerCommand, aliasCommands } from '../../src/client/src/message-text.ts';
 const cases = ['Hello world! Round 2: 5 minutes (go) #1 @all ~ok?', '50%', "don't", 'a//b', 'x^1', 'ok', 'é', 'a'.repeat(121)];
 for (const c of cases) console.log(JSON.stringify(c.slice(0,30)), JSON.stringify(checkMessage(c)));
 console.log(aliasCommands(chatCommand('Hi there')));

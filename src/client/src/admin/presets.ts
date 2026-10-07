@@ -22,6 +22,7 @@ export const PRESETS: readonly Preset[] = [
       mp_buytime: 0.5,
       mp_roundtime: 3,
       wc_weaponmode: 0,
+      wc_gamemode: 0,
     },
   },
   {
@@ -34,6 +35,7 @@ export const PRESETS: readonly Preset[] = [
       mp_roundtime: 1.75,
       mp_maxrounds: 30,
       wc_weaponmode: 0,
+      wc_gamemode: 0,
     },
   },
   {
@@ -45,10 +47,40 @@ export const PRESETS: readonly Preset[] = [
       mp_roundtime: 9,
       mp_buytime: 9,
       wc_weaponmode: 0,
+      wc_gamemode: 0,
+    },
+  },
+  // Gun Game / Deathmatch (src/amxx/wc_gamemode.sma): respawns and endless
+  // rounds, so no freeze time. Gun Game hands out the weapons (nothing to
+  // buy); Deathmatch has a guns menu. The presets above turn them off.
+  {
+    id: 'gungame',
+    label: 'Gun Game',
+    values: {
+      mp_friendlyfire: 0,
+      mp_startmoney: 800,
+      mp_freezetime: 0,
+      mp_buytime: 0.25,
+      wc_weaponmode: 0,
+      wc_gamemode: 1,
+    },
+  },
+  {
+    id: 'deathmatch',
+    label: 'Deathmatch',
+    values: {
+      mp_friendlyfire: 0,
+      mp_startmoney: 16000,
+      mp_freezetime: 0,
+      mp_buytime: 0.25,
+      wc_weaponmode: 0,
+      wc_gamemode: 2,
     },
   },
   // Knife only / pistols only (src/amxx/wc_weaponmode.sma); the other
-  // settings stay as they are. The presets above turn the mode off.
+  // settings stay as they are. The presets above turn the mode off. They
+  // do nothing during Gun Game or Deathmatch (the plugin refuses them and
+  // the Match tab says so).
   {
     id: 'knife',
     label: 'Knife only',
@@ -60,6 +92,31 @@ export const PRESETS: readonly Preset[] = [
     values: { wc_weaponmode: 2 },
   },
 ];
+
+// fy_, aim_ and awp_ maps set their own match settings a few seconds after
+// they load (configs/cstrike/addons/amxmodx/configs/maps/prefix_*.cfg), over
+// what the Match tab set, and the map after one gets the stock values back
+// (configs/cstrike/leave_funmap.cfg). Keep these in step with those files.
+export const FUN_MAP_PREFIXES: readonly string[] = ['fy_', 'aim_', 'awp_'];
+
+export const FUN_MAP_VALUES: Partial<Record<CvarName, number>> = {
+  mp_startmoney: 16000,
+  mp_freezetime: 0,
+  mp_roundtime: 2,
+  mp_buytime: 0.25,
+};
+
+export const AFTER_FUN_MAP_VALUES: Partial<Record<CvarName, number>> = {
+  mp_startmoney: 800,
+  mp_freezetime: 6,
+  mp_roundtime: 5,
+  mp_buytime: 1.5,
+};
+
+/** Whether the map runs its own settings when it loads. */
+export function isFunMap(map: string): boolean {
+  return FUN_MAP_PREFIXES.some((prefix) => map.startsWith(prefix));
+}
 
 /** Every problem with the table: bad ids, duplicates, values out of range. */
 export function checkPresets(presets: readonly Preset[]): string[] {
@@ -84,7 +141,15 @@ export function checkPresets(presets: readonly Preset[]): string[] {
   return errors;
 }
 
-const errors = checkPresets(PRESETS);
+const errors = checkPresets([
+  ...PRESETS,
+  { id: 'fun-map', label: 'Fun map', values: FUN_MAP_VALUES },
+  {
+    id: 'after-fun-map',
+    label: 'After a fun map',
+    values: AFTER_FUN_MAP_VALUES,
+  },
+]);
 if (errors.length > 0) {
   throw new Error(`Invalid game mode presets:\n${errors.join('\n')}`);
 }

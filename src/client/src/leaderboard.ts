@@ -5,6 +5,7 @@
  * it is fetched once when the page opens (to know whether the server has a
  * leaderboard at all) and again when opened, at most every REFRESH_MS.
  * Names are whatever players typed, so they only go in through textContent.
+ * A claimed name gets a ✓ after it.
  */
 
 export interface LeaderboardEntry {
@@ -18,6 +19,13 @@ export interface LeaderboardEntry {
   /** Whole percent of kills; null with no kills. */
   headshotPercent: number | null;
   rounds: number;
+  /** Gun Game games won (0 from a server without the column). */
+  ggWins: number;
+  /**
+   * The name is claimed (names.go) and this row is its claimed spelling:
+   * only the claimant's browsers add to it.
+   */
+  claimed: boolean;
 }
 
 export interface Leaderboard {
@@ -67,6 +75,8 @@ export function parseLeaderboard(json: unknown): Leaderboard | undefined {
       headshots: p.headshots,
       headshotPercent: p.headshotPercent as number | null,
       rounds: isCount(p.rounds) ? p.rounds : 0,
+      ggWins: isCount(p.ggWins) ? p.ggWins : 0,
+      claimed: p.claimed === true,
     });
   }
   return { players, bots: data.bots === true };
@@ -87,7 +97,13 @@ export function noteText(board: Leaderboard): string {
   const parts = [];
   if (board.players.length === 0) parts.push('No kills recorded yet.');
   if (!board.bots) parts.push('Bots are not listed.');
-  parts.push('Names are not verified: anyone can play under any name.');
+  if (board.players.some((player) => player.claimed)) {
+    parts.push(
+      '✓ marks a claimed name: only its owner can play and score under it. Other names are not verified.'
+    );
+  } else {
+    parts.push('Names are not verified: anyone can play under any name.');
+  }
   return parts.join(' ');
 }
 
@@ -132,6 +148,26 @@ function cell(text: string, className: string, title?: string) {
   return td;
 }
 
+const CLAIMED_TITLE = 'Claimed name: only its owner can play under it';
+
+// A claimed name is cut short (ellipsis) before its ✓, never the ✓.
+function nameCell(player: LeaderboardEntry) {
+  if (!player.claimed)
+    return cell(player.name, 'leaderboard-name', player.name);
+  const td = cell('', 'leaderboard-name claimed');
+  td.title = `${player.name} (${CLAIMED_TITLE.toLowerCase()})`;
+  const text = document.createElement('span');
+  text.className = 'leaderboard-name-text';
+  text.textContent = player.name;
+  const mark = document.createElement('span');
+  mark.className = 'leaderboard-claimed';
+  mark.textContent = '✓';
+  mark.title = CLAIMED_TITLE;
+  mark.setAttribute('aria-label', 'claimed');
+  td.append(text, mark);
+  return td;
+}
+
 function render(board: Leaderboard): void {
   const el = elements();
   if (!el) return;
@@ -139,11 +175,12 @@ function render(board: Leaderboard): void {
     const row = document.createElement('tr');
     row.append(
       cell(String(player.rank), 'leaderboard-rank'),
-      cell(player.name, 'leaderboard-name', player.name),
+      nameCell(player),
       cell(String(player.kills), 'leaderboard-number'),
       cell(String(player.deaths), 'leaderboard-number'),
       cell(kdText(player.kd), 'leaderboard-number'),
-      cell(headshotText(player.headshotPercent), 'leaderboard-number')
+      cell(headshotText(player.headshotPercent), 'leaderboard-number'),
+      cell(String(player.ggWins), 'leaderboard-number')
     );
     return row;
   });

@@ -16,6 +16,7 @@ import {
   usesApi,
   type AdminTab,
   type BanEntry,
+  type ClaimEntry,
 } from './core';
 
 // Lists the players from the latest `scores` HUD event and kicks them with
@@ -28,6 +29,10 @@ import {
 // the Go server (the page only sends the userid and the slot), and the tab
 // lists the banned addresses with an Unban button. Over rcon there are no
 // bans: the engine only sees fake addresses (see src/server/bans.go).
+//
+// Also with the admin API: the claimed names (plan E.5), with Release. A
+// release deletes the claim and signs out every browser that has it; the
+// leaderboard row stays and goes to whoever claims the name next.
 
 // The server drops the player on its next frame; the rest covers the 0.5 s
 // snapshot interval and the round trip.
@@ -100,7 +105,23 @@ bansList.tabIndex = -1;
 const bansNote = document.createElement('p');
 bansNote.className = 'admin-note';
 bansField.append(bansLabel, bansList, bansNote);
-panel.append(field, bansField);
+
+// Claimed names (admin API only).
+const claimsField = document.createElement('div');
+claimsField.className = 'field';
+const claimsLabel = document.createElement('span');
+claimsLabel.className = 'field-label';
+claimsLabel.id = 'admin-claims-label';
+claimsLabel.textContent = 'Claimed names';
+const claimsList = document.createElement('div');
+claimsList.className = 'admin-players admin-bans admin-claims';
+claimsList.setAttribute('role', 'list');
+claimsList.setAttribute('aria-labelledby', claimsLabel.id);
+claimsList.tabIndex = -1;
+const claimsNote = document.createElement('p');
+claimsNote.className = 'admin-note';
+claimsField.append(claimsLabel, claimsList, claimsNote);
+panel.append(field, bansField, claimsField);
 
 // Rows by key (userid, or the slot when the client sends no userid), reused
 // across snapshots so focus and the open confirmation survive updates.
@@ -120,6 +141,14 @@ let bansError = '';
 let unbanning = false;
 // Logged in when the tab last refreshed, to load the bans after a login.
 let wasLoggedIn = false;
+// The claimed names from the server; undefined until loaded.
+let claimsLoaded: ClaimEntry[] | undefined;
+let claimsLoading = false;
+let claimsError = '';
+// The claimed name whose Release confirmation is open, and a release on
+// its way.
+let confirmingClaim: string | undefined;
+let releasing = false;
 
 onHudEvent(trackEvent);
 
@@ -437,13 +466,167 @@ function refresh(): void {
   }
   // Load the list once logged in (also after logging in with the tab open).
   const loggedIn = isLoggedIn();
-  if (shown && loggedIn && !wasLoggedIn) void loadBans();
-  if (!loggedIn) bansLoaded = undefined;
+  if (shown && loggedIn && !wasLoggedIn) {
+    void loadBans();
+    void loadClaims();
+  }
+  if (!loggedIn) {
+    bansLoaded = undefined;
+    claimsLoaded = undefined;
+    confirmingClaim = undefined;
+  }
   wasLoggedIn = loggedIn;
   renderBans();
   for (const button of bansList.querySelectorAll('button')) {
     button.disabled = unbanning || !loggedIn;
   }
+  renderClaims();
+  for (const button of claimsList.querySelectorAll('button')) {
+    button.disabled = releasing || !loggedIn;
+  }
+}
+
+// Rows of the claimed names, rebuilt when the list or the open
+// confirmation changes.
+let renderedClaims = '';
+
+function renderClaims(): void {
+  claimsField.hidden = !usesApi();
+  if (claimsField.hidden) return;
+  let text = '';
+  if (!isLoggedIn()) text = 'Log in to see the claimed names.';
+  else if (claimsError) text = claimsError;
+  else if (!claimsLoaded) text = 'Loading...';
+  else if (claimsLoaded.length === 0) text = 'No names are claimed.';
+  else {
+    text =
+      'Release signs every browser out of the name and lets anyone claim it; its leaderboard row is kept.';
+  }
+  setText(claimsNote, text);
+  claimsNote.classList.toggle('error', claimsError !== '');
+
+  const claims = isLoggedIn() ? (claimsLoaded ?? []) : [];
+  if (!claims.some((claim) => claim.name === confirmingClaim)) {
+    confirmingClaim = undefined;
+  }
+  const key = JSON.stringify([claims, confirmingClaim]);
+  if (key === renderedClaims) return;
+  renderedClaims = key;
+  const focused = document.activeElement as HTMLElement | null;
+  const hadFocus = focused !== null && claimsList.contains(focused);
+  claimsList.replaceChildren(...claims.map(claimRow));
+  claimsList.hidden = claims.length === 0;
+  if (hadFocus) {
+    // Cancel is the safe default in an open confirmation.
+    const target = claimsList.querySelector<HTMLElement>(
+      confirmingClaim === undefined
+        ? '.admin-claim-release'
+        : '.admin-claim-cancel'
+    );
+    (target ?? claimsList).focus();
+  }
+}
+
+function dateText(value: string): string {
+  const when = new Date(value);
+  return Number.isNaN(when.getTime()) || when.getTime() <= 0
+    ? ''
+    : when.toLocaleDateString();
+}
+
+function claimRow(claim: ClaimEntry): HTMLElement {
+  const el = document.createElement('div');
+  el.className = 'admin-player admin-ban admin-claim';
+  el.setAttribute('role', 'listitem');
+  const who = document.createElement('span');
+  who.className = 'admin-player-who';
+  const name = document.createElement('span');
+  name.className = 'admin-player-name';
+  name.textContent = claim.name;
+  name.title = claim.name;
+  const details = document.createElement('span');
+  details.className = 'admin-player-tags admin-ban-details';
+  const devices = Number.isInteger(claim.devices) ? claim.devices : 0;
+  const created = dateText(claim.created);
+  const seen = dateText(claim.lastSeen);
+  details.textContent = [
+    `${devices} ${devices === 1 ? 'browser' : 'browsers'}`,
+    created ? `claimed ${created}` : '',
+    seen ? `seen ${seen}` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  details.title = details.textContent;
+  who.append(name, details);
+
+  if (confirmingClaim === claim.name) {
+    const confirm = document.createElement('div');
+    confirm.className = 'admin-player-confirm';
+    const text = document.createElement('span');
+    text.className = 'admin-player-confirm-text';
+    text.textContent = `Release ${claim.name}?`;
+    const release = smallButton('Release', 'danger admin-claim-confirm');
+    release.setAttribute('aria-label', `Confirm: release ${claim.name}`);
+    release.addEventListener('click', () => void releaseClaim(claim));
+    const cancel = smallButton('Cancel', 'admin-claim-cancel');
+    cancel.addEventListener('click', () => {
+      confirmingClaim = undefined;
+      renderClaims();
+      refresh();
+      claimsList.querySelector<HTMLElement>('.admin-claim-release')?.focus();
+    });
+    confirm.append(text, release, cancel);
+    el.append(who, confirm);
+    return el;
+  }
+  const release = smallButton('Release', 'admin-ban-unban admin-claim-release');
+  release.setAttribute('aria-label', `Release the name ${claim.name}`);
+  release.addEventListener('click', () => {
+    confirmingClaim = claim.name;
+    renderClaims();
+    refresh();
+    claimsList.querySelector<HTMLElement>('.admin-claim-cancel')?.focus();
+  });
+  el.append(who, release);
+  return el;
+}
+
+async function releaseClaim(claim: ClaimEntry): Promise<void> {
+  if (releasing) return;
+  const request = sendApiAction({ action: 'release_claim', name: claim.name });
+  if (!request) return;
+  releasing = true;
+  refresh();
+  setStatus(`Releasing ${claim.name}...`);
+  const result = await request;
+  releasing = false;
+  confirmingClaim = undefined;
+  if (result) {
+    claimsLoaded = result.claims;
+    claimsError = '';
+    setStatus(`Done. ${claim.name} can be claimed again.`);
+  }
+  renderClaims();
+  refresh();
+  if (!claimsList.contains(document.activeElement)) claimsList.focus();
+}
+
+async function loadClaims(): Promise<void> {
+  if (claimsLoading) return;
+  const request = sendApiAction({ action: 'claims' });
+  if (!request) return;
+  claimsLoading = true;
+  const result = await request;
+  claimsLoading = false;
+  if (result) {
+    claimsLoaded = result.claims;
+    claimsError = '';
+  } else if (!claimsLoaded) {
+    claimsError =
+      "Couldn't load the claimed names (the server may have no leaderboard database).";
+  }
+  renderClaims();
+  refresh();
 }
 
 function openConfirm(row: Row, kind: Removal): void {
@@ -579,12 +762,16 @@ function show(): void {
   updateLive();
   lastRendered = '';
   render();
-  if (isLoggedIn()) void loadBans();
+  if (isLoggedIn()) {
+    void loadBans();
+    void loadClaims();
+  }
 }
 
 function hide(): void {
   shown = false;
   confirming = undefined;
+  confirmingClaim = undefined;
   updateLive();
 }
 

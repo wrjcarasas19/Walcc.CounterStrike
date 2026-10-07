@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { createSessionStats } from '/Users/wcarasas/Repos/Walcc.CounterStrike/src/client/src/stats.ts';
+import { createSessionStats } from '../../src/client/src/stats.ts';
 import {
   createRoundStartDetector, pickRoundMvp, pickMapMvp, roundTitle, roundReasonText,
   roundScoreText, summaryRows, mapResultText, killsText,
-} from '/Users/wcarasas/Repos/Walcc.CounterStrike/src/client/src/rounds.ts';
+} from '../../src/client/src/rounds.ts';
 
 const k = (killer, victim, kt, vt, extra = {}) => ({ killer, victim, weapon: 'ak47', headshot: false, killerTeam: kt, victimTeam: vt, ...extra });
 

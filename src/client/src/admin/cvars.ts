@@ -1,8 +1,9 @@
-// Match cvars the admin menu can set, with the limits the game itself
-// applies. The server runs the stock CS 1.6 game library (HLDS build 8308,
-// not ReGameDLL), which clamps some of these on its own; the limits below
-// match those clamps so the menu never sends a value the game would change.
-// Every value is checked here before it is put into a command line.
+// Match cvars the admin menu can set, with the limits the menu allows. The
+// server runs ReGameDLL_CS 5.30.0.814 (built with REGAMEDLL_ADD and
+// REGAMEDLL_FIXES), which clamps far less than the stock game library did:
+// the limits below are inside ReGameDLL's ranges, so the game never changes
+// a value the menu sent, and where the game has no limit they are our own
+// caps. Every value is checked here before it is put into a command line.
 
 export type CvarName =
   | 'mp_friendlyfire'
@@ -12,7 +13,12 @@ export type CvarName =
   | 'mp_freezetime'
   | 'mp_buytime'
   | 'mp_maxrounds'
-  | 'wc_weaponmode';
+  | 'wc_weaponmode'
+  | 'wc_gamemode'
+  | 'wc_dm_fraglimit'
+  | 'wc_gg_kills_per_level'
+  | 'wc_gg_suicide_penalty'
+  | 'wc_gg_join_lowest';
 
 /** When a new value takes effect in a running game. */
 export type CvarApplies = 'now' | 'next round' | 'restart';
@@ -35,7 +41,8 @@ export type CvarDef = {
   applies: CvarApplies;
   /**
    * The value the cvar goes back to on every map change, overwriting what
-   * the menu sent: only the weapon mode plugin's reset of wc_weaponmode.
+   * the menu sent: only our plugins' resets of wc_weaponmode and
+   * wc_gamemode.
    * configs/cstrike/server.cfg runs once at server start, not on map change,
    * so the cvars it sets keep the menu's value. Keep in sync with the plugin.
    */
@@ -53,8 +60,8 @@ export const CVARS: Readonly<Record<CvarName, CvarDef>> = {
     decimals: 0,
     applies: 'now',
   },
-  // 0 means no limit. The game only refuses negative values; 600 minutes
-  // is our own cap.
+  // 0 means no limit. The game has no clamp (a negative value counts as 0);
+  // 600 minutes is our own cap.
   mp_timelimit: {
     name: 'mp_timelimit',
     label: 'Time limit',
@@ -65,7 +72,8 @@ export const CVARS: Readonly<Record<CvarName, CvarDef>> = {
     decimals: 0,
     applies: 'now',
   },
-  // The game clamps it to 1–9 minutes.
+  // ReGameDLL clamps it to 0–500 minutes (0: the round never times out);
+  // 1–9 is our own range, the classic game's.
   mp_roundtime: {
     name: 'mp_roundtime',
     label: 'Round time',
@@ -76,7 +84,8 @@ export const CVARS: Readonly<Record<CvarName, CvarDef>> = {
     decimals: 2,
     applies: 'next round',
   },
-  // The game clamps it to 800–16000; it is given out on a full restart.
+  // ReGameDLL clamps it to 0–mp_maxmoney (16000, not changed here); 800 is
+  // our own minimum. It is given out on a full restart.
   mp_startmoney: {
     name: 'mp_startmoney',
     label: 'Start money',
@@ -87,7 +96,8 @@ export const CVARS: Readonly<Record<CvarName, CvarDef>> = {
     decimals: 0,
     applies: 'restart',
   },
-  // The game clamps it to 0–60 seconds and drops any fraction.
+  // ReGameDLL only raises a negative value to 0 and drops any fraction;
+  // 60 seconds is our own cap.
   mp_freezetime: {
     name: 'mp_freezetime',
     label: 'Freeze time',
@@ -98,9 +108,9 @@ export const CVARS: Readonly<Record<CvarName, CvarDef>> = {
     decimals: 0,
     applies: 'next round',
   },
-  // The game raises anything under 15 seconds (0.25 min) to 0.25. It has no
-  // upper clamp, but buying ends with the round anyway, so the cap is the
-  // longest round time.
+  // ReGameDLL has no clamp (0 turns buying off, -1 means no limit); 0.25
+  // (15 seconds, the stock game's minimum) is our own minimum, and buying
+  // ends with the round anyway, so the cap is the longest round time.
   mp_buytime: {
     name: 'mp_buytime',
     label: 'Buy time',
@@ -111,8 +121,8 @@ export const CVARS: Readonly<Record<CvarName, CvarDef>> = {
     decimals: 2,
     applies: 'now',
   },
-  // 0 means no limit. The game has no clamp; it ends the map once this many
-  // rounds have been played. 100 is our own cap.
+  // 0 means no limit. The game only raises a negative value to 0; it ends
+  // the map once this many rounds have been played. 100 is our own cap.
   mp_maxrounds: {
     name: 'mp_maxrounds',
     label: 'Max rounds',
@@ -136,6 +146,66 @@ export const CVARS: Readonly<Record<CvarName, CvarDef>> = {
     decimals: 0,
     applies: 'now',
     mapReset: 0,
+  },
+  // Our AMX Mod X plugin (src/amxx/wc_gamemode.sma). A change restarts the
+  // game; the plugin sets it back to 0 when a map starts. While it isn't 0,
+  // the weapon mode plugin keeps wc_weaponmode at 0.
+  wc_gamemode: {
+    name: 'wc_gamemode',
+    label: 'Game mode',
+    unit: '',
+    kind: 'choice',
+    choices: ['classic', 'gun game', 'deathmatch'],
+    min: 0,
+    max: 2,
+    decimals: 0,
+    applies: 'now',
+    mapReset: 0,
+  },
+  // Our plugin too: in Deathmatch the map ends when a player gets this many
+  // frags (it sets ReGameDLL's mp_fraglimit). 0 means no limit; 500 is our
+  // own cap. Kept over map changes.
+  wc_dm_fraglimit: {
+    name: 'wc_dm_fraglimit',
+    label: 'Deathmatch frag limit',
+    unit: 'frags',
+    kind: 'number',
+    min: 0,
+    max: 500,
+    decimals: 0,
+    applies: 'now',
+  },
+  // Gun Game rules (our plugin too), kept over map changes. Kills with the
+  // level's weapon needed for the next level; 10 is our own cap.
+  wc_gg_kills_per_level: {
+    name: 'wc_gg_kills_per_level',
+    label: 'Gun Game kills per level',
+    unit: 'kills',
+    kind: 'number',
+    min: 1,
+    max: 10,
+    decimals: 0,
+    applies: 'now',
+  },
+  wc_gg_suicide_penalty: {
+    name: 'wc_gg_suicide_penalty',
+    label: 'Gun Game: suicide loses a level',
+    unit: '',
+    kind: 'bool',
+    min: 0,
+    max: 1,
+    decimals: 0,
+    applies: 'now',
+  },
+  wc_gg_join_lowest: {
+    name: 'wc_gg_join_lowest',
+    label: 'Gun Game: late joiners start at the lowest level',
+    unit: '',
+    kind: 'bool',
+    min: 0,
+    max: 1,
+    decimals: 0,
+    applies: 'now',
   },
 };
 

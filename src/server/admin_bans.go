@@ -46,6 +46,9 @@ type actionResult struct {
 	Bans   []banEntry `json:"bans"`
 	// NextMap is amx_nextmap, for the nextmap action (admin_maps.go).
 	NextMap string `json:"nextMap,omitempty"`
+	// Claims is the claimed names, for the claims and release_claim
+	// actions (admin_names.go).
+	Claims []claimEntry `json:"claims,omitempty"`
 }
 
 // actionError is a refusal with its HTTP status. Any other error from a

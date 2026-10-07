@@ -69,7 +69,11 @@ canvas,
   justify-content: center;
   padding: 32px;
   overflow-y: auto;
-  background: radial-gradient(ellipse at 50% 0%, var(--bg-glow) 0%, var(--bg) 60%);
+  background: radial-gradient(
+    ellipse at 50% 0%,
+    var(--bg-glow) 0%,
+    var(--bg) 60%
+  );
   font-family: var(--font-body);
 }
 
@@ -142,6 +146,10 @@ canvas,
   gap: 6px;
 }
 
+.field[hidden] {
+  display: none;
+}
+
 .field-label {
   font-size: 12px;
   font-weight: 700;
@@ -168,6 +176,25 @@ canvas,
 
 .field-input:disabled {
   opacity: 0.5;
+}
+
+/* Under the nickname: whether the name is claimed (name-status.ts). */
+.field-note {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.field-note:empty {
+  display: none;
+}
+
+.field-note[data-kind='taken'] {
+  color: var(--danger);
+}
+
+.field-note[data-kind='mine'] {
+  color: var(--gain);
 }
 
 .progress-section {
@@ -2423,9 +2450,58 @@ canvas,
   white-space: pre;
 }
 
+/* Claimed names (E.5): the name shrinks, the ✓ stays visible. */
+.leaderboard-name-text {
+  display: inline-block;
+  max-width: calc(100% - 1.3em);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+
+.leaderboard-claimed {
+  margin-left: 0.3em;
+  color: var(--gain);
+}
+
 .leaderboard-table .leaderboard-number {
   width: 3.4em;
   text-align: right;
+}
+
+/* Six number columns (with Gun Game wins, A.5) leave a phone's name column
+   almost nothing at the widths above: smaller text and columns sized to
+   their usual contents (K, D up to 4 digits, "0.50", "100%", GG). */
+@media (max-width: 480px) {
+  .leaderboard-table {
+    font-size: 13px;
+  }
+
+  .leaderboard-table th,
+  .leaderboard-table td {
+    padding: 4px 3px;
+  }
+
+  .leaderboard-table th {
+    letter-spacing: 0;
+  }
+
+  .leaderboard-rank {
+    width: 1.8em;
+  }
+
+  .leaderboard-table .leaderboard-number {
+    width: 2.8em;
+  }
+
+  .leaderboard-table .leaderboard-number:nth-child(5),
+  .leaderboard-table .leaderboard-number:nth-child(6) {
+    width: 3em;
+  }
+
+  .leaderboard-table .leaderboard-number:nth-child(7) {
+    width: 2.2em;
+  }
 }
 
 /* Invite link (8.3): top of the settings panel. The field shows the link so
@@ -2460,4 +2536,334 @@ canvas,
   font-size: 12px;
   font-weight: 600;
   color: var(--muted);
+}
+
+/* Gun Game strip (A.4): centred just above the round clock. */
+.hud-gg {
+  position: absolute;
+  bottom: 4.4em;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 32px);
+  gap: 0.6em;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.hud-gg-level {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.2em;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
+
+.hud-gg-weapon {
+  font-weight: 700;
+  font-size: 1.15em;
+}
+
+.hud-gg-next {
+  color: var(--label);
+}
+
+.hud-gg-next::before {
+  content: '\2192\00a0';
+}
+
+.hud-gg-leader,
+.hud-gg-winner {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hud-gg-leader {
+  padding-left: 0.6em;
+  border-left: 1px solid var(--divider);
+  color: var(--label);
+}
+
+.hud-gg-winner {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+/* Portrait: the clock is lifted above the corner stacks, so the strip goes
+   above it and the chat moves up by the strip's height. */
+@media (max-aspect-ratio: 1/1) {
+  .hud-gg {
+    bottom: 10.4em;
+  }
+
+  #hud.gun-game > .hud-chat,
+  #hud.gun-game > .hud-chat-input {
+    bottom: 13.4em;
+  }
+
+  #hud.gun-game.chat-open > .hud-chat {
+    bottom: 16.2em;
+  }
+}
+
+@media (hover: none) and (max-aspect-ratio: 1/1) {
+  #hud.gun-game.chat-open > .hud-chat {
+    bottom: calc(13.4em + 44px);
+  }
+}
+
+/* Gun Game level change, under the multi-kill toast so both can show. */
+.hud-level-toast {
+  top: 25%;
+}
+
+.hud-level-toast .hud-toast-text {
+  font-size: 1.4em;
+  letter-spacing: 0.12em;
+}
+
+/* Spawn protection (Gun Game and Deathmatch): under the crosshair, the bar
+   empties over the protection time (hud.ts sets the transition). */
+.hud-protect {
+  position: absolute;
+  top: 58%;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3em;
+  width: 10em;
+}
+
+.hud-protect-label {
+  font-size: 0.8em;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--team-ct);
+}
+
+.hud-protect-track {
+  width: 100%;
+  height: 0.35em;
+  background: var(--hud-panel);
+  border: 1px solid var(--divider);
+}
+
+.hud-protect-fill {
+  display: block;
+  height: 100%;
+  background: var(--team-ct);
+  transform-origin: left;
+}
+
+/* "Killed by" card (D.4): lower centre, above the clock (and the Gun Game
+   strip), anchored at the bottom and capped in height so it never reaches
+   the crosshair; lines that don't fit are cut from the bottom. */
+.hud-killcard {
+  --kc-bottom: 4.6em;
+  position: absolute;
+  bottom: var(--kc-bottom);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25em;
+  width: max-content;
+  max-width: min(28em, calc(100% - 32px));
+  max-height: calc(50% - var(--kc-bottom) - 2em);
+  overflow: hidden;
+  padding: 0.5em 1.4em 0.6em;
+  background: var(--hud-panel);
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--danger);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+  text-align: center;
+  animation: hud-kc-in 0.2s ease-out;
+}
+
+#hud.gun-game > .hud-killcard {
+  --kc-bottom: 7.4em;
+}
+
+/* While spectating, the engine darkens the bottom fifth of the screen and
+   writes "<name> (health)" centred in it (cs16-client spectator_gui.cpp:
+   bars INT_YPOS(2) of 10 tall, the label at INT_YPOS(9)): keep the card
+   above that bar. */
+#hud[data-spectating='true'] > .hud-killcard {
+  bottom: max(var(--kc-bottom), calc(20% + 0.5em));
+  max-height: calc(50% - max(var(--kc-bottom), calc(20% + 0.5em)) - 2em);
+}
+
+@media (max-aspect-ratio: 1/1) {
+  .hud-killcard {
+    --kc-bottom: 10.6em;
+  }
+
+  #hud.gun-game > .hud-killcard {
+    --kc-bottom: 13.4em;
+  }
+}
+
+/* Phones held sideways: tighter, so all the lines fit under the crosshair
+   even above the Gun Game strip. */
+@media (max-height: 480px) {
+  .hud-killcard {
+    gap: 0.1em;
+    padding: 0.35em 1em 0.4em;
+  }
+
+  .hud-kc-killer {
+    font-size: 1.3em;
+  }
+}
+
+@keyframes hud-kc-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 0.6em);
+  }
+}
+
+.hud-kc-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0 0.4em;
+  max-width: 100%;
+}
+
+.hud-kc-title {
+  font-weight: 700;
+  font-size: 0.9em;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--label);
+}
+
+/* Short cards (fall, bomb, own grenade...) are the title alone. */
+.hud-killcard:not(.enemy, .teammate) .hud-kc-title {
+  font-size: 1.1em;
+  color: var(--text);
+}
+
+.hud-kc-killer {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.5em;
+}
+
+.hud-kc-killer.ct {
+  color: var(--team-ct);
+}
+
+.hud-kc-killer.t {
+  color: var(--team-t);
+}
+
+.hud-kc-weapon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.2em 0.5em;
+  font-weight: 600;
+}
+
+.hud-kc-icon {
+  width: 1.2em;
+  height: 1.2em;
+}
+
+.hud-kc-tag {
+  font-size: 0.8em;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--label);
+}
+
+.hud-kc-tag.hs {
+  color: var(--danger);
+}
+
+.hud-kc-details {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-kc-duel {
+  font-variant-numeric: tabular-nums;
+  color: var(--label);
+}
+
+.hud-kc-streak {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+/* "Your name" in the settings (claimed names, E.5): same layout as the
+   invite link above it. */
+.names-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.names .names-button {
+  margin-top: 0;
+  padding: 10px 14px;
+  font-size: 14px;
+}
+
+.names .names-button.names-danger:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.names-code,
+.names-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.names[hidden],
+.names-code[hidden],
+.names-form[hidden],
+.names-actions[hidden],
+.names-field[hidden],
+.names-button[hidden] {
+  display: none;
+}
+
+.names-code-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 1px;
+}
+
+.names .names-warning {
+  color: var(--text);
+}
+
+.names .names-saved {
+  align-self: flex-start;
+}
+
+.names .names-field .field-input {
+  width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
+}
+
+.names .names-status:empty {
+  display: none;
 }

@@ -6,9 +6,15 @@ import {
   type AdminAction,
   type ApiOnlyAction,
   type BanEntry,
+  type ClaimEntry,
 } from './actions';
 
-export type { AdminAction, ApiOnlyAction, BanEntry } from './actions';
+export type {
+  AdminAction,
+  ApiOnlyAction,
+  BanEntry,
+  ClaimEntry,
+} from './actions';
 
 // Shared state and helpers for the admin menu tabs. Tabs send typed actions
 // (sendAction). When the server has the admin API (ADMIN_PASSWORD), they go
@@ -164,6 +170,7 @@ export function sendApiAction(
           output: typeof body.output === 'string' ? body.output : '',
           bans: Array.isArray(body.bans) ? body.bans : [],
           nextMap: typeof body.nextMap === 'string' ? body.nextMap : '',
+          claims: Array.isArray(body.claims) ? body.claims : [],
         }
       : undefined
   );
@@ -232,6 +239,7 @@ type ApiBody = {
   loggedIn?: boolean;
   bans?: BanEntry[];
   nextMap?: string;
+  claims?: ClaimEntry[];
 };
 
 type ApiResponse = {
@@ -246,6 +254,8 @@ export type ApiResult = {
   bans: BanEntry[];
   /** amx_nextmap, for the nextmap action; '' if the server has none. */
   nextMap: string;
+  /** Claimed names, for the claims and release_claim actions. */
+  claims: ClaimEntry[];
 };
 
 /** Undefined when the server couldn't be reached. */

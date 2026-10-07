@@ -1,4 +1,4 @@
-import { parseLeaderboard, kdText, headshotText, noteText } from '/Users/wcarasas/Repos/Walcc.CounterStrike/src/client/src/leaderboard.ts';
+import { parseLeaderboard, kdText, headshotText, noteText } from '../../src/client/src/leaderboard.ts';
 const ok = (cond: boolean, m: string) => { if (!cond) { console.log('FAIL', m); process.exitCode = 1; } };
 const row = { rank: 1, name: '<img src=x>', kills: 10, deaths: 3, kd: 3.33, headshots: 4, headshotPercent: 40, rounds: 7 };
 const good = { players: [row, { ...row, rank: 2, name: 'Cy', kills: 0, kd: 0, headshots: 0, headshotPercent: null, rounds: undefined }], bots: false };

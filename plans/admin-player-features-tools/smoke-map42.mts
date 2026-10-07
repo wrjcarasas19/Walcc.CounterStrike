@@ -1,5 +1,5 @@
 // Run: node --experimental-strip-types --import ./plans/admin-player-features-tools/ts-ext.mjs plans/admin-player-features-tools/smoke-map42.mts
-import { actionCommands, checkApiOnlyAction, isAmxxMap, VOTE_MAPS_MAX } from '/Users/wcarasas/Repos/Walcc.CounterStrike/src/client/src/admin/actions.ts';
+import { actionCommands, checkApiOnlyAction, isAmxxMap, VOTE_MAPS_MAX } from '../../src/client/src/admin/actions.ts';
 const ok = (cond: boolean, m: string) => { if (!cond) { console.log('FAIL', m); process.exitCode = 1; } };
 const throws = (f: () => unknown) => { try { f(); return false; } catch { return true; } };
 ok(VOTE_MAPS_MAX === 4, 'max 4');

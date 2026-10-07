@@ -33,6 +33,18 @@ var compressibleExts = map[string]bool{
 	".wasm": true,
 }
 
+// The announcer sounds (src/client/public/sounds) are Opus in WebM with an
+// MP3 fallback. Go's built-in table has neither extension and the image has
+// no /etc/mime.types, so FileServer would sniff them: video/webm, and
+// application/octet-stream for an MP3 without an ID3 tag.
+func init() {
+	for ext, typ := range map[string]string{".webm": "audio/webm", ".mp3": "audio/mpeg"} {
+		if err := mime.AddExtensionType(ext, typ); err != nil {
+			panic(err)
+		}
+	}
+}
+
 type gzipFile struct {
 	data        []byte
 	contentType string

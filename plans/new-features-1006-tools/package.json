@@ -1,0 +1,9 @@
+{
+  "name": "new-features-1006-tools",
+  "private": true,
+  "type": "module",
+  "description": "Headless Chromium checks of the web page (see README.md)",
+  "dependencies": {
+    "playwright": "1.63.0"
+  }
+}

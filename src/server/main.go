@@ -51,14 +51,16 @@ func main() {
 	}
 
 	var admin http.Handler
+	var adminCommands *adminAPI
 	var console *engineConsole
 	if adminOn {
 		console = newEngineConsole(rconPassword, queueEnginePacket)
-		admin = newAdminAPI(adminPassword, console, actionEnv{
+		adminCommands = newAdminAPI(adminPassword, console, actionEnv{
 			mapsDir: filepath.Join("cstrike", "maps"),
 			bans:    bans,
 			peers:   gamePeers{},
 		})
+		admin = adminCommands
 		blockPlayerRcon = true
 	} else if rcon == rconEnabled {
 		fmt.Fprintln(os.Stderr, "The admin API is off (no valid ADMIN_PASSWORD): the F4 menu uses rcon")
@@ -83,18 +85,36 @@ func main() {
 	if !ok {
 		fmt.Fprintln(os.Stderr, "WARNING: LEADERBOARD_BOTS must be 0 or 1: bots are left out of the leaderboard")
 	}
-	var leaderboard http.Handler
+	var leaderboard, duel, names http.Handler
 	if db, err := openStatsDB(filepath.Join(dataDir, leaderboardFile)); err != nil {
-		fmt.Fprintf(os.Stderr, "WARNING: can't open the leaderboard database: %v; /leaderboard is off\n", err)
+		fmt.Fprintf(os.Stderr, "WARNING: can't open the leaderboard database: %v; /leaderboard, /duel and /names/ are off\n", err)
 	} else {
+		if console == nil {
+			// The log follower renames players under a claimed name they
+			// don't own through the console (statsfollow.go). Without the
+			// admin API, keep RCON_PASSWORD if there is one; otherwise use
+			// a password nobody knows and keep players off rcon.
+			if rcon != rconEnabled {
+				rconPassword = randomToken()
+				args, _ = engineArgs(os.Args, rconPassword)
+				blockPlayerRcon = true
+			}
+			console = newEngineConsole(rconPassword, queueEnginePacket)
+		}
 		args = withGameLogging(args)
-		go newLogFollower(filepath.Join("cstrike", "logs"), db, includeBots).run(context.Background(), statsScanInterval)
+		go newLogFollower(filepath.Join("cstrike", "logs"), db, includeBots, gamePeers{}, console).run(context.Background(), statsScanInterval)
 		leaderboard = newLeaderboardHandler(db, includeBots)
+		duel = newDuelHandler(db)
+		names = newNamesHandler(db)
+		if adminCommands != nil {
+			// Set before runSFU serves the admin API.
+			adminCommands.env.claims = db
+		}
 	}
 
 	// Server queries for /status.json work without the admin API: they
 	// don't use rcon (status.go).
-	go runSFU(admin, console, newEngineQuery(queueQueryPacket), leaderboard)
+	go runSFU(admin, console, newEngineQuery(queueQueryPacket), leaderboard, duel, names)
 
 	// SysStart, but with our arguments instead of os.Args.
 	goxash3d_fwgs.DefaultXash3D.HostMain(args, goxash3d_fwgs.GameDir, 0)

@@ -49,13 +49,13 @@ func newTestLeaderboard(f *fakeTop) (*leaderboardHandler, *time.Time) {
 
 func TestLeaderboardEntries(t *testing.T) {
 	got := leaderboardEntries([]leaderboardRow{
-		{Name: "Walter", playerTotals: playerTotals{Kills: 10, Deaths: 3, Headshots: 4, Rounds: 7}},
+		{Name: "Walter", playerTotals: playerTotals{Kills: 10, Deaths: 3, Headshots: 4, Rounds: 7, GunGameWins: 2}},
 		{Name: "Ann", playerTotals: playerTotals{Kills: 2, Deaths: 0, Headshots: 0}},
 		{Name: "Cy", playerTotals: playerTotals{Kills: 0, Deaths: 5}},
-	})
+	}, nil)
 	pct := func(n int64) *int64 { return &n }
 	want := []leaderboardEntry{
-		{Rank: 1, Name: "Walter", Kills: 10, Deaths: 3, KD: 3.33, Headshots: 4, HeadshotPct: pct(40), Rounds: 7},
+		{Rank: 1, Name: "Walter", Kills: 10, Deaths: 3, KD: 3.33, Headshots: 4, HeadshotPct: pct(40), Rounds: 7, GunGameWins: 2},
 		{Rank: 2, Name: "Ann", Kills: 2, KD: 2, HeadshotPct: pct(0)},
 		{Rank: 3, Name: "Cy", Deaths: 5, KD: 0},
 	}
@@ -64,10 +64,68 @@ func TestLeaderboardEntries(t *testing.T) {
 	}
 }
 
+// Only the row whose name is exactly the claimed spelling gets the mark:
+// not a case or colour variant of it (those rows are frozen), not other
+// names.
+func TestLeaderboardEntriesClaimed(t *testing.T) {
+	claims := map[string]string{"walter": "Walter", "*bob": "#Bob"}
+	got := leaderboardEntries([]leaderboardRow{
+		{Name: "Walter"}, {Name: "walter"}, {Name: "^1Walter"}, {Name: "Walter (1)"},
+		{Name: "#Bob"}, {Name: "*bob"}, {Name: "Ann"},
+	}, claims)
+	want := map[string]bool{"Walter": true, "#Bob": true}
+	for _, e := range got {
+		if e.Claimed != want[e.Name] {
+			t.Errorf("%q: claimed %v", e.Name, e.Claimed)
+		}
+	}
+}
+
+func TestLeaderboardHandlerClaims(t *testing.T) {
+	f := &fakeTop{rows: []leaderboardRow{{Name: "Walter"}, {Name: "walter"}, {Name: "Ann"}}}
+	h, now := newTestLeaderboard(f)
+	claims := map[string]string{"walter": "Walter"}
+	var claimsErr error
+	h.claims = func(context.Context) (map[string]string, error) { return claims, claimsErr }
+	decode := func() map[string]bool {
+		t.Helper()
+		w := getLeaderboard(h, http.MethodGet, "203.0.113.7:4000")
+		if w.Code != http.StatusOK {
+			t.Fatalf("status %d %s", w.Code, w.Body)
+		}
+		var body struct {
+			Players []struct {
+				Name    string `json:"name"`
+				Claimed *bool  `json:"claimed"`
+			} `json:"players"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		marks := map[string]bool{}
+		for _, p := range body.Players {
+			if p.Claimed == nil {
+				t.Fatalf("%q: no claimed field", p.Name)
+			}
+			marks[p.Name] = *p.Claimed
+		}
+		return marks
+	}
+	if got := decode(); !reflect.DeepEqual(got, map[string]bool{"Walter": true, "walter": false, "Ann": false}) {
+		t.Errorf("claimed: %v", got)
+	}
+	// A failed claims query still shows the board, without marks.
+	claims, claimsErr = nil, errors.New("locked")
+	*now = now.Add(leaderboardCacheTTL)
+	if got := decode(); !reflect.DeepEqual(got, map[string]bool{"Walter": false, "walter": false, "Ann": false}) {
+		t.Errorf("claims failed: %v", got)
+	}
+}
+
 func TestLeaderboardHandler(t *testing.T) {
 	f := &fakeTop{rows: []leaderboardRow{
 		{Name: `<img src=x onerror=alert(1)>`, playerTotals: playerTotals{Kills: 3, Deaths: 1, Headshots: 1}},
-		{Name: "Bob", playerTotals: playerTotals{Deaths: 2}},
+		{Name: "Bob", playerTotals: playerTotals{Deaths: 2, GunGameWins: 1}},
 	}}
 	h, now := newTestLeaderboard(f)
 	w := getLeaderboard(h, http.MethodGet, "203.0.113.7:4000")
@@ -83,8 +141,8 @@ func TestLeaderboardHandler(t *testing.T) {
 	if strings.Contains(body, "<img") {
 		t.Errorf("name not escaped: %s", body)
 	}
-	want := `{"players":[{"rank":1,"name":"` + "\\u003cimg src=x onerror=alert(1)\\u003e" + `","kills":3,"deaths":1,"kd":3,"headshots":1,"headshotPercent":33,"rounds":0},` +
-		`{"rank":2,"name":"Bob","kills":0,"deaths":2,"kd":0,"headshots":0,"headshotPercent":null,"rounds":0}],"bots":false}`
+	want := `{"players":[{"rank":1,"name":"` + "\\u003cimg src=x onerror=alert(1)\\u003e" + `","kills":3,"deaths":1,"kd":3,"headshots":1,"headshotPercent":33,"rounds":0,"ggWins":0,"claimed":false},` +
+		`{"rank":2,"name":"Bob","kills":0,"deaths":2,"kd":0,"headshots":0,"headshotPercent":null,"rounds":0,"ggWins":1,"claimed":false}],"bots":false}`
 	if body != want {
 		t.Errorf("body\n%s\nwant\n%s", body, want)
 	}
@@ -166,7 +224,9 @@ func TestLeaderboardFromLogs(t *testing.T) {
 		logLine(killWalterAnn)+
 		logLine(killWalterAnn)+
 		logLine(`"Gilroy<3><BOT><TERRORIST>" killed "Walter<7><ID_1><CT>" with "usp"`)+
-		logLine(killAnnWalter))
+		logLine(killAnnWalter)+
+		logLine(`"Walter<7><ID_1><CT>" triggered "wc_gg_win"`)+
+		logLine(`"Gilroy<3><ID_BOT><TERRORIST>" triggered "wc_gg_win"`))
 	ft.scan()
 	h := newLeaderboardHandler(ft.db, false)
 	w := getLeaderboard(h, http.MethodGet, "203.0.113.7:4000")
@@ -175,7 +235,8 @@ func TestLeaderboardFromLogs(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(got.Players) != 2 || got.Players[0].Name != "Walter" || got.Players[0].Kills != 2 || got.Players[0].Deaths != 2 ||
-		got.Players[0].KD != 1 || *got.Players[0].HeadshotPct != 50 || got.Players[1].Name != "Ann" {
+		got.Players[0].KD != 1 || *got.Players[0].HeadshotPct != 50 || got.Players[0].GunGameWins != 1 ||
+		got.Players[1].Name != "Ann" || got.Players[1].GunGameWins != 0 {
 		t.Errorf("got %s", w.Body)
 	}
 }

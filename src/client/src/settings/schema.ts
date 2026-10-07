@@ -105,6 +105,28 @@ export const SETTINGS = {
     unit: '%',
     default: 70,
   }),
+  // Announcer sounds (../announcer.ts: first blood, headshot, multi-kills...);
+  // 0 turns them off, and then they aren't even downloaded.
+  announcerVolume: numberSetting({
+    group: 'Sound',
+    label: 'Announcer volume',
+    min: 0,
+    max: 100,
+    step: 5,
+    unit: '%',
+    default: 70,
+  }),
+  announcerHeadshots: toggleSetting({
+    group: 'Sound',
+    label: 'Announce headshots',
+    hint: 'Can be very frequent',
+    default: true,
+  }),
+  announcerOthers: toggleSetting({
+    group: 'Sound',
+    label: "Hear other players' first blood",
+    default: true,
+  }),
   hudScale: numberSetting({
     group: 'HUD',
     label: 'HUD size',
@@ -127,6 +149,13 @@ export const SETTINGS = {
     group: 'HUD',
     label: 'Multi-kill toasts',
     hint: 'Double kill, triple kill...',
+    default: true,
+  }),
+  // "Killed by" card (D.4, killcard.ts).
+  killerCard: toggleSetting({
+    group: 'HUD',
+    label: 'Killer card',
+    hint: 'Who killed you and your record against them',
     default: true,
   }),
   // Hold to show the radio and quick chat wheel (../wheel). Z replaces the

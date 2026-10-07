@@ -104,6 +104,7 @@ let nextRequest: Promise<string | undefined> | undefined;
 let nextFailed = false;
 let settingNext = false;
 let wasLoggedIn = false;
+const nextMapListeners = new Set<() => void>();
 
 function selectedMap(): string | undefined {
   return mapList.querySelector<HTMLInputElement>('input:checked')?.value;
@@ -143,6 +144,22 @@ function renderNextMap(): void {
     else if (nextMap !== undefined) current = `Next map: ${nextMap}.`;
   }
   nextNote.textContent = current ? `${current} ${help}` : help;
+  for (const listener of nextMapListeners) listener();
+}
+
+/** amx_nextmap as last read through the admin API, if known. */
+export function getNextMap(): string | undefined {
+  return nextMap || undefined;
+}
+
+/** Calls listener whenever the next map may have changed. */
+export function onNextMapChange(listener: () => void): void {
+  nextMapListeners.add(listener);
+}
+
+/** Reads the next map again, if logged in to the admin API. */
+export function refreshNextMap(): void {
+  if (isLoggedIn()) void loadNextMap();
 }
 
 function renderMaps(): void {

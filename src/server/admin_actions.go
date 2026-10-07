@@ -50,6 +50,9 @@ type actionEnv struct {
 	// addresses, for the ban actions.
 	bans  *banList
 	peers peerDirectory
+	// claims is the leaderboard database, for the claimed-names actions
+	// (admin_names.go); nil when it isn't open.
+	claims *statsDB
 }
 
 // adminCvar mirrors CVARS in src/client/src/admin/cvars.ts: the range and
@@ -69,6 +72,15 @@ var adminCvars = map[string]adminCvar{
 	"mp_maxrounds":    {0, 100, 0},
 	// 0 off, 1 knife only, 2 pistols only (src/amxx/wc_weaponmode.sma).
 	"wc_weaponmode": {0, 2, 0},
+	// 0 classic, 1 Gun Game, 2 Deathmatch (src/amxx/wc_gamemode.sma).
+	"wc_gamemode": {0, 2, 0},
+	// Deathmatch frag limit, 0 off (src/amxx/wc_gamemode.sma).
+	"wc_dm_fraglimit": {0, 500, 0},
+	// Gun Game (src/amxx/wc_gamemode.sma): kills per level, a level lost on
+	// suicide (0/1), late joiners at the lowest level (0/1).
+	"wc_gg_kills_per_level": {1, 10, 0},
+	"wc_gg_suicide_penalty": {0, 1, 0},
+	"wc_gg_join_lowest":     {0, 1, 0},
 }
 
 // Same as message-text.ts: printable ASCII without " ; \ $ { } ' , ^ %.
@@ -183,7 +195,7 @@ var adminActions = map[string]actionSpec{
 }
 
 func init() {
-	for _, actions := range []map[string]actionSpec{banActions, mapActions} {
+	for _, actions := range []map[string]actionSpec{banActions, mapActions, nameActions} {
 		for name, spec := range actions {
 			adminActions[name] = spec
 		}

@@ -14,8 +14,8 @@ import (
 
 // GET /leaderboard is the top players by kills since the leaderboard
 // database was created (statsdb.go, filled by statsfollow.go). Names are
-// whatever players typed: nothing is verified, anyone can play under any
-// name and add to its totals.
+// whatever players typed, except claimed names (names.go): only the
+// claimant's browsers add to those, and their row is marked "claimed".
 //
 // Like /status.json it is cached (leaderboardCacheTTL; the database only
 // changes when the follower reads new log lines) and rate limited per
@@ -38,6 +38,10 @@ type leaderboardEntry struct {
 	// with no kills.
 	HeadshotPct *int64 `json:"headshotPercent"`
 	Rounds      int64  `json:"rounds"`
+	GunGameWins int64  `json:"ggWins"`
+	// Claimed is true on the row of a claimed name: its name is exactly
+	// the claimed spelling (claims.name), not a case or colour variant.
+	Claimed bool `json:"claimed"`
 }
 
 type leaderboardBody struct {
@@ -46,17 +50,22 @@ type leaderboardBody struct {
 	Bots bool `json:"bots"`
 }
 
-func leaderboardEntries(rows []leaderboardRow) []leaderboardEntry {
+// leaderboardEntries turns rows into the response; claims is
+// statsDB.claimedNames (name key -> claimed spelling), nil for none.
+func leaderboardEntries(rows []leaderboardRow, claims map[string]string) []leaderboardEntry {
 	list := make([]leaderboardEntry, 0, len(rows))
 	for i, r := range rows {
+		claimed, ok := claims[nameKey(r.Name)]
 		e := leaderboardEntry{
-			Rank:      i + 1,
-			Name:      r.Name,
-			Kills:     r.Kills,
-			Deaths:    r.Deaths,
-			KD:        math.Round(float64(r.Kills)/math.Max(1, float64(r.Deaths))*100) / 100,
-			Headshots: r.Headshots,
-			Rounds:    r.Rounds,
+			Rank:        i + 1,
+			Name:        r.Name,
+			Kills:       r.Kills,
+			Deaths:      r.Deaths,
+			KD:          math.Round(float64(r.Kills)/math.Max(1, float64(r.Deaths))*100) / 100,
+			Headshots:   r.Headshots,
+			Rounds:      r.Rounds,
+			GunGameWins: r.GunGameWins,
+			Claimed:     ok && claimed == r.Name,
 		}
 		if r.Kills > 0 {
 			pct := int64(math.Round(float64(r.Headshots) * 100 / float64(r.Kills)))
@@ -68,7 +77,9 @@ func leaderboardEntries(rows []leaderboardRow) []leaderboardEntry {
 }
 
 type leaderboardHandler struct {
-	top     func(ctx context.Context, limit int) ([]leaderboardRow, error)
+	top func(ctx context.Context, limit int) ([]leaderboardRow, error)
+	// claims is statsDB.claimedNames; nil marks nothing.
+	claims  func(ctx context.Context) (map[string]string, error)
 	bots    bool
 	ttl     time.Duration
 	limiter *rateLimiter
@@ -83,6 +94,7 @@ type leaderboardHandler struct {
 func newLeaderboardHandler(db *statsDB, bots bool) *leaderboardHandler {
 	return &leaderboardHandler{
 		top:     db.top,
+		claims:  db.claimedNames,
 		bots:    bots,
 		ttl:     leaderboardCacheTTL,
 		limiter: newRateLimiter(statusRate, statusBurst),
@@ -134,7 +146,15 @@ func (h *leaderboardHandler) get() []byte {
 		h.logf("%v", err)
 		return nil
 	}
-	body, err := json.Marshal(leaderboardBody{Players: leaderboardEntries(rows), Bots: h.bots})
+	// Without the claims the board is still shown, just without marks.
+	var claims map[string]string
+	if h.claims != nil {
+		if claims, err = h.claims(ctx); err != nil {
+			h.logf("claimed names: %v", err)
+			claims = nil
+		}
+	}
+	body, err := json.Marshal(leaderboardBody{Players: leaderboardEntries(rows, claims), Bots: h.bots})
 	if err != nil {
 		h.logf("%v", err)
 		return nil

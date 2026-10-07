@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createSessionStats, formatKd, formatHeadshots, multiKillLabel, MULTI_KILL_WINDOW_MS } from '/Users/wcarasas/Repos/Walcc.CounterStrike/src/client/src/stats.ts';
+import { createSessionStats, formatKd, formatHeadshots, multiKillLabel, MULTI_KILL_WINDOW_MS } from '../../src/client/src/stats.ts';
 
 const k = (killer: string, victim: string, o: any = {}) => ({ killer, victim, weapon: o.weapon ?? 'ak47', headshot: !!o.hs, killerTeam: o.kt ?? 'CT', victimTeam: o.vt ?? 'T' });
 const s = createSessionStats();
@@ -90,4 +90,65 @@ assert.deepEqual([1,2,3,4,5,6,9].map(multiKillLabel), ['', 'Double kill', 'Tripl
 const t = createSessionStats();
 assert.equal(t.local(), undefined);
 assert.equal(t.recordKill(k('Me', 'Bob'), 0).local, undefined);
+// Duels (D.2): enemy kills per pair, this map
+const d = createSessionStats();
+d.setLocalName('Me');
+assert.deepEqual(d.duel('Me', 'Walter'), { aKills: 0, bKills: 0 });
+d.recordKill(k('Me', 'Walter'), 0);
+d.recordKill(k('Walter', 'Me', { kt: 'T', vt: 'CT' }), 1);
+d.recordKill(k('Walter', 'Me', { kt: 'T', vt: 'CT' }), 2);
+d.recordKill(k('Walter', 'Ann', { kt: 'T', vt: 'CT' }), 3);
+assert.deepEqual(d.duel('Me', 'Walter'), { aKills: 1, bKills: 2 });
+assert.deepEqual(d.duel('Walter', 'Me'), { aKills: 2, bKills: 1 });
+assert.deepEqual(d.duel('Me', 'Ann'), { aKills: 0, bKills: 0 });
+assert.deepEqual(d.duel('Walter', 'Ann'), { aKills: 1, bKills: 0 });
+// team kills, suicides, world kills and objects don't count
+d.recordKill(k('Walter', 'Ann', { kt: 'T', vt: 'T' }), 4);
+d.recordKill(k('Me', 'Ann', { kt: 'CT', vt: 'CT' }), 5);
+d.recordKill(k('', 'Me', { weapon: 'world', kt: '', vt: 'CT' }), 6);
+d.recordKill(k('Me', 'Me', { weapon: 'grenade', kt: 'CT', vt: 'CT' }), 7);
+d.recordKill(k('Me', 'func_breakable', { weapon: 'func_breakable', vt: '' }), 8);
+assert.deepEqual(d.duel('Me', 'Walter'), { aKills: 1, bKills: 2 });
+assert.deepEqual(d.duel('Walter', 'Ann'), { aKills: 1, bKills: 0 });
+assert.deepEqual(d.duel('Me', 'Me'), { aKills: 0, bKills: 0 });
+// startRound keeps them
+d.startRound();
+assert.deepEqual(d.duel('Me', 'Walter'), { aKills: 1, bKills: 2 });
+// the killer's current streak (for the card): get(name).streak
+assert.equal(d.get('Walter')!.streak, 3);
+d.recordKill(k('Me', 'Walter'), 9);
+assert.equal(d.get('Walter')!.streak, 0);
+assert.equal(d.get('Me')!.streak, 1);
+// rename moves both directions of every pair
+d.updatePlayers([{ userid: 7, name: 'Walter', local: false }, { userid: 3, name: 'Me', local: true }]);
+d.updatePlayers([{ userid: 7, name: 'Walt', local: false }]);
+assert.deepEqual(d.duel('Me', 'Walt'), { aKills: 2, bKills: 2 });
+assert.deepEqual(d.duel('Walt', 'Ann'), { aKills: 1, bKills: 0 });
+assert.deepEqual(d.duel('Me', 'Walter'), { aKills: 0, bKills: 0 });
+d.updatePlayers([{ userid: 3, name: 'Me2', local: true }]);
+assert.deepEqual(d.duel('Me2', 'Walt'), { aKills: 2, bKills: 2 });
+assert.deepEqual(d.duel('Me', 'Walt'), { aKills: 0, bKills: 0 });
+// rename onto a name that already has pairs: merged
+d.recordKill(k('Walty', 'Me2', { kt: 'T', vt: 'CT' }), 10);
+d.recordKill(k('Me2', 'Walty'), 11);
+d.recordKill(k('Ann', 'Walty', { kt: 'CT', vt: 'T' }), 12);
+d.updatePlayers([{ userid: 7, name: 'Walty', local: false }]);
+assert.deepEqual(d.duel('Me2', 'Walty'), { aKills: 3, bKills: 3 });
+assert.deepEqual(d.duel('Walty', 'Ann'), { aKills: 1, bKills: 1 });
+assert.deepEqual(d.duel('Me2', 'Walt'), { aKills: 0, bKills: 0 });
+// merging two names that fought each other drops that pair (no self duel)
+d.recordKill(k('Bob', 'Cid', { kt: 'T', vt: 'CT' }), 13);
+d.recordKill(k('Cid', 'Bob', { kt: 'CT', vt: 'T' }), 14);
+d.recordKill(k('Bob', 'Me2', { kt: 'T', vt: 'CT' }), 15);
+d.updatePlayers([{ userid: 9, name: 'Bob', local: false }]);
+d.updatePlayers([{ userid: 9, name: 'Cid', local: false }]);
+assert.deepEqual(d.duel('Cid', 'Cid'), { aKills: 0, bKills: 0 });
+assert.deepEqual(d.duel('Cid', 'Bob'), { aKills: 0, bKills: 0 });
+assert.deepEqual(d.duel('Cid', 'Me2'), { aKills: 1, bKills: 0 });
+// reset clears them
+d.reset();
+assert.deepEqual(d.duel('Me2', 'Walty'), { aKills: 0, bKills: 0 });
+assert.deepEqual(d.duel('Cid', 'Me2'), { aKills: 0, bKills: 0 });
+d.recordKill(k('Me2', 'Walty'), 16);
+assert.deepEqual(d.duel('Me2', 'Walty'), { aKills: 1, bKills: 0 });
 console.log('ok');

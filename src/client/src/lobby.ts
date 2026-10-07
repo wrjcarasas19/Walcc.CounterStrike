@@ -24,6 +24,20 @@ export interface LobbyStatus {
   timeLeft: number | null;
   /** '' if unknown. */
   nextMap: string;
+  /** wc_gamemode: 0 classic (or unknown), 1 Gun Game, 2 Deathmatch. */
+  gameMode: number;
+}
+
+/** The name of each wc_gamemode value (src/amxx/wc_gamemode.sma). */
+export const GAME_MODE_NAMES: readonly string[] = [
+  'Classic',
+  'Gun Game',
+  'Deathmatch',
+];
+
+/** "Gun Game"; '' for a classic game or an unknown value. */
+export function gameModeName(mode: number): string {
+  return mode > 0 ? (GAME_MODE_NAMES[mode] ?? '') : '';
 }
 
 const STATUS_URL = '/status.json';
@@ -75,13 +89,24 @@ export function parseLobbyStatus(json: unknown): LobbyStatus | undefined {
     timeLimit,
     timeLeft: isCount(data.timeLeft) ? data.timeLeft : null,
     nextMap: typeof data.nextMap === 'string' ? data.nextMap : '',
+    gameMode:
+      isCount(data.gameMode) && gameModeName(data.gameMode) !== ''
+        ? data.gameMode
+        : 0,
   };
 }
 
-/** "de_dust2 · 5/16 players" */
+/** "de_dust2 · 5/16 players", "de_dust2 · Gun Game · 5/16 players" */
 export function summaryText(status: LobbyStatus): string {
   const noun = status.maxPlayers === 1 ? 'player' : 'players';
-  return `${status.map} · ${status.playerCount}/${status.maxPlayers} ${noun}`;
+  const mode = gameModeName(status.gameMode);
+  return [
+    status.map,
+    mode,
+    `${status.playerCount}/${status.maxPlayers} ${noun}`,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 }
 
 /** "12:07 left", or '' when there is no time limit or it's unknown. */

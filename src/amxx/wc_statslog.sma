@@ -9,13 +9,22 @@
 // DeathMsg first). The Go side decides what counts (enemy kills only, bots
 // or not), exactly as it does for the "killed" line.
 //
+// It also logs name changes, in the stock format the Go side reads:
+//   "Old<uid><auth><team>" changed name to "New"
+// The game itself writes none on this engine (Xash3D sets the new name
+// before the game DLL hears of the change, so ReGameDLL finds nothing
+// changed), for a player's own `name` command and amx_nick alike. AMX Mod
+// X still knows the old name when the userinfo changes. The log follower
+// needs these lines to rename whoever takes a claimed name (claimed names,
+// src/server/statsfollow.go).
+//
 // Names go in as format arguments, never as the format, so a '%' in a name
 // is harmless.
 
 #include <amxmodx>
 
 #define PLUGIN  "Web stats log"
-#define VERSION "1.0"
+#define VERSION "1.1"
 #define AUTHOR  "Walcc"
 
 public plugin_init()
@@ -51,4 +60,24 @@ public on_headshot()
 		killerName, get_user_userid(killer), killerAuth, killerTeam,
 		victimName, get_user_userid(victim), victimAuth, victimTeam,
 		weapon)
+}
+
+public client_infochanged(id)
+{
+	if (!is_user_connected(id))
+		return
+
+	new oldName[64], newName[64]
+	get_user_name(id, oldName, charsmax(oldName))
+	get_user_info(id, "name", newName, charsmax(newName))
+	if (newName[0] == EOS || equal(oldName, newName))
+		return
+
+	// Like the game's lines: no team is "", not "UNASSIGNED".
+	new auth[64], team[32]
+	get_user_authid(id, auth, charsmax(auth))
+	if (!get_user_team(id, team, charsmax(team)))
+		team[0] = EOS
+	log_message("^"%s<%d><%s><%s>^" changed name to ^"%s^"",
+		oldName, get_user_userid(id), auth, team, newName)
 }

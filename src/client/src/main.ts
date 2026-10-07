@@ -1,4 +1,5 @@
 import { attachAdmin, detachAdmin } from './admin';
+import { setAnnouncerOptions, startAnnouncer } from './announcer';
 // Before ./wheel: its key listeners must run before the wheel's (chat.ts).
 import { attachChat, detachChat } from './chat';
 import { createEngine } from './engine';
@@ -16,14 +17,24 @@ import {
   type Stage,
   updateProgress,
 } from './desktop';
-import { attachHud, detachHud, setLocalPlayerName } from './hud';
+import { attachHud, detachHud, setLiveScores, setLocalPlayerName } from './hud';
 import { hasJoinParam, joinAction, withoutJoinParam } from './invite/link';
+import { startKillCard } from './killcard';
 import { startLeaderboard, stopLeaderboard } from './leaderboard';
 import { startLobby, stopLobby } from './lobby';
 import { startMapResync, stopMapResync, syncServerMaps } from './maps';
 import { setInGame } from './modal';
-import { cachePlayerName, getPlayerName, savedPlayerName } from './player';
+import { startNameStatus } from './name-status';
+import { setNamesRejoin } from './names';
+import {
+  cachePlayerName,
+  getPlayerName,
+  savedPlayerName,
+  savePlayerName,
+} from './player';
 import { attachSettings, detachSettings } from './settings';
+import { getSettings, onSettingsChange } from './settings/store';
+import type { Settings } from './settings/schema';
 import { attachWheel, detachWheel } from './wheel';
 import { ConnectError, type Xash3DWebRTC } from './webrtc';
 
@@ -34,6 +45,28 @@ const SERVER_ADDRESS = '127.0.0.1:8080';
 // Waits before each attempt to re-open a lost connection; after the last
 // one fails, the player is offered a reload.
 const RECONNECT_DELAYS_MS = [1_000, 3_000, 5_000];
+
+/**
+ * Announcer settings (Sound group). Last man standing needs every player's
+ * alive state, so scores come all the time while the announcer is on; at
+ * volume 0 they don't (setLiveScores only reaches the engine once the HUD is
+ * attached, so this is safe on the login page).
+ */
+function applyAnnouncerSettings(settings: Readonly<Settings>): void {
+  setAnnouncerOptions({
+    volume: settings.announcerVolume,
+    headshots: settings.announcerHeadshots,
+    others: settings.announcerOthers,
+  });
+  setLiveScores('announcer', settings.announcerVolume > 0);
+}
+
+applyAnnouncerSettings(getSettings());
+onSettingsChange((settings, changed) => {
+  if (changed.some((key) => key.startsWith('announcer'))) {
+    applyAnnouncerSettings(settings);
+  }
+});
 
 let engine: Xash3DWebRTC | undefined;
 let failedStage: Stage | undefined;
@@ -68,6 +101,7 @@ onAction(() => {
 setPhase('idle');
 startLobby();
 startLeaderboard();
+startNameStatus();
 handleInviteLink();
 
 /**
@@ -202,6 +236,7 @@ function start(engine: Xash3DWebRTC): void {
     void reconnect(engine).then((reconnected) => {
       if (reconnected) return;
       stopMapResync();
+      setNamesRejoin(undefined);
       detachAdmin();
       detachSettings();
       detachWheel();
@@ -219,6 +254,10 @@ function start(engine: Xash3DWebRTC): void {
   setInGame(true);
   const touch = !window.matchMedia('(hover: hover)').matches;
   attachHud(engine);
+  // Announcer sounds load now, not on the login page (and not at all at
+  // volume 0, see applyAnnouncerSettings).
+  startAnnouncer();
+  startKillCard();
   attachChat(engine, { touch });
   attachAdmin(engine);
   engine.Cmd_ExecuteString('_vgui_menus 0');
@@ -228,6 +267,17 @@ function start(engine: Xash3DWebRTC): void {
   attachWheel(engine, touch);
   engine.Cmd_ExecuteString(`name "${playerName}"`);
   setLocalPlayerName(playerName);
+  // Claimed names: the server reads the name cookie when the game
+  // connection opens, so a claim or sign-in made in game counts only after
+  // joining again. "Rejoin now" in the settings drops the connection
+  // (onDisconnect reconnects below) and joins under the claimed name.
+  setNamesRejoin((name) => {
+    savePlayerName(name);
+    const joinAs = getPlayerName();
+    engine.rejoin();
+    engine.Cmd_ExecuteString(`name "${joinAs}"`);
+    setLocalPlayerName(joinAs);
+  });
   // Large cl_dlmax makes this dedicated server crash in Netchan_TransmitBits.
   engine.Cmd_ExecuteString('cl_dlmax 1400');
   engine.Cmd_ExecuteString('rate 25000');
