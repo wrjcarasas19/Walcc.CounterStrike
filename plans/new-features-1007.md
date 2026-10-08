@@ -239,6 +239,47 @@ survive a reload.
 privacy and bandwidth (each player sends ≤ 32 kbit/s while talking and
 receives ≤ 4 × 32 kbit/s).
 
+### A.7 Talk to all players (added 2026-10-08 at the user's request)
+
+A second push-to-talk key that sends to **all** players, enemies included,
+next to the team-only key (K). Nothing like this existed before: voice was
+team-only unless `sv_alltalk 1`.
+
+- **Client:**
+  - New setting `voiceAllKey` (Keys group, default **L**; same choices
+    as `voiceKey` plus off; the two keys can't be the same).
+  - Captured the same way as the team key (not while chat or a menu is
+    open), with the same 200 ms tail and first-press mic permission.
+  - Touch: a second hold button ("All") next to the team mic button.
+  - The page tells the server which mode the current transmission is in,
+    over the `voice` data channel, e.g. `{"talk":"all"}` /
+    `{"talk":"team"}`, sent before the mic track is attached. Switching
+    keys mid-sentence switches the mode.
+- **Server (Go):**
+  - Per speaker mode `team|all`, set from those messages and reset to
+    `team` when the speaker stops (lane released) or reconnects.
+  - In `all` mode, every player may hear the speaker, **except** that
+    alive players still don't hear dead ones (the CS 1.6 rule, so the dead
+    can't call out enemy positions: **decision to review**). Spectators and
+    the dead hear all-messages too.
+  - Admin mute, `sv_voiceenable 0` and the not-in-roster rule still apply.
+  - New cvar `wc_voice_all 0|1` (default 1, owned by `wc_roster.sma` and
+    reported on the roster's first line). At 0 the server treats `all` as
+    `team`. Add it to `adminCvars` / `cvars.ts` so the Match tab can set it.
+  - Lane events carry the mode:
+    `{"lane":2,"userid":7,"all":true}`.
+- **Display:** the speaking list and the scoreboard speaker icon show an
+  "[All]" tag (or a different colour) for all-messages; the local
+  player's own entry shows it too.
+- Tests: the hear rules for `all` mode (alive/dead/spec × same/other team
+  × `wc_voice_all`), mode reset on lane release, and messages from old
+  pages (no `talk` message = team).
+
+**Done when:** in a 2 v 2, holding L is heard by both enemies and
+teammates, K stays team-only, a dead player's L is not heard by the
+living, `wc_voice_all 0` from the Match tab makes L team-only, and the
+"[All]" tag shows; README describes the key.
+
 ---
 
 ## Part B — Adaptive bots
