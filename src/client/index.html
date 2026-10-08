@@ -155,6 +155,18 @@
         <div class="hud-toast hud-level-toast" aria-live="polite">
           <span id="hud-level-toast-text" class="hud-toast-text"></span>
         </div>
+        <div
+          id="hud-voice-notice"
+          class="hud-voice-notice"
+          role="status"
+          hidden
+        >
+          <span
+            id="hud-voice-notice-title"
+            class="hud-voice-notice-title"
+          ></span>
+          <span id="hud-voice-notice-text" class="hud-voice-notice-text"></span>
+        </div>
         <div id="hud-round" class="hud-round" aria-live="polite" hidden>
           <span id="hud-round-title" class="hud-round-title"></span>
           <span id="hud-round-reason" class="hud-round-reason"></span>
@@ -363,6 +375,20 @@
           <path
             fill-rule="evenodd"
             d="M2 6h20v12H2zm3 3v2h2V9zm4 0v2h2V9zm4 0v2h2V9zm4 0v2h2V9zM7 13v2h10v-2z"
+          />
+        </svg>
+      </button>
+      <button
+        id="voice-button"
+        class="settings-touch-button voice-touch-button"
+        type="button"
+        aria-label="Hold to talk"
+        aria-pressed="false"
+        hidden
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M12 2a3.5 3.5 0 0 0-3.5 3.5v6a3.5 3.5 0 0 0 7 0v-6A3.5 3.5 0 0 0 12 2zM5 11h2a5 5 0 0 0 10 0h2a7 7 0 0 1-6 6.9V21h3v2H8v-2h3v-3.1A7 7 0 0 1 5 11z"
           />
         </svg>
       </button>

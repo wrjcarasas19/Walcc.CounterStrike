@@ -12,7 +12,12 @@ export function createEngine(): Xash3DWebRTC {
   return new Xash3DWebRTC({
     canvas,
     module: {
-      arguments: ['-windowed', '-game', 'cstrike'],
+      // The engine's own voice chat stays off (the game's config.cfg turns it
+      // on and binds K to +voicerecord): with it on, the engine opens the
+      // microphone as it starts and sends voice over the game connection.
+      // Voice goes over WebRTC instead (voice.ts). Set here, before the
+      // engine starts, so it never calls getUserMedia.
+      arguments: ['-windowed', '-game', 'cstrike', '+voice_enable', '0'],
     },
     libraries: {
       filesystem: filesystemURL,

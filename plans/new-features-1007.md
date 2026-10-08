@@ -905,12 +905,156 @@ poll (not the push fallback), plus an engine patch for the logs.**
 - Any new Go console command now runs quietly (no console/log echo):
   log what matters in Go.
 
+### A.4 done (2026-10-08): push to talk and settings (client)
+
+**What changed.**
+
+- **Engine voice off, checked.** `engine.ts` starts the engine with
+  `+voice_enable 0` (start arguments; they run after the game's
+  `config.cfg`, which sets it to 1). Counting `getUserMedia` calls in the
+  page: the A.3 image's page calls it **once** during engine start
+  (`VoiceCapture_Init: capture device creation success`); with the argument
+  **0 calls** through engine start, joining and playing, `voice_enable` reads
+  `"0"`, and no `VoiceCapture` line. `attachVoice` also runs `unbind k`
+  (K was `+voicerecord`; nothing else in the game's binds or the page used
+  K; J, L, P are unbound in stock CS too). `sv_voiceenable` untouched (A.6).
+- `src/client/src/voice.ts` (new):
+  - **Push to talk** with the `voiceKey` setting (matched on
+    `KeyboardEvent.code`, so keyup matches keydown whatever Shift does).
+    Capture listeners (keydown, keypress, keyup) registered after
+    `modal.ts`'s and `chat.ts`'s (main.ts imports `./voice` right after
+    `./chat`) and before the engine's: an open menu or the chat input keeps
+    the key (K types "k"), otherwise `preventDefault` +
+    `stopImmediatePropagation` keep keydown, repeats and keyup from the
+    engine. Ctrl/Alt/Meta + key are left alone. Blur releases.
+  - Press: `getUserMedia({audio: VOICE_MIC_CONSTRAINTS})` (with
+    `deviceId: {exact}` when a microphone is picked, falling back to the
+    default if it is gone) on the **first** press only, then
+    `setMicTrack(track)`. Release: `setMicTrack(null)` **200 ms** after the
+    last holder (key or touch) lets go; pressing again within it keeps
+    sending. **Decision to review:** the capture stays open 30 s
+    (`MIC_IDLE_MS`) after the last use so the next press starts at once,
+    then its tracks are stopped (the browser's recording indicator goes off;
+    on iOS an open capture also changes the audio session). Nothing is sent
+    while not talking either way (no track on the sender).
+  - Refused: notice "Microphone blocked" in the HUD (`#hud-voice-notice`,
+    6 s, with how to allow it) and the same help in the settings' Voice
+    group; also "No microphone" (NotFoundError), "Microphone unavailable"
+    (insecure page / in use).
+  - **Playback:** per lane `MediaStreamAudioSourceNode` → per-lane
+    `GainNode` (per player, `setPlayerGain`, for A.5) → master `GainNode`
+    (`voiceVolume`) → speakers, plus a muted `<audio>` element per lane
+    (Chrome only feeds remote WebRTC audio to Web Audio while a media
+    element plays it; without it the graph would be silent). Element
+    `volume` was avoided because iOS ignores it. The `AudioContext` is
+    resumed on the first key or tap in game, suspended when voice is off or
+    the game is left. A lane whose speaker isn't known yet plays at gain 1
+    (its event can arrive just after the first packets).
+  - `initVoice(engine)` right after `createEngine()` (the lanes' tracks come
+    with the offer, before `start()`), `attachVoice(touch)` in `start()`,
+    `detachVoice()` when the connection is lost for good (stops talking,
+    closes the mic, drops lanes). A new connection's tracks replace the old
+    lanes (announced quiet).
+  - **Touch:** `#voice-button` (hold to talk, `aria-pressed` while
+    sending), top row left of the settings button, above the chat button;
+    shown with touch controls while in game, voice on, the server offering
+    voice and no game menu open. Pointer capture, `touch-action: none`, no
+    context menu.
+  - **Hooks for A.5, not built:** `onVoiceEvent(listener)` (`lane` events
+    with the engine userid, `talking` for the local player),
+    `setPlayerGain((userid) => gain)`, `isTalking()`.
+- Settings (`settings/schema.ts`, `settings/index.ts`): new group `Voice`
+  with `voiceEnabled` (default on; off stops talking, closes the mic, master
+  gain 0, context suspended; K then goes to the engine, where it is
+  unbound), `voiceVolume` (0–100 %, default 80), `voiceInput` (new setting
+  kind **`device`**: a device id string, `''` = default, checked against
+  printable ASCII ≤ 256 chars; the panel's select gets its options from
+  `setDeviceOptions`, which voice.ts fills from `enumerateDevices` once the
+  names are visible, i.e. after permission; a saved device not present is
+  kept as "Saved device (not found)"), and `voiceKey` in Keys (K, J, L, P,
+  off). The panel also has "Test microphone" with a level meter (Web Audio
+  analyser on the same capture, never played back, stops after 20 s or when
+  the panel closes) and a status/help line. New panel exports:
+  `setDeviceOptions`, `settingsGroupFields`, `onSettingsPanel`.
+- README: Features bullet (voice controls and settings), `VOICE` row no
+  longer says "no voice UI yet". Tools: `check-voice-ptt.mjs` (README there).
+
+**What was checked** (`npm run build`, `tsc --noEmit`; Prettier with the
+repo's style — `--trailing-comma es5`, which leaves HEAD's files clean except
+`webrtc.ts` and README's YAML block — clean on every file touched; no Go
+touched). Image rebuilt (`local/cs16-web-server:latest`; the A.3 image is
+tagged `local/cs16-web-server:pre-a4`), `check-voice-ptt.mjs` against it,
+headless Chromium, fake microphone, de_dust2 without bots, all OK in the
+last two runs on the image and the last `PUBLIC_DIR` run before (numbers from
+the final run):
+
+- No `getUserMedia` on A or B before the first press (0 / 0); A: once on the
+  first K.
+- Holding K 4 s: A sent 169 RTP packets, B got 182 on lane 0 (lane event
+  `[0, 1]`, A's engine userid) and **played it**: peak RMS 0.24 after B's
+  master gain; at voice volume 0 it is 0.00000.
+- **Game data channel while holding K: 210 B/s vs 200 B/s idle** (other
+  runs 201 vs 224, 182 vs 202; A.0's engine voice added ~4 000 B/s): the
+  engine no longer sends voice.
+- Release: `setMicTrack(null)` was called 608 ms after the keyup, exactly
+  when a plain 200 ms `setTimeout` started at the same keyup fired (608 ms:
+  the SwiftShader engine starves the page's timers); 454 ms = 454 ms in the
+  run before, and 285 / 441 ms in the first runs (before the timer
+  comparison was added). So the code waits the
+  200 ms tail; how late timers run depends on the machine. No RTP after.
+- Y then K: the chat field got "k", 0 RTP.
+- B with the permission denied (CDP): "Microphone blocked" notice shown
+  (screenshot), one `getUserMedia` call, the settings' help says how to
+  allow it.
+- Voice off: K asks for nothing, sends nothing, master gain 0.
+- Login page, browser without the fake UI: only "Default microphone"
+  before the permission; after it the two fake microphones are listed and
+  the test meter peaks at 84–100 %; volume 55, key J and a picked
+  microphone survive a reload.
+- Phone viewport (844×390, `isMobile`, `hasTouch`): the mic button shows
+  next to the chat button, not over cs16-client's touch buttons
+  (screenshot); no `getUserMedia` before it is held; held with CDP touch
+  events: `aria-pressed` true, 223 RTP packets sent, B got 228; nothing
+  after letting go. (Without the try/catch around `setPointerCapture` the
+  CDP touch pointer threw `InvalidStateError`; touch pointers are captured
+  implicitly anyway.)
+- `VOICE=0` server: `voiceAvailable` false, holding K calls no
+  `getUserMedia`.
+
+**Not checked:** Firefox, Safari, Android Chrome, iOS Safari and real phones
+(none here): in particular the muted-element + Web Audio playback on iOS,
+whether iOS lets the `AudioContext` resume from the key/tap listener, the
+"blocked" help text against each browser's real UI, and device names in
+Firefox (it may list them only while capturing). Audible output (headless:
+levels measured in the graph instead). A real microphone and the browser's
+permission prompt (the fake UI accepts it). Talking through a reconnect (a
+held key is not re-attached to the new connection until the next press).
+An older cs16-client without the HTML HUD (the engine's chat line would not
+keep K from voice; 0.0.10 is what's shipped).
+
+**What A.5 needs to know.**
+
+- `onVoiceEvent` gives `{type:'lane', lane, userid}` (engine userid, 0 =
+  quiet; a new connection's lanes are announced quiet) and
+  `{type:'talking', talking}` for the local player (true on press, false
+  after the 200 ms tail or when voice is turned off). The speaking list
+  can be built from these alone.
+- Mutes: call `setPlayerGain((userid) => muted ? 0 : 1)` again whenever the
+  mute list changes; it is applied to every lane at once and on each lane
+  event. Userids come from the scoreboard / killinfo (same `#userid`).
+- `isTalking()` for the local "mic" entry. The HUD notice element
+  (`#hud-voice-notice`) sits at 32 % from the top, centred.
+- With voice off the page still receives lane events (the server keeps
+  forwarding; A.6 may want the page to tell the server, to save the
+  bandwidth).
+
 ## Open questions
 
 - A.0: decided, WebRTC audio (see Progress). Engine voice works too and is
   already on (K = `+voicerecord`); revisit only if the user prefers it.
 - A.1: 4 lanes (4 people heard at once) enough?
 - A.4: push to talk only, or also an open-mic option with voice activity
-  detection?
+  detection? Keep the microphone open 30 s after talking (instant next
+  press) or close it at once (no recording indicator, ~0.1–0.3 s to reopen)?
 - A.6: admin voice mute per connection or per address until map change?
 - B.2: target ratio, and adaptive bots on or off by default?

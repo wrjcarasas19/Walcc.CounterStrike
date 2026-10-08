@@ -91,6 +91,26 @@ with the game zip. Scripts here import `../new-features-1006-tools/lib.mjs`.
   poll runs) and with `VOICE=0` (no poll) and adds the server container's
   mean CPU. `BOTS` (default 4).
 
+- `check-voice-ptt.mjs [novoice]`: A.4, push to talk and the voice
+  settings through the real page (voice.ts), not `setMicTrack` by hand.
+  Start the server without bots (`run-server.sh de_dust2 0`). PttA (fake
+  mic allowed) and PttB (microphone denied with CDP
+  `Browser.setPermission`, browser without the fake UI) join as CTs; then:
+  no `getUserMedia` before the first press (and `voice_enable` 0, K
+  unbound); holding K sends RTP, B gets it and plays it (level after the
+  page's master gain, found by wrapping `AudioNode.connect`) while the game
+  data channel stays at its idle rate; the release tail (when
+  `setMicTrack(null)` is called after the keyup, next to a plain 200 ms
+  timer started at the keyup, since the starved page's timers run late); K
+  in the chat input types "k"; B's voice volume 0 silences A; B pressing K
+  shows "Microphone blocked" and the settings' help; voice off asks for
+  nothing and sends nothing; on the login page (no fake UI, permission then
+  granted) the microphone list fills in after the permission, the test
+  meter moves, and changed settings survive a reload; PttC on a touch phone
+  viewport (844x390) holds the microphone button with CDP touch events and
+  B hears it. Screenshots `a4-*.png` in `out/`. `novoice`, against
+  `VOICE=0 run-server.sh de_dust2 0`: K asks for nothing. Prints OK / FAIL.
+
 ## Notes
 
 - Chromium flags for a fake microphone: `--use-fake-ui-for-media-stream

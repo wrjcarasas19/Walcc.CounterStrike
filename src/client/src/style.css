@@ -2264,6 +2264,105 @@ canvas,
   touch-action: manipulation;
 }
 
+/* Hold-to-talk button (voice.ts): left of the settings button, above the
+   chat button. touch-action none: the finger may slide while holding. */
+.voice-touch-button {
+  left: calc(26% - 52px);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.voice-touch-button[aria-pressed='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.voice-touch-button[aria-pressed='true'] svg {
+  fill: var(--bg);
+}
+
+/* Voice notices (voice.ts: microphone blocked or unavailable): under the
+   multi-kill toast, gone after a few seconds, never takes input. */
+.hud-voice-notice {
+  position: absolute;
+  top: 32%;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2em;
+  max-width: min(90%, 30em);
+  padding: 0.6em 1em;
+  background: var(--hud-panel);
+  border: 1px solid var(--danger);
+  text-align: center;
+  pointer-events: none;
+}
+
+.hud-voice-notice[hidden] {
+  display: none;
+}
+
+.hud-voice-notice-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.1em;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--danger);
+}
+
+.hud-voice-notice-text {
+  font-size: 0.9em;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* Microphone test and help in the settings' Voice group (voice.ts). */
+.settings-voice-test {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.settings-voice-test .action-button {
+  margin-top: 0;
+  padding: 10px 14px;
+}
+
+.settings-voice-meter {
+  flex: 1 1 140px;
+  height: 10px;
+  background: var(--well);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.settings-voice-level {
+  height: 100%;
+  width: 100%;
+  background: var(--gain);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+
+.settings-voice-status {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.settings-voice-status.error {
+  color: var(--danger);
+}
+
 /* Lobby status on the login page (lobby.ts). */
 .lobby {
   display: flex;

@@ -2,6 +2,8 @@ import { attachAdmin, detachAdmin } from './admin';
 import { setAnnouncerOptions, startAnnouncer } from './announcer';
 // Before ./wheel: its key listeners must run before the wheel's (chat.ts).
 import { attachChat, detachChat } from './chat';
+// After ./chat: an open chat input keeps the talk key (it types there).
+import { attachVoice, detachVoice, initVoice } from './voice';
 import { createEngine } from './engine';
 import { GameFilesError, getGameFiles } from './gamefiles';
 import {
@@ -138,6 +140,8 @@ async function prepare() {
   let stage: Stage = 'download';
   try {
     engine = createEngine();
+    // Voice lanes arrive with the server's offer, before start().
+    initVoice(engine);
     // Only the wasm engine starts here; the server connection waits for
     // Connect so idle launchers don't hold server slots.
     const [gamefiles] = await Promise.all([getGameFiles(), engine.init()]);
@@ -240,6 +244,7 @@ function start(engine: Xash3DWebRTC): void {
       detachAdmin();
       detachSettings();
       detachWheel();
+      detachVoice();
       setInGame(false);
       detachChat();
       detachHud();
@@ -265,6 +270,7 @@ function start(engine: Xash3DWebRTC): void {
   // Saved settings (sensitivity, crosshair, volume) before connecting.
   attachSettings(engine, touch);
   attachWheel(engine, touch);
+  attachVoice(touch);
   engine.Cmd_ExecuteString(`name "${playerName}"`);
   setLocalPlayerName(playerName);
   // Claimed names: the server reads the name cookie when the game

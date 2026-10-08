@@ -5,7 +5,8 @@
 // from it and the store validates it), then read it with getSettings() /
 // onSettingsChange() from ./store, or map it to a cvar in CVARS below.
 
-export type SettingGroup = 'Mouse' | 'Crosshair' | 'Sound' | 'HUD' | 'Keys';
+export type SettingGroup =
+  'Mouse' | 'Crosshair' | 'Sound' | 'HUD' | 'Voice' | 'Keys';
 
 type Common = { group: SettingGroup; label: string; hint?: string };
 
@@ -27,7 +28,19 @@ export type ChoiceSetting<V extends string = string> = Common & {
 
 export type ToggleSetting = Common & { kind: 'toggle'; default: boolean };
 
-export type SettingDef = NumberSetting | ChoiceSetting | ToggleSetting;
+/**
+ * A device picked from a list the page fills in at run time (the
+ * microphones, ../voice.ts): the value is the device's id, '' for the
+ * browser's default, which is listed as defaultLabel.
+ */
+export type DeviceSetting = Common & {
+  kind: 'device';
+  defaultLabel: string;
+  default: '';
+};
+
+export type SettingDef =
+  NumberSetting | ChoiceSetting | ToggleSetting | DeviceSetting;
 
 function numberSetting(def: Omit<NumberSetting, 'kind'>): NumberSetting {
   return { kind: 'number', ...def };
@@ -42,6 +55,13 @@ function choiceSetting<V extends string>(
 function toggleSetting(def: Omit<ToggleSetting, 'kind'>): ToggleSetting {
   return { kind: 'toggle', ...def };
 }
+
+function deviceSetting(def: Omit<DeviceSetting, 'kind'>): DeviceSetting {
+  return { kind: 'device', ...def };
+}
+
+/** Device ids are opaque strings (hex in Chrome, base64 in Firefox). */
+const DEVICE_ID_PATTERN = /^[\x21-\x7e]{0,256}$/;
 
 // The colours of the stock `adjust_crosshair` command (cs16-client ammo.cpp).
 const CROSSHAIR_COLORS = {
@@ -158,6 +178,29 @@ export const SETTINGS = {
     hint: 'Who killed you and your record against them',
     default: true,
   }),
+  // Voice chat (../voice.ts). Off: the microphone is never asked for and
+  // nobody is heard.
+  voiceEnabled: toggleSetting({
+    group: 'Voice',
+    label: 'Voice chat',
+    hint: 'Hold the push-to-talk key (Keys below) to talk to your team',
+    default: true,
+  }),
+  voiceVolume: numberSetting({
+    group: 'Voice',
+    label: 'Voice volume',
+    min: 0,
+    max: 100,
+    step: 5,
+    unit: '%',
+    default: 80,
+  }),
+  voiceInput: deviceSetting({
+    group: 'Voice',
+    label: 'Microphone',
+    defaultLabel: 'Default microphone',
+    default: '',
+  }),
   // Hold to show the radio and quick chat wheel (../wheel). Z replaces the
   // stock radio1 menu key (the wheel has the same commands); V is unbound in
   // stock CS 1.6.
@@ -171,6 +214,20 @@ export const SETTINGS = {
     ],
     default: 'z',
   }),
+  // Hold to talk (../voice.ts). K is `+voicerecord` in stock CS 1.6 (the
+  // engine's own voice is off, engine.ts); J, L and P are unbound there.
+  voiceKey: choiceSetting({
+    group: 'Keys',
+    label: 'Push to talk (hold)',
+    options: [
+      { value: 'k', label: 'K' },
+      { value: 'j', label: 'J' },
+      { value: 'l', label: 'L' },
+      { value: 'p', label: 'P' },
+      { value: 'off', label: 'Off' },
+    ],
+    default: 'k',
+  }),
 };
 
 export type SettingKey = keyof typeof SETTINGS;
@@ -182,7 +239,9 @@ type ValueOf<D> =
       ? number
       : D extends ToggleSetting
         ? boolean
-        : never;
+        : D extends DeviceSetting
+          ? string
+          : never;
 
 export type Settings = { [K in SettingKey]: ValueOf<(typeof SETTINGS)[K]> };
 
@@ -226,6 +285,10 @@ export function checkSetting<K extends SettingKey>(
         : undefined;
     case 'toggle':
       return typeof value === 'boolean' ? (value as Settings[K]) : undefined;
+    case 'device':
+      return typeof value === 'string' && DEVICE_ID_PATTERN.test(value)
+        ? (value as Settings[K])
+        : undefined;
   }
 }
 
