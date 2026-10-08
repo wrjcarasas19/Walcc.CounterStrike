@@ -348,11 +348,102 @@ change.
 
 ## Progress
 
-Nothing started.
+### A.0 done (2026-10-08): option 1, WebRTC audio tracks
+
+**What was checked.** Engine files from `local/cs16-web-server:latest`
+(`/xashds/public/assets`, the same `xash.wasm` as
+`vendor/xash3d-fwgs-1.0.0.tgz`), the native server (`/xashds/xash`,
+`cstrike/dlls/cs.so`), the game zip's configs, and a real headless client
+with Chromium's fake microphone
+(`plans/new-features-1007-tools/check-engine-voice.mjs`, see the README
+there).
+
+**Engine voice is compiled in, and it works.** Option 2 is not blocked:
+
+- `xash.wasm` has `VoiceCapture_Init`, `Voice_GetOpusCompressedData`,
+  `+voicerecord` / `-voicerecord`, the `voice_*` cvars and libopus; the
+  Emscripten glue (`index-*.js`) has SDL2's audio capture through
+  `getUserMedia({audio:true})` into a (deprecated) `ScriptProcessorNode`,
+  and OpenAL capture. The server engine has `SV_ParseVoiceData`,
+  `sv_voiceenable`, `sv_voicequality`; ReGameDLL `cs.so` has
+  `CVoiceGameMgr` and `CCStrikeGameMgrHelper::CanPlayerHearPlayer`.
+- In the client console: `voice_enable "1"`, `sv_voiceenable "1"`, 9
+  `voice_*` cvars. The engine logs `VoiceCapture_Init: capture device
+  creation success` right after "Setting up renderer", i.e. **at engine
+  start, before connecting**, and `getUserMedia` has already been called
+  once by the time the player is in the game.
+- Holding `+voicerecord` with the fake mic: data-channel bytes sent go from
+  ~150–390 B/s to **~4 000–4 950 B/s** (≈ 32–40 kbit/s), back to idle on
+  `-voicerecord` (4 runs). A teammate (CT) running at the same time
+  receives **~+4 000 B/s** for those 8 s (2 100–2 800 → 6 100–6 900 B/s);
+  an enemy (T) receives nothing extra. So the netchan carries it, the server
+  forwards it, and the game DLL routes by team. Playback wasn't checked
+  (headless audio goes nowhere), and neither were Firefox, Safari or
+  phones.
+- `voice_enable 0` on the client (after joining) stops sending: 352 B/s
+  while holding `+voicerecord`. `+sv_voiceenable 0` on the server's command
+  line changed nothing seen from the client (it still sends at 4.9 KB/s;
+  the server's real value wasn't read, since `cstrike/config.cfg` sets
+  `sv_voiceenable "1"`).
+
+**Engine voice is already on in production today.** The game zip's
+`cstrike/config.cfg` and `kb_def.lst` bind **K to `+voicerecord`** and set
+`voice_enable "1"`, `voice_forcemicrecord "1"`, `sv_voiceenable "1"`. So
+today the engine asks for the microphone when the game starts (wherever
+`navigator.mediaDevices` exists: https or localhost), and holding K sends
+voice over the netchan to teammates.
+
+**Decision: option 1 (WebRTC audio tracks), as the plan assumes.** Option 2
+works, but:
+
+- it puts ~4–5 KB/s per talker on the netchan and the data channel, and
+  the server forwards that to every listener. That is the traffic the plan
+  wanted to keep off (large netchan traffic has crashed this server
+  before);
+- the engine opens the mic at start, so the "no mic prompt until the first
+  press" rule (A.4) can't be kept without patching the engine;
+- there is no control from the page: SDL calls `getUserMedia({audio:true})`
+  itself (no device choice, no bitrate cap, no per-player volume), on a
+  deprecated `ScriptProcessorNode`;
+- speaking indicators, mutes and admin mute would need cs16-client bridge
+  work, which can only be built in the user's local webxash3d-fwgs
+  checkout.
+
+Its real advantage (team routing done by `CanPlayerHearPlayer`, the
+scoreboard icons) is noted. **Decision to review** if the user prefers
+"enable what's already there" over the plan's design.
+
+**What later steps need to know:**
+
+- **Turn the engine's voice off** whenever WebRTC voice is used (A.1/A.4),
+  or there are two voice paths and K sends over the netchan too. That means
+  client `voice_enable 0`, set **before the engine starts** if possible
+  (e.g. in the engine's start arguments or an autoexec the page writes),
+  so `VoiceCapture_Init` doesn't call `getUserMedia` at start. Setting it
+  after joining stops sending (checked); whether setting it before start
+  also stops the early `getUserMedia` call is **not checked**: A.4 must
+  check it (count `getUserMedia` calls as `check-engine-voice.mjs` does).
+  Unbinding K in the engine (`unbind k`), or A.4's capture-phase listener,
+  keeps K for the page. On the server, `sv_voiceenable 0` belongs in the
+  server config (check that `cstrike/config.cfg`'s `"1"` doesn't override
+  it) so old clients can't use engine voice either.
+- A.6 says `sv_voiceenable 0` from the Match tab turns voice off at
+  runtime. That is the engine's own cvar, so with engine voice off as above
+  it can double as the WebRTC switch, but the roster plugin has to report
+  it.
+- Fake mic in tests: Chromium `--use-fake-ui-for-media-stream
+  --use-fake-device-for-media-stream` + `grantPermissions(['microphone'])`
+  (the fake device is a beep). The engine's console output reaches the page
+  console (`console.log` lines starting `[hh:mm:ss]`), so tests can read
+  command output.
+- The game zip isn't in the repo: copy or download
+  `plans/new-features-1006-tools/cache/gamezip_8308.zip` (see that README;
+  `cache/` is gitignored).
 
 ## Open questions
 
-- A.0: WebRTC audio or engine voice (decided by the spike).
+- A.0: decided, WebRTC audio (see Progress). Engine voice works too and is
+  already on (K = `+voicerecord`); revisit only if the user prefers it.
 - A.1: 4 lanes (4 people heard at once) enough?
 - A.4: push to talk only, or also an open-mic option with voice activity
   detection?
