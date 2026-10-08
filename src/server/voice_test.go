@@ -68,7 +68,7 @@ func newGamePeer(t *testing.T, api *webrtc.API, withVoice bool, signal func(stri
 	}
 	var voice *voicePeer
 	if withVoice {
-		if voice, err = addVoiceTransceivers(pc, signal); err != nil {
+		if voice, err = addVoiceTransceivers(pc, signal, newVoiceHub(openVoicePolicy{})); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -549,6 +549,167 @@ scoreboard icons) is noted. **Decision to review** if the user prefers
   `getUserMedia({audio: VOICE_MIC_CONSTRAINTS})` +
   `engine.setMicTrack(track)` / `setMicTrack(null)`.
 
+### A.2 done (2026-10-08): forwarding
+
+**What changed.**
+
+- `src/server/voice_forward.go` (new): the forwarder.
+  - `voiceHub` (`voices`, one per server; `run` sweeps every 100 ms,
+    started in `runSFU` when voice is on) holds the players in voice.
+    `route(speaker, seq, ts, now)` decides, under the hub's mutex, which
+    listener lanes a packet goes to and with which numbers; the mic reader
+    then writes them outside the lock. `sweep` releases lanes.
+  - **Lanes:** a speaker who has a lane on a listener keeps it; otherwise
+    the first free lane, else the lane whose speaker has been quiet longest
+    if that is **≥ 300 ms** (taken over: the page gets the new userid on
+    that lane, no "quiet" in between); else the packet isn't sent to that
+    listener. A lane with no packet for **500 ms** is released and the
+    "quiet" event (userid 0) is sent.
+  - **RTP rewriting per lane:** `seqDelta` / `tsDelta` set when a speaker
+    takes the lane so their first packet gets the lane's next sequence
+    number and a timestamp moved on by the wall-clock gap since the lane's
+    last packet (at least one 20 ms frame); uint16/uint32 arithmetic, so
+    wraparound (the speaker's or the lane's) needs nothing special; late
+    packets don't move the lane's numbers back. The marker bit is set on a
+    speaker's first packet on a lane. Header extensions and padding are
+    stripped (the lanes negotiate none). SSRC / PT: `TrackLocalStaticRTP`.
+  - **Mic:** `pc.OnTrack` (set in `addVoiceTransceivers`) reads only the
+    first Opus track whose receiver is the mic transceiver's; any other
+    track is read and dropped (logged). Its RTCP (sender reports) is
+    drained. One goroutine per mic, reusing one buffer and one
+    `rtp.Packet`.
+  - **Rate limit:** `byteRate`, a token bucket of 8 000 B/s (64 kbit/s)
+    holding at most 1 s, counting whole RTP packets; packets over it are
+    dropped (the browser sends ~4.6 KB/s at the 32 kbit/s cap).
+  - **Who hears whom is behind `voicePolicy`** (`userID`, `mayHear`,
+    `adminMuted`). **Stand-in until A.3: `openVoicePolicy`**: every other
+    player in voice hears every speaker; `adminMuted` is a **stub** (always
+    false, A.6); and **the announced `userid` is a placeholder, the slot
+    index plus 1, not the engine's userid** (Go doesn't know userids
+    before the A.3 roster).
+  - Lane events go through a queue per listener (64; dropped with a
+    warning if full) and a goroutine per player (`sendEvents`), so a slow
+    socket never holds up audio.
+  - `voiceAnswered(remoteDescription, micMid)`: only players whose answer
+    has the mic m-line `sendonly`/`sendrecv` join the hub (as speaker and
+    listener). Old pages (mic `inactive`) are never sent audio.
+- `voice.go`: `voicePeer` gains the hub state (`ip`, `joined`/`left`,
+  per-lane `out`, `events`) and the **`voice` data channel** (below);
+  `addVoiceTransceivers(pc, signal, hub)` also creates that channel and
+  sets `OnTrack`. `announceLane` → `sendVoiceEvent`.
+- `sfu.go`: `peerSlot.voice` is set from `gameSession.voice` in
+  `channelOpened`, which also joins the hub (with the slot's address) when
+  `gameSession.voiceCapable` (computed in the game channel's `OnOpen`, the
+  answer being set by then). `release` calls `voices.leave`: the player's
+  lanes on others are released with "quiet" events, their own lane state
+  and event goroutine end; the mic reader and lane RTCP readers end with
+  the PeerConnection.
+- **The signaling WebSocket, checked in `sfu.go`:** both A.1 and the plan
+  are right. The server keeps it open for the whole session (pings every
+  20 s, 45 s pong deadline, and it is only closed when reading fails), and
+  the page keeps it too; but if it drops (a proxy, a network change, a
+  missed pong window) neither side reopens it and the game goes on
+  ("losing the signaling socket no longer ends the game"), so lane events
+  sent on it would be lost from then on. **Decision: a reliable, ordered
+  `voice` data channel**, created by the server up front next to `game`
+  (same SCTP association, so the offer's SDP is unchanged and there is no
+  renegotiation), carries the events once open: the same JSON
+  (`{"event":"voice","data":{...}}`, as text). Before it opens (or if a
+  write fails) they go on the WebSocket as in A.1. `webrtc.ts` handles
+  `voice` messages from both (`voiceLane`). Pages without voice code ignore
+  the channel (they only take `game`). In the Chromium runs below every
+  lane event came over the data channel.
+- **No interceptors added** (no RTCP reports / NACK). Silent rates
+  re-measured with `check-voice-signaling.mjs`: unchanged (below).
+- Tools (`plans/new-features-1007-tools`, README there):
+  `check-voice-pair.mjs`, `voice-light-client.js` (a voice client without
+  the engine), `check-voice-delay.mjs`, `check-voice-crowd.mjs`,
+  `voice-crowd.sh`; `pw.sh` passes `START`, `DURATION`, `LABEL`,
+  `NETWORK`. README: the `VOICE` row says the server forwards voice.
+
+**What was checked.**
+
+- Go (`gotest.sh`: gofmt, vet, all tests). New `voice_forward_test.go`:
+  lane assignment (four speakers take lanes 0–3, a speaker keeps theirs, a
+  fifth is dropped for the full listener but reaches the others, not taken
+  at 299 ms, taken at 300 ms from the speaker quiet longest, release at
+  500 ms not 499, a released lane taken at once); policy (`mayHear`,
+  admin mute, unknown userid, a peer outside the hub, no self-hearing);
+  leave (quiet events, queue closed, twice is fine, leave-before-join);
+  seq/timestamp rewriting across speaker switches (1 s gap → +48 000,
+  minimum one frame, late packets) and wraparound (the lane's and the
+  speaker's, seq and ts); the rate limit (32 kbit/s always passes; 160
+  kbit/s for 10 s passes 1 s of burst + 64 kbit/s; refills to 1 s);
+  `voiceAnswered`; and **end to end through pion** (three loopback pion
+  clients: a talker's RTP arrives on the listener's `lane0`, continuous
+  across the talker's seq/ts wrap, the lane event comes over the `voice`
+  data channel as text, the quiet event after the sweep; nothing reaches a
+  client that answered the mic `inactive`, nor the talker). No `-race`
+  (the test image is linux/386).
+- `npm run build`, `tsc --noEmit`; Prettier: my lines clean (the files I
+  touched already differ from Prettier at HEAD by the same amount).
+- Image rebuilt (`local/cs16-web-server:latest`; the A.1 image is tagged
+  `local/cs16-web-server:pre-a2`). Headless Chromium, fake microphone:
+  - **Two players in the game** (`check-voice-pair.mjs`, real page and
+    engine): `onVoiceTrack` fired for lanes 0–3 on both; A talks 5 s: A
+    sent 274 RTP packets, B got 274 on lane 0, `onVoiceLane` {0, A},
+    then {0, 0}; B talks: 267 sent, 267 on A's lane 0, same events.
+  - **Delay** (`check-voice-delay.mjs`, two light clients in one page, 10
+    beeps): mouth to ear **61 ms median** through the server (60–73),
+    direct connection in the page 68 ms (60–80): the server adds nothing
+    measurable (< the ±10 ms of the method). Lane jitter buffer 29 ms,
+    0 lost. All on one machine (ICE RTT 1 ms), not a real LAN. (Measuring
+    with two game engines running gave 225–840 ms and missed beeps: the
+    SwiftShader engines starve the browsers' audio, so the engine-less
+    clients were used.)
+  - **Five talkers and a listener**
+    (`voice-crowd.sh "2-20 2-20 2-20 2-20" "6-26 -"`): the listener had 4 lanes at 50 pkt/s each from 2 s;
+    the fifth talker (from 6 s) wasn't heard by it while the four talked
+    (no event, no packets: dropped cleanly) and took a lane at **20.32 s**
+    (300 ms after the four stopped); the four's lanes went quiet at
+    20.57 s, the fifth's at 26.57 s. The fifth talker and each of the four
+    heard 4 lanes. No errors in the server log.
+  - **16 talkers** (four containers of 4 light clients, all talking
+    5–25 s): every client had 4 lanes × ~50 pkt/s for the 20 s (800 pkt/s
+    in, 3 200 out at the server). **Server container CPU: 29–37 % of one
+    core while all 16 talk**, 5–7 % connected and silent (11–15 % in the
+    first seconds after connecting). The clients ran on the same 4-core
+    machine (shared, some steal time); the image is 32-bit (linux/386), so
+    SRTP's AES has no assembly. The engine wasn't involved (light clients
+    take an SFU slot but never join the game).
+  - A.1's `check-voice-signaling.mjs talk` again: offer/answer as before;
+    **silent 0 RTP, 31 pkt/s up / 51 down** (unchanged); talking alone, 0
+    RTP in (nobody else, no self-echo). Old client (pre-A.1 page): mic
+    answered `inactive`, joins and plays, 0 RTP.
+- **Not checked:** Firefox, Safari, phones; a real LAN between machines;
+  16 real game clients (light clients instead; two real ones above);
+  audible playback (headless; decoded audio was seen by the analyser);
+  the WebSocket actually dropping mid-game (the data channel path is what
+  carried every event, so it no longer matters).
+- Engine voice (K = `+voicerecord`) is still on, as in A.1: A.4 turns it
+  off.
+
+**What A.3 needs to know.**
+
+- Replace `voices = newVoiceHub(openVoicePolicy{})` with a policy fed by
+  the roster. Its methods run under the hub's mutex for every packet ×
+  listener (~3 200/s with 16 talkers), so they must only read a snapshot
+  (e.g. an atomic pointer to a map from the engine address `ip [4]byte`, or
+  from `*voicePeer`, to {userid, team, alive}) and never block or call the
+  console.
+- `voicePeer.ip` is the engine's address for the player (`peerSlot`
+  `owns(ip)`); `peerSlot.voice` links a roster line's address to the
+  `voicePeer`. Players not in the roster: `userID` ok=false (not heard)
+  and `mayHear` false (hear nobody).
+- `userID` must return the real engine userid: **until then the events'
+  userid is the slot index plus 1**, so A.5 can't use it before A.3.
+- When `mayHear` turns false mid-sentence the audio stops at once, but
+  the lane is only announced quiet 500 ms after its last packet. With a
+  250 ms roster poll that's up to ~0.75 s for the indicator; if A.3/A.5
+  want it faster, add a hub method that releases (and announces) lanes
+  whose listener may no longer hear the speaker when the roster changes.
+- `adminMuted` is the A.6 hook (speaker heard by nobody).
+
 ## Open questions
 
 - A.0: decided, WebRTC audio (see Progress). Engine voice works too and is

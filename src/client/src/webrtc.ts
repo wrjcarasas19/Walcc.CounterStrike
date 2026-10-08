@@ -179,6 +179,18 @@ export class Xash3DWebRTC extends Xash3D {
     };
     peer.ondatachannel = (e) => {
       const channel = e.channel;
+      if (channel.label === 'voice') {
+        // Lane events, once this channel is open (the signaling socket
+        // may be gone by then).
+        channel.onmessage = (ee: MessageEvent<string>) => {
+          if (this.peer !== peer) return;
+          try {
+            const parsed = JSON.parse(ee.data);
+            if (parsed?.event === 'voice') this.voiceLane(parsed.data);
+          } catch {}
+        };
+        return;
+      }
       if (channel.label !== 'game') return;
       channel.binaryType = 'arraybuffer';
       channel.onmessage = (ee: MessageEvent<ArrayBuffer>) => {
@@ -309,13 +321,9 @@ export class Xash3DWebRTC extends Xash3D {
         }
         break;
       }
-      case 'voice': {
-        const { lane, userid } = parsed.data ?? {};
-        if (Number.isInteger(lane) && Number.isInteger(userid)) {
-          this.onVoiceLane?.(lane, userid);
-        }
+      case 'voice':
+        this.voiceLane(parsed.data);
         break;
-      }
       case 'candidate':
         if (this.wasRemote) {
           await peer.addIceCandidate(parsed.data);
@@ -323,6 +331,14 @@ export class Xash3DWebRTC extends Xash3D {
           this.candidates.push(parsed.data);
         }
         break;
+    }
+  }
+
+  // A "voice" event, from the signaling socket or the voice data channel.
+  private voiceLane(data: any) {
+    const { lane, userid } = data ?? {};
+    if (Number.isInteger(lane) && Number.isInteger(userid)) {
+      this.onVoiceLane?.(lane, userid);
     }
   }
 

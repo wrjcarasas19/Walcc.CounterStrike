@@ -40,6 +40,9 @@ type peerSlot struct {
 	// close ends the player's PeerConnection, which frees the slot and has
 	// the engine drop the player.
 	close func()
+	// voice is the player's voice chat (voice.go), nil when VOICE=0. It is
+	// in the voice hub only if the page answered with a microphone.
+	voice *voicePeer
 }
 
 // owns reports whether ip is the address of this slot's player.
@@ -264,6 +267,9 @@ type gameSession struct {
 	connected chan struct{}
 	// voice is the player's voice chat (voice.go); nil when VOICE=0.
 	voice *voicePeer
+	// voiceCapable: the page's answer can send voice (voiceAnswered), so
+	// the player joins the voice hub with the slot.
+	voiceCapable bool
 }
 
 // channelOpened takes a slot for the open game channel and returns the
@@ -277,7 +283,7 @@ func (s *gameSession) channelOpened(d io.ReadWriteCloser) (ip [4]byte, err error
 		return ip, errSessionClosed
 	}
 
-	peer := &peerSlot{write: d, key: s.key, device: s.device, close: s.closePeer}
+	peer := &peerSlot{write: d, key: s.key, device: s.device, close: s.closePeer, voice: s.voice}
 	for i := range peer.addr {
 		peer.addr[i] = byte(rand.Intn(256))
 	}
@@ -290,6 +296,10 @@ func (s *gameSession) channelOpened(d io.ReadWriteCloser) (ip [4]byte, err error
 
 	ip = [4]byte{index, peer.addr[0], peer.addr[1], peer.addr[2]}
 	s.ip = ip
+	if s.voice != nil && s.voiceCapable {
+		voices.join(s.voice, ip)
+		go s.voice.sendEvents()
+	}
 	close(s.connected)
 	return ip, nil
 }
@@ -312,6 +322,11 @@ func (s *gameSession) release() {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	s.closed = true
+	if s.voice != nil {
+		// Frees this player's lanes on others and ends sendEvents; the mic
+		// reader ends with the PeerConnection.
+		voices.leave(s.voice)
+	}
 	if s.hasSlot {
 		s.hasSlot = false
 		if err := connections.Remove(s.slot, s.slotGen); err != nil {
@@ -396,6 +411,11 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) { // nolint
 
 			return
 		}
+		if session.voice != nil {
+			// The answer is set by now (DTLS needs it before any channel
+			// opens).
+			session.voiceCapable = voiceAnswered(peerConnection.RemoteDescription(), session.voice.mic.Mid())
+		}
 		ip, err := session.channelOpened(d)
 		if err != nil {
 			if !errors.Is(err, errSessionClosed) {
@@ -415,7 +435,7 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) { // nolint
 
 	// Voice chat's audio transceivers are part of the same offer.
 	if voiceEnabled {
-		session.voice, err = addVoiceTransceivers(peerConnection, c.WriteJSON)
+		session.voice, err = addVoiceTransceivers(peerConnection, c.WriteJSON, voices)
 		if err != nil {
 			log.Errorf("Failed to add voice transceivers: %v", err)
 
@@ -730,6 +750,10 @@ func runSFU(admin http.Handler, console *engineConsole, query *engineQuery, lead
 	var err error
 	if api, err = newWebRTCAPI(settingEngine); err != nil {
 		panic(err)
+	}
+
+	if voiceEnabled {
+		go voices.run()
 	}
 
 	receive := newPacketReceiver(packets, recvIdleWait)
