@@ -88,22 +88,28 @@ func main() {
 	if !ok {
 		fmt.Fprintln(os.Stderr, "WARNING: LEADERBOARD_BOTS must be 0 or 1: bots are left out of the leaderboard")
 	}
+	// ensureConsole makes the engine console for Go's own commands when the
+	// admin API didn't. Without the admin API, keep RCON_PASSWORD if there
+	// is one; otherwise use a password nobody knows and keep players off
+	// rcon.
+	ensureConsole := func() {
+		if console != nil {
+			return
+		}
+		if rcon != rconEnabled {
+			rconPassword = randomToken()
+			args, _ = engineArgs(os.Args, rconPassword)
+			blockPlayerRcon = true
+		}
+		console = newEngineConsole(rconPassword, queueEnginePacket)
+	}
 	var leaderboard, duel, names http.Handler
 	if db, err := openStatsDB(filepath.Join(dataDir, leaderboardFile)); err != nil {
 		fmt.Fprintf(os.Stderr, "WARNING: can't open the leaderboard database: %v; /leaderboard, /duel and /names/ are off\n", err)
 	} else {
-		if console == nil {
-			// The log follower renames players under a claimed name they
-			// don't own through the console (statsfollow.go). Without the
-			// admin API, keep RCON_PASSWORD if there is one; otherwise use
-			// a password nobody knows and keep players off rcon.
-			if rcon != rconEnabled {
-				rconPassword = randomToken()
-				args, _ = engineArgs(os.Args, rconPassword)
-				blockPlayerRcon = true
-			}
-			console = newEngineConsole(rconPassword, queueEnginePacket)
-		}
+		// The log follower renames players under a claimed name they don't
+		// own through the console (statsfollow.go).
+		ensureConsole()
 		args = withGameLogging(args)
 		go newLogFollower(filepath.Join("cstrike", "logs"), db, includeBots, gamePeers{}, console).run(context.Background(), statsScanInterval)
 		leaderboard = newLeaderboardHandler(db, includeBots)
@@ -113,6 +119,13 @@ func main() {
 			// Set before runSFU serves the admin API.
 			adminCommands.env.claims = db
 		}
+	}
+
+	// Voice chat reads who is on which team and alive through the console
+	// (voice_roster.go).
+	if voiceEnabled {
+		ensureConsole()
+		go newRosterPoller(console, voices, voicePolicyNow, gameVoicePeer).run(context.Background())
 	}
 
 	// Server queries for /status.json work without the admin API: they

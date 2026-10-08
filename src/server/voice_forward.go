@@ -48,9 +48,10 @@ const (
 	opusFrame = opusClockRate / 50
 )
 
-// voicePolicy decides who hears whom. openVoicePolicy is the stand-in
-// until A.3 replaces it with one fed by the roster plugin (teams, alive,
-// sv_alltalk) and A.6 adds the admin mute.
+// voicePolicy decides who hears whom: rosterPolicy (voice_roster.go), fed
+// by the roster plugin (teams, alive, sv_alltalk); A.6 adds the admin mute.
+// Its methods are called under the hub's lock for every packet and
+// listener, so they must not block.
 type voicePolicy interface {
 	// userID is the engine userid announced to listeners for speaker; ok
 	// is false while it isn't known (the speaker isn't forwarded then).
@@ -62,15 +63,6 @@ type voicePolicy interface {
 	// nobody).
 	adminMuted(speaker *voicePeer) bool
 }
-
-// openVoicePolicy: every voice-capable player hears every other one. The
-// announced "userid" is a placeholder (slot index + 1), not the engine's
-// userid: A.3 gets the real one from the roster.
-type openVoicePolicy struct{}
-
-func (openVoicePolicy) userID(p *voicePeer) (int, bool) { return int(p.ip[0]) + 1, true }
-func (openVoicePolicy) mayHear(_, _ *voicePeer) bool    { return true }
-func (openVoicePolicy) adminMuted(_ *voicePeer) bool    { return false }
 
 // voiceLane is the forwarding state of one lane of a listener.
 type voiceLane struct {
@@ -109,7 +101,7 @@ type voiceHub struct {
 }
 
 // voices is the server's voice hub (sfu.go joins players to it).
-var voices = newVoiceHub(openVoicePolicy{})
+var voices = newVoiceHub(voicePolicyNow)
 
 func newVoiceHub(policy voicePolicy) *voiceHub {
 	return &voiceHub{policy: policy, peers: map[*voicePeer]struct{}{}}
@@ -205,6 +197,35 @@ func (h *voiceHub) sweep(now time.Time) {
 			}
 		}
 	}
+}
+
+// recheck releases (and announces quiet) the lanes whose listener may no
+// longer hear their speaker, after the policy changed (a new roster): the
+// speaker's audio already stops at the next packet, this tells the page at
+// once instead of laneReleaseAfter later.
+func (h *voiceHub) recheck() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for l := range h.peers {
+		for i := range l.out {
+			s := l.out[i].speaker
+			if s == nil {
+				continue
+			}
+			if _, known := h.policy.userID(s); known && !h.policy.adminMuted(s) && h.policy.mayHear(l, s) {
+				continue
+			}
+			l.out[i].speaker = nil
+			l.queue(i, 0)
+		}
+	}
+}
+
+// active reports whether anyone is in voice.
+func (h *voiceHub) active() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.peers) > 0
 }
 
 // run sweeps the lanes for the life of the server.

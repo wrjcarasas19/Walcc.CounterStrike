@@ -7,6 +7,7 @@
 
 export type CvarName =
   | 'mp_friendlyfire'
+  | 'sv_alltalk'
   | 'mp_timelimit'
   | 'mp_roundtime'
   | 'mp_startmoney'
@@ -53,6 +54,18 @@ export const CVARS: Readonly<Record<CvarName, CvarDef>> = {
   mp_friendlyfire: {
     name: 'mp_friendlyfire',
     label: 'Friendly fire',
+    unit: '',
+    kind: 'bool',
+    min: 0,
+    max: 1,
+    decimals: 0,
+    applies: 'now',
+  },
+  // The engine's cvar: voice chat (src/server/voice_roster.go) lets
+  // everyone hear everyone, enemies and the dead included.
+  sv_alltalk: {
+    name: 'sv_alltalk',
+    label: 'All talk (voice)',
     unit: '',
     kind: 'bool',
     min: 0,

@@ -710,6 +710,201 @@ scoreboard icons) is noted. **Decision to review** if the user prefers
   whose listener may no longer hear the speaker when the roster changes.
 - `adminMuted` is the A.6 hook (speaker heard by nobody).
 
+### A.3 done (2026-10-08): who hears whom
+
+**What changed.**
+
+- `src/amxx/wc_roster.sma` (new, in `plugins.ini` after `wc_killinfo`,
+  compiled in the `amxx-plugins` stage): server command `wc_roster` prints
+  `alltalk <0|1> intermission <0|1> voiceenable <0|1>`, then
+  `<ip:port> <userid> <T|CT|SPEC> <alive 0|1>` per human in the game
+  (`get_players "ch"`: no bots, no HLTV, no one still connecting; no team
+  yet = `SPEC`). `alltalk` is `sv_alltalk != 0`; `intermission` is set by
+  the `SVC_INTERMISSION` message (`register_event("30")`) and cleared by
+  the next map's `plugin_init`. **`sv_voiceenable` is in the first line
+  already (cheap), parsed into `voiceRoster.voiceEnable`, not used yet**
+  (A.6). Names are never printed.
+- `src/server/voice_roster.go` (new): `parseRoster` (lines that don't
+  parse are skipped; no header = error, e.g. the plugin missing);
+  `canHear` (the rules: alltalk or intermission → everyone; otherwise
+  same team only, spectators being their own team; the living hear only
+  the living, the dead hear dead and living teammates); `voiceRoster`
+  (immutable snapshot: settings + `map[*voicePeer]rosterPlayer`),
+  built by `buildVoiceRoster` with `gameVoicePeer` (`connections.Get(ip[0])`
+  and `peerSlot.owns(ip)` → `peerSlot.voice`, so a line for a slot's previous
+  player maps to nobody); `rosterPolicy` (the `voicePolicy`: an
+  `atomic.Pointer[voiceRoster]`, nothing else, so it's safe under the hub
+  lock; `userID` returns the **engine's userid**, ok=false and
+  `mayHear` false for anyone not in the roster; `adminMuted` still a stub
+  for A.6); `rosterPoller`: every 250 ms, **only while the hub has anyone
+  in it** (`voiceHub.active`), runs `wc_roster` through the console (1 s
+  timeout), publishes the snapshot and calls `voiceHub.recheck`. With
+  nobody in voice the snapshot is dropped and the console isn't touched.
+  If reading fails the last roster is kept for 2 s (a map change), then
+  dropped (nobody hears anybody), logged once if it lasts 2 s.
+- `voice_forward.go`: `voices = newVoiceHub(voicePolicyNow)` (the roster
+  policy); `openVoicePolicy` moved to the tests. New `recheck`: releases,
+  with their "quiet" events, the lanes whose speaker is no longer known,
+  admin-muted or allowed for that listener. So **a death goes quiet at the
+  next roster read, not 500 ms after the last packet**: audio stops and
+  the page is told in the same step.
+- `main.go`: `ensureConsole` (the existing "no admin API" fallback,
+  factored out) is also called when voice is on, so the roster works
+  without `ADMIN_PASSWORD` and without the leaderboard database; starts the
+  poller.
+- **`sv_alltalk 0` in `configs/cstrike/server.cfg`.** Xash3D registers
+  `sv_alltalk` itself with the default **`1`** ("legacy, unused",
+  `sv_main.c`), so without this everyone heard everyone (the first roster
+  reads said `alltalk 1`). This also makes the engine's own voice (still on
+  until A.4) team-only via ReGameDLL.
+- **Match tab:** new field "All talk (voice)" (`sv_alltalk`, on/off,
+  applies now, kept over map changes): `cvars.ts`, `match.ts` `FIELDS`,
+  and `adminCvars` in `admin_actions.go` (test cases for 1 and the refused
+  2). The plan's "`sv_alltalk 1` from the Match tab" had no field before.
+- **Engine patch `patches/engine/rcon-quiet-console.patch`** (see the cost
+  check below for why). Dockerfile comment updated; `console.go` and
+  `statsfollow.go` comments too.
+- README: `wc_roster.amxx` row in the plugins table, the `VOICE` row says
+  who hears whom. Tools: `check-voice-teams.mjs`,
+  `check-voice-roster-cost.mjs`, `voice-roster-cost.sh` (README there);
+  `pw.sh` passes `DEATHS`.
+
+**The plan's check: console round trip at 4/s. Decision: keep the 250 ms
+poll (not the push fallback), plus an engine patch for the logs.**
+
+- Time per `wc_roster` call (temporary instrumented build, 40-call
+  windows over ~8 min, 1–4 players): **mean 0.7–2.4 ms, max 14 ms**. That
+  includes waiting for the engine frame to pick the packet up, so the
+  engine's own work is less.
+- Effect on the server (`voice-roster-cost.sh 60`: 1 real player + 4 bots,
+  60 s, voice on = poll running vs `VOICE=0`): server CPU **12.4 % vs
+  11.8 %** and, on the final image, **12.8 % vs 12.0 %** of one core; game
+  packets the player received **49.6 vs 49.1** and **49.3 vs 49.4 /s**
+  (the server frame isn't slowed); ICE RTT 1.0–1.8 ms either way. So the
+  poll costs well under 1 % of a core and nothing visible in tick or ping.
+- **But it flooded the logs.** For every rcon packet the engine prints
+  `Rcon from 254.0.0.1:12345:` + the packet **with the rcon password** to
+  stdout (Docker logs), writes `Rcon: "<packet>" from ...` (password again)
+  to the game log when logging is on, and everything the command prints
+  during the redirect also goes to stdout (`Sys_Print` →
+  `Sys_PrintLog`, then `Rcon_Print`): with the plugin that's the header and
+  one line per player. At 4/s that is ~4 + N lines a second (≈ 56/s, ~5
+  million a day, with 10 players) whenever anyone is in voice: Docker logs
+  become unreadable and fill the disk, and the password is repeated in
+  them. Seen in the first runs.
+- Options weighed: (a) the plan's push fallback (the plugin writes changes
+  to a file / the AMXX log, Go tails it) avoids rcon entirely but is a new
+  mechanism with its own latency and partial-write problems, to solve a
+  problem that isn't the cost the fallback was meant for; (b) polling only
+  while someone is talking still floods while they talk and leaves the
+  roster stale at the start of each sentence; (c) a small engine patch
+  that keeps the in-process console quiet. **Chose (c).**
+- **What the patch changes** (3 files, ~20 lines, applied with the
+  existing `git apply /patches/engine/*.patch`): `host_redirect_t` gets a
+  `quiet` flag (`common.h`); `SV_RemoteCommand` (`sv_client.c`) treats a
+  packet whose address string starts with `254.0.0.1:` (Go's
+  `consoleAddr`, which no player can have: player addresses start with
+  their slot 0–127) as quiet: no `Rcon from` print, no `Rcon:` log line,
+  and `host.rd.quiet` is set while the command runs under the redirect;
+  `Sys_Print` (`system.c`) skips `Sys_PrintLog` (stdout and the engine's
+  log file) while `host.rd.quiet` is set, but still calls `Rcon_Print`, so
+  **Go still gets the full output**. Nothing changes for any other address:
+  browser rcon (the `RCON_PASSWORD` path) is printed and logged as before,
+  and `Bad rcon_password.` is still printed.
+- **Side effect:** the admin API's and the log follower's console commands
+  (and their output, e.g. `status` for a ban) no longer appear on the
+  server console either. Both already log what they run in Go
+  (`admin: <ip>: <action>: <command>`, the rename lines), so nothing is
+  lost but duplicate noise and the password. The address string in the
+  patch must match `consoleAddr` (comment added at both ends).
+- After the patch, a full 2 v 2 run left **0** `Rcon` lines and no
+  roster output in `docker logs`.
+
+**What was checked.**
+
+- Go (`gotest.sh`: gofmt, vet, all tests). New `voice_roster_test.go`:
+  the **rules table** (alive T / dead T / alive CT / dead CT / spectator as
+  listener × the same as speaker, i.e. same / other team, × alltalk ×
+  intermission, 100 cases against an explicit "who hears whom" list);
+  `parseRoster` (header with and without `voiceenable`, ip with/without
+  port, bad lines skipped, text before the header, no header = error);
+  `rosterPolicy` (no roster = nobody; teammates/enemies; a player not in
+  the roster neither hears nor is heard; a line for an address with no
+  voice peer; alltalk); `gameVoicePeer` (only the slot's current player);
+  the **poller** with a fake console (no console call with nobody in voice;
+  real userid in the lane event; a death releases the lane at the next read
+  with its quiet event and stops the audio; the dead hear the living;
+  alltalk; failures keep the roster 2 s then drop it and release lanes;
+  output without the header counts as a failure; everyone leaving drops
+  the roster); `recheck` (only the disallowed lanes go: not heard any
+  more, admin-muted, left the roster). Admin action tests for `sv_alltalk`.
+- `npm run build`, `tsc --noEmit`; Prettier: my lines clean (`match.ts`
+  and `README.md` already differed at HEAD; README tables re-run through
+  Prettier).
+- `.sma` compiles in the image build (amxxpc, no warnings) and is in the
+  image's `plugins.ini`.
+- Image rebuilt (`local/cs16-web-server:latest`; the A.2 image is tagged
+  `local/cs16-web-server:pre-a3`). **2 v 2 with four real game clients**
+  (`check-voice-teams.mjs`, one Chromium + SwiftShader engine each, fake
+  mic; no bots). Five runs in all: two on an instrumented build (roster
+  changes and call times logged), one on the image with a first version of
+  the patch (it still echoed the command output), and three on the final
+  image. Rules, alltalk and the dead-hear-living checks passed in every
+  run; the only failures were an early "last packet sampled < 500 ms"
+  check that the starved pages can't measure (replaced by "no packets
+  from 1 s on" + the quiet event time) and a first intermission check
+  that talked too early (rewritten); the last final-image run passed
+  everything:
+  - with the server's default `sv_alltalk` (0 now): T1 talks → T2 got
+    179–211 packets / 4 s, C1 and C2 **0 packets and no lane events**; C1
+    talks → C2 only, the Ts 0. Enemies never heard each other in any run.
+  - **Death:** T1 runs `kill` while talking: T2's lane quiet event came
+    **107–460 ms** after the kill (9 trials: 156, 208, 422, 292, 143,
+    460, 107, 360, 248), no packets from T1 after it; the CTs got nothing. The
+    server saw the death **42 ms** after the page's `kill` (instrumented
+    build), so most of that is the poll (≤ 250 ms) and the starved pages
+    (four SwiftShader engines on 4 shared cores: the pages' timers and
+    getStats samples come in 100–500 ms bursts, so these are upper bounds).
+  - The dead T1 hears T2 (129–158 packets / 3 s) and is heard by nobody
+    (0 everywhere).
+  - **`sv_alltalk 1` through the admin API's `cvar` action** (what the
+    Match tab sends): dead T1 heard by T2, C1, C2 (~140–160 each / 3 s), C1
+    by everyone; `sv_alltalk 0` closes it again (C1 → C2 only).
+  - Lane events carry the **engine userid** (T1 = 1 for T2 and for C1;
+    with no bots, userids 1–4 happen to equal slot+1, so this run can't
+    tell them apart; the unit test with userids 21–23 does).
+  - **Intermission:** `mp_timelimit 1` (the map had run > 1 min) at
+    15:30:32.9; the Ts started hearing C1 (enemy, alltalk 0) **1.8 s**
+    later; the map changed at 15:30:44.7 (AMXX `nextmap` waits
+    `mp_chattime`). After the map change all four are unassigned (CS makes
+    everyone pick a team again), reported as `SPEC`, so they hear each
+    other until they join teams, as in CS (unassigned players share team
+    0 there).
+- **Not checked:** Firefox, Safari, phones; a real LAN; more than 4 real
+  players in the roster (the output is one short line per player and the
+  redirect flushes per line, so the 2 KB buffer isn't a limit); the
+  roster failing for > 2 s in real use (only in tests); a map change while
+  someone talks (seen only as above); the death timing on a machine where
+  the clients aren't starved.
+
+**What A.4 needs to know.**
+
+- `voice` lane events now carry the **engine userid** (`#userid`, the one
+  in `status`, kill lines and the scoreboard), so A.5 can map lanes to
+  players.
+- A player hears nobody and is heard by nobody until they are in the game
+  (the roster lists them, ≤ 250 ms after joining the hub, and only once
+  `putinserver` happened); before picking a team they are "spectators"
+  (hear and are heard by other spectators / unassigned players).
+- The engine's own voice is still on (K = `+voicerecord`); with
+  `sv_alltalk 0` it is now team-only too. A.4 turns it off as the A.0
+  notes say. If A.4 uses `sv_voiceenable 0` on the server for that, note
+  the roster already reports it and A.6 means to use it as the WebRTC
+  switch: pick one meaning (A.6: `voiceRoster.voiceEnable` is parsed but
+  unused; `rosterPolicy.adminMuted` is still the stub).
+- Any new Go console command now runs quietly (no console/log echo):
+  log what matters in Go.
+
 ## Open questions
 
 - A.0: decided, WebRTC audio (see Progress). Engine voice works too and is

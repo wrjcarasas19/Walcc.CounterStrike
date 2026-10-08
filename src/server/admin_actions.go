@@ -70,6 +70,8 @@ var adminCvars = map[string]adminCvar{
 	"mp_freezetime":   {0, 60, 0},
 	"mp_buytime":      {0.25, 9, 2},
 	"mp_maxrounds":    {0, 100, 0},
+	// Voice chat: everyone hears everyone (voice_roster.go).
+	"sv_alltalk": {0, 1, 0},
 	// 0 off, 1 knife only, 2 pistols only (src/amxx/wc_weaponmode.sma).
 	"wc_weaponmode": {0, 2, 0},
 	// 0 classic, 1 Gun Game, 2 Deathmatch (src/amxx/wc_gamemode.sma).

@@ -11,7 +11,7 @@ with the game zip. Scripts here import `../new-features-1006-tools/lib.mjs`.
   directory in `new-features-1006-tools` (so `cache/` and `node_modules`
   are found there). Same env (`OUT`, `BASE`, `ADMIN_PASSWORD`, `VERBOSE`,
   `ZIP_PORT`) plus `VOICE_ENABLE`, `START`, `DURATION`, `LABEL` and
-  `NETWORK` (the docker network, default `host`). Import Playwright as
+  `NETWORK` (the docker network, default `host`), `DEATHS`. Import Playwright as
   `../new-features-1006-tools/node_modules/playwright/index.mjs`.
 - `check-engine-voice.mjs talker|listener [ct|t]`: the A.0 spike, the
   engine's own voice chat (`voice_enable`, `+voicerecord`) with Chromium's
@@ -67,6 +67,29 @@ with the game zip. Scripts here import `../new-features-1006-tools/lib.mjs`.
   and network afterwards (`KEEP=1` keeps them). E.g. 5 talkers and a
   listener: `./voice-crowd.sh "2-20 2-20 2-20 2-20" "6-26 -"`; 16 talkers:
   four arguments of `"5-25 5-25 5-25 5-25"`. Results in the plan (A.2).
+
+- `check-voice-teams.mjs`: A.3, who hears whom in a 2 v 2 of real game
+  clients (T1, T2 Terrorists, C1, C2 CTs; one browser each, 640×400).
+  Start the server without bots (`run-server.sh de_dust2 0`). Leaves
+  `sv_alltalk` at the server's default (must be 0), restarts the round,
+  then: each team's talker is heard by their teammate only; T1 runs `kill`
+  while talking (`DEATHS` times, default 3, round restart in between): no
+  more of T1's packets reach T2 and the lane's quiet event time after the
+  kill is printed (when T2's page handled it: four SwiftShader engines
+  starve the pages, so this is an upper bound, and getStats samples come
+  in bursts); the dead T1 hears T2 and isn't heard; `sv_alltalk 1` through
+  the admin API (the Match tab's action) opens everything, `0` closes it;
+  finally `mp_timelimit 1` ends the map and C1 talks until after the map
+  change: the Ts' first lane event time shows when the intermission opened
+  it (the map change itself isn't detected; after it everyone is
+  unassigned, which counts as spectator, so they hear each other as in
+  CS). Prints OK / FAIL per check.
+- `check-voice-roster-cost.mjs [seconds]` and `voice-roster-cost.sh`
+  (same argument): A.3, the cost of the 250 ms roster poll. The script joins one
+  player and records, per second, game packets received and the ICE round
+  trip; the shell script runs it against a fresh server with voice on (the
+  poll runs) and with `VOICE=0` (no poll) and adds the server container's
+  mean CPU. `BOTS` (default 4).
 
 ## Notes
 

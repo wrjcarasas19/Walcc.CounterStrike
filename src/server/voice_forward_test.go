@@ -26,6 +26,14 @@ func (p *testPolicy) userID(s *voicePeer) (int, bool) {
 func (p *testPolicy) mayHear(l, s *voicePeer) bool { return !p.deaf[[2]*voicePeer{l, s}] }
 func (p *testPolicy) adminMuted(s *voicePeer) bool { return p.muted[s] }
 
+// openVoicePolicy: every player in voice hears every other one, with the
+// slot index plus 1 as the userid.
+type openVoicePolicy struct{}
+
+func (openVoicePolicy) userID(p *voicePeer) (int, bool) { return int(p.ip[0]) + 1, true }
+func (openVoicePolicy) mayHear(_, _ *voicePeer) bool    { return true }
+func (openVoicePolicy) adminMuted(_ *voicePeer) bool    { return false }
+
 func newTestPolicy() *testPolicy {
 	return &testPolicy{deaf: map[[2]*voicePeer]bool{}, unknown: map[*voicePeer]bool{}, muted: map[*voicePeer]bool{}}
 }

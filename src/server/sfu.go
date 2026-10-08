@@ -707,7 +707,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // runSFU serves HTTP and WebRTC. admin is nil when the admin API is off,
-// console when both the admin API and the leaderboard are off; query (server queries for /status.json) is always on;
+// console when the admin API, the leaderboard and voice are all off; query (server queries for /status.json) is always on;
 // leaderboard, duel and names are nil when their database couldn't be
 // opened.
 func runSFU(admin http.Handler, console *engineConsole, query *engineQuery, leaderboard, duel, names http.Handler) {
