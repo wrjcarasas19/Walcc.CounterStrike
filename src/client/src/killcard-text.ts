@@ -4,8 +4,8 @@
 import type { KillInfo } from './killinfo';
 import type { Duel, KillEvent, Team } from './stats';
 
-/** How long the card stays up (unless the player respawns or a round starts). */
-export const KILL_CARD_MS = 6_000;
+/** How long the card stays up (also after a respawn or a round start). */
+export const KILL_CARD_MS = 15_000;
 
 /**
  * With a bridge that sends `killinfo` (cs16-client 0.0.10+), how long the

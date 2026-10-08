@@ -23,7 +23,6 @@ import {
   parseKillInfo,
   type KillInfo,
 } from './killinfo';
-import { createRoundStartDetector } from './rounds';
 import { getSettings, onSettingsChange } from './settings/store';
 import type { Duel, KillEvent } from './stats';
 
@@ -31,8 +30,9 @@ import type { Duel, KillEvent } from './stats';
 // what, the killer's HP / armour / distance (`killinfo`, cs16-client
 // 0.0.10+), the head-to-head this map (stats.ts) and all time (GET /duel),
 // and the killer's streak. Lower centre, above the clock, never over the
-// crosshair (style.css), never takes input. Up for KILL_CARD_MS, or until
-// the player respawns or a round starts. The texts are in killcard-text.ts.
+// crosshair (style.css), never takes input. Up for KILL_CARD_MS, through a
+// respawn or a new round; only the end of the map (intermission, reset) or
+// the next death takes it down sooner. The texts are in killcard-text.ts.
 
 const REQUEST_TIMEOUT_MS = 5_000;
 /** A failed /duel request may be tried again for the same killer after this. */
@@ -75,7 +75,6 @@ let wasAlive = false;
 const allTime = new Map<string, AllTime>();
 let generation = 0;
 const bomb = createBombDeathDetector();
-const roundStarts = createRoundStartDetector();
 
 function el(tag: string, className: string, text?: string): HTMLElement {
   const node = document.createElement(tag);
@@ -271,7 +270,6 @@ function onEvent(event: HudEvent): void {
     case 'alive': {
       const { alive, spectating } = event.payload;
       const playing = alive && !spectating;
-      if (playing && !wasAlive) hide();
       if (!alive && wasAlive && bomb.died(now)) {
         show({ card: bombCard(), me: '' }, false);
       }
@@ -283,9 +281,6 @@ function onEvent(event: HudEvent): void {
         show({ card: bombCard(), me: '' }, false);
       }
       break;
-    case 'timer':
-      if (roundStarts.timer(event.payload.seconds)) hide();
-      break;
     case 'intermission':
       if (event.payload.active) hide();
       break;
@@ -294,7 +289,6 @@ function onEvent(event: HudEvent): void {
       generation++;
       allTime.clear();
       bomb.reset();
-      roundStarts.reset();
       wasAlive = false;
       break;
   }

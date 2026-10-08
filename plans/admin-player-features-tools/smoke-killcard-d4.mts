@@ -24,7 +24,7 @@ import {
 import type { KillInfo } from '../../src/client/src/killinfo.ts';
 import type { KillEvent } from '../../src/client/src/stats.ts';
 
-assert.equal(KILL_CARD_MS, 6000);
+assert.equal(KILL_CARD_MS, 15000);
 
 function k(
   killer: string,

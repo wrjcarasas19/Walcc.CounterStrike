@@ -70,12 +70,12 @@ or what a player sees.
   fresh server started with `LEADERBOARD_BOTS=1 ./run-server.sh de_dust2 9`:
   Deathmatch deaths to bots (killer name and team colour, weapon, "This
   map" counting up, the streak line from 3, all checked against the kill
-  feed; the card below the crosshair; hidden on respawn), `kill` in the
+  feed; the card below the crosshair; still up after a respawn), `kill` in the
   console ("You killed yourself"), the Killer card setting off / on in F3,
   no all-time line on a fresh server, then a reconnect
   (`__engine.rejoin()`, which clears the cache like a new map without
   renaming the bots) and "All time: 0 – n" equal to `/duel`, and in classic
-  rounds the card staying up while spectating until 6 s and going at a
+  rounds the card staying up while spectating until 15 s and through a
   round restart. `VIEWPORT=phone` runs it at 844×390 touch (fewer deaths,
   no reconnect). `WAIT_SCALE=2` doubles the waits for deaths on a slow
   host. Leaves the server in classic mode with bots.

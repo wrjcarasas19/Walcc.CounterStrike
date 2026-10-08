@@ -3,7 +3,7 @@
 // - Deathmatch, bots kill the player: "Killed by <bot>" in the bot's team
 //   colour, the weapon, "This map: you 0 – n <bot>" counting up over the
 //   deaths, "<bot> is on a n kill streak" from 3 (checked against the kill
-//   feed), hidden when the player respawns;
+//   feed), still up after the player respawns;
 // - `kill` in the console: "You killed yourself", no duel lines;
 // - the Killer card setting (F3) off: no card on a death; on again: back;
 // - no all-time line on a fresh server; after a reconnect (all-time cache
@@ -11,7 +11,7 @@
 //   "All time: 0 – n" equal to GET /duel and the kill feed (needs
 //   LEADERBOARD_BOTS=1 and a fresh server);
 // - classic rounds: the card stays up while spectating after death until
-//   6 s, and goes at a round start (admin restart).
+//   15 s, and also through a round start (admin restart).
 // The card must stay below the crosshair and inside the viewport.
 // usage: LEADERBOARD_BOTS=1 ./run-server.sh de_dust2 8 && ./pw.sh check-killcard-d4.mjs
 //        VIEWPORT=phone (844×390 touch) for the phone size; WAIT_SCALE=2
@@ -242,17 +242,18 @@ const repeat = new Set(
 );
 console.log(`  killers seen twice or more: ${[...repeat].join(', ') || '(none)'}`);
 
-// Hidden on respawn: the first card hides with the next "alive and playing".
+// Kept on respawn: the card is still up right after "alive and playing".
 for (const d of deaths) {
   const respawn = s.ev.find(
     (e) => e.type === 'alive' && e.t > d.t && e.payload.alive && !e.payload.spectating
   );
   if (!respawn || respawn.t - d.t > 5500) continue;
-  const next = s.cards.find((c) => c.t >= respawn.t);
-  const hiddenAt = next?.hidden ? next.t - respawn.t : undefined;
+  const hidden = s.cards.find(
+    (c) => c.t >= respawn.t && c.t < respawn.t + 1000 && c.hidden
+  );
   check(
-    hiddenAt !== undefined && hiddenAt < 300,
-    `DM: card hidden ${hiddenAt?.toFixed(0)} ms after respawn (${((respawn.t - d.t) / 1000).toFixed(1)} s after death)`
+    !hidden,
+    `DM: card still up after respawn (${((respawn.t - d.t) / 1000).toFixed(1)} s after death)`
   );
   break;
 }
@@ -393,7 +394,7 @@ if (!PHONE) {
   );
 }
 
-// 5. Classic rounds: spectating after death keeps the card; a round start hides it.
+// 5. Classic rounds: spectating after death and a round start keep the card.
 await setMode(0);
 await page.waitForTimeout(6000);
 await joinTeam();
@@ -411,9 +412,9 @@ check(
   `classic: card still up ${((s.now - (self?.t ?? s.now)) / 1000).toFixed(1)} s after death while dead / spectating (alive events: ${JSON.stringify(spect.at(-1))})`
 );
 await shot(page, `d4-${TAG}-spectating`);
-await page.waitForTimeout(2500);
+await page.waitForTimeout(11000);
 s = await state();
-check(s.cards.at(-1)?.hidden === true, 'classic: card gone after 6 s');
+check(s.cards.at(-1)?.hidden === true, 'classic: card gone after 15 s');
 
 // Round start: die, then restart the round.
 check(await ensureAlive(), 'classic: alive again before the round start check');
@@ -429,8 +430,8 @@ self = myDeaths(s.ev).find((e) => e.t >= t0);
 const shownAfterDeath = s.cards.some((x) => x.t >= t0 && x.t < restartAt && !x.hidden);
 const hid = s.cards.find((x) => x.t >= restartAt && x.hidden);
 check(
-  !!self && shownAfterDeath && !!hid,
-  `round start: card shown, then hidden ${hid ? ((hid.t - restartAt) / 1000).toFixed(1) + ' s after the restart (4.5 s before its 6 s ran out)' : 'never'}`
+  !!self && shownAfterDeath && !hid,
+  `round start: card shown and still up 3.5 s after the restart${hid ? ` (hidden ${((hid.t - restartAt) / 1000).toFixed(1)} s after it)` : ''}`
 );
 
 console.log(failures ? `${failures} FAILED` : 'all ok');
