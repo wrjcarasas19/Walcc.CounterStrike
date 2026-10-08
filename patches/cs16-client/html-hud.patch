@@ -1,0 +1,1616 @@
+diff --git a/cl_dll/ammo.cpp b/cl_dll/ammo.cpp
+index fab5755..23d738d 100644
+--- a/cl_dll/ammo.cpp
++++ b/cl_dll/ammo.cpp
+@@ -33,6 +33,7 @@
+ #include "draw_util.h"
+ #include "triangleapi.h"
+ #include "weapontype.h"
++#include "web_bridge.h"
+ 
+ #ifndef M_PI
+ #define M_PI		3.14159265358979323846	// matches value in gcc v2 math.h
+@@ -46,6 +47,15 @@ client_sprite_t *GetSpriteList(client_sprite_t *pList, const char *psz, int iRes
+ 
+ WeaponsResource gWR;
+ 
++// tell the web page about the current weapon (no-op if unchanged)
++static void SendWeaponToWeb( WEAPON *pw )
++{
++	if( !pw )
++		return;
++
++	WebBridge_Weapon( pw->szName, pw->iClip, pw->iAmmoType > 0 ? gWR.CountAmmo( pw->iAmmoType ) : -1 );
++}
++
+ int g_weaponselect = 0;
+ int g_weaponselect_frames = 0;
+ int g_iShotsFired;
+@@ -512,6 +522,8 @@ int CHudAmmo::MsgFunc_AmmoX(const char *pszName, int iSize, void *pbuf)
+ 
+ 	gWR.SetAmmo( iIndex, abs(iCount) );
+ 
++	SendWeaponToWeb( m_pWeapon );
++
+ 	return 1;
+ }
+ 
+@@ -589,6 +601,7 @@ int CHudAmmo::MsgFunc_CurWeapon(const char *pszName, int iSize, void *pbuf )
+ 	if ( iId < 1 )
+ 	{
+ 		HideCrosshair();
++		WebBridge_Weapon( "", -1, -1 );
+ 		return 0;
+ 	}
+ 
+@@ -616,12 +629,17 @@ int CHudAmmo::MsgFunc_CurWeapon(const char *pszName, int iSize, void *pbuf )
+ 
+ 
+ 	if ( iState == 0 )	// we're not the current weapon, so update no more
++	{
++		SendWeaponToWeb( m_pWeapon );
+ 		return 1;
++	}
+ 
+ 	m_pWeapon = pWeapon;
+ 
+ 	m_fFade = 200.0f; //!!!
+ 
++	SendWeaponToWeb( m_pWeapon );
++
+ 	return 1;
+ }
+ 
+@@ -655,6 +673,8 @@ int CHudAmmo::MsgFunc_WeaponList(const char *pszName, int iSize, void *pbuf )
+ 
+ 	gWR.AddWeapon( &Weapon );
+ 
++	SendWeaponToWeb( m_pWeapon );
++
+ 	return 1;
+ 
+ }
+@@ -1047,6 +1067,10 @@ int CHudAmmo::Draw(float flTime)
+ 	// Draw ammo pickup history
+ 	gHR.DrawAmmoHistory( flTime );
+ 
++	// the page draws the ammo counters
++	if( HUD_HTML_ACTIVE() )
++		return 1;
++
+ 	if (!m_pWeapon)
+ 		return 0;
+ 
+diff --git a/cl_dll/battery.cpp b/cl_dll/battery.cpp
+index 71f79ee..356cbfc 100644
+--- a/cl_dll/battery.cpp
++++ b/cl_dll/battery.cpp
+@@ -22,6 +22,7 @@
+ #include "parsemsg.h"
+ #include "cl_util.h"
+ #include "draw_util.h"
++#include "web_bridge.h"
+ 
+ int CHudBattery::Init( void )
+ {
+@@ -66,6 +67,8 @@ int CHudBattery:: MsgFunc_Battery(const char *pszName, int iSize, void *pbuf )
+ 			m_enArmorType = Vest;
+ 	}
+ 
++	WebBridge_Armor( m_iBat, m_enArmorType == VestHelm );
++
+ 	return 1;
+ }
+ 
+@@ -77,6 +80,9 @@ int CHudBattery::Draw( float flTime )
+ 	if (!(gHUD.m_iWeaponBits & (1<<(WEAPON_SUIT)) ))
+ 		return 1;
+ 
++	if( HUD_HTML_ACTIVE() )
++		return 1;
++
+ 	int r, g, b, x, y, a;
+ 	wrect_t rc;
+ 
+@@ -135,5 +141,7 @@ int CHudBattery::MsgFunc_ArmorType(const char *pszName,  int iSize, void *pbuf )
+ 
+ 	m_enArmorType = (armortype_t)reader.ReadByte();
+ 
++	WebBridge_Armor( m_iBat, m_enArmorType == VestHelm );
++
+ 	return 1;
+ }
+diff --git a/cl_dll/death.cpp b/cl_dll/death.cpp
+index 32e836d..2f0ec69 100644
+--- a/cl_dll/death.cpp
++++ b/cl_dll/death.cpp
+@@ -22,6 +22,7 @@
+ #include <string.h>
+ #include <stdio.h>
+ #include "draw_util.h"
++#include "web_bridge.h"
+ 
+ float color[3];
+ 
+@@ -76,6 +77,13 @@ int CHudDeathNotice :: Draw( float flTime )
+ {
+ 	int x, y, r, g, b, i;
+ 
++	// the page draws the kill feed
++	if( HUD_HTML_ACTIVE() )
++	{
++		m_iFlags &= ~HUD_DRAW;
++		return 1;
++	}
++
+ 	for( i = 0; i < MAX_DEATHNOTICES; i++ )
+ 	{
+ 		if ( rgDeathNoticeList[i].iId == 0 )
+@@ -248,6 +256,18 @@ int CHudDeathNotice :: MsgFunc_DeathMsg( const char *pszName, int iSize, void *p
+ 
+ 	rgDeathNoticeList[i].flDisplayTime = gHUD.m_flTime + hud_deathnotice_time->value;
+ 
++	{
++		bool bPlayerVictim = ((char)victim) != -1;
++		bool bSuicide = bPlayerVictim && ( killer == victim || killer == 0 );
++
++		WebBridge_Kill( bSuicide ? "" : killer_name,
++			bPlayerVictim ? victim_name : killedwith + 2,
++			killedwith + 2, headshot != 0,
++			( killer >= 1 && killer <= MAX_PLAYERS ) ? g_PlayerExtraInfo[killer].teamnumber : 0,
++			( bPlayerVictim && victim >= 1 && victim <= MAX_PLAYERS ) ? g_PlayerExtraInfo[victim].teamnumber : 0,
++			bSuicide ? 0 : killer, bPlayerVictim ? victim : 0 );
++	}
++
+ 
+ 	if (rgDeathNoticeList[i].bNonPlayerKill)
+ 	{
+diff --git a/cl_dll/health.cpp b/cl_dll/health.cpp
+index ead8636..83910cc 100644
+--- a/cl_dll/health.cpp
++++ b/cl_dll/health.cpp
+@@ -32,6 +32,7 @@
+ 
+ #include "ev_hldm.h"
+ #include "com_weapons.h"
++#include "web_bridge.h"
+ 
+ #define PAIN_NAME "sprites/%d_pain.spr"
+ #define DAMAGE_NAME "sprites/%d_dmg.spr"
+@@ -145,6 +146,8 @@ int CHudHealth:: MsgFunc_Health(const char *pszName,  int iSize, void *pbuf )
+ 		m_iHealth = x;
+ 	}
+ 
++	WebBridge_Health( m_iHealth );
++
+ 	return 1;
+ }
+ 
+@@ -251,7 +254,8 @@ int CHudHealth::Draw(float flTime)
+ {
+ 	if( !(gHUD.m_iHideHUDDisplay & HIDEHUD_HEALTH ) && !gEngfuncs.IsSpectateOnly() )
+ 	{
+-		DrawHealthBar( flTime );
++		if( !HUD_HTML_ACTIVE() ) // the page draws the health number
++			DrawHealthBar( flTime );
+ 		DrawDamage( flTime );
+ 		DrawPain( flTime );
+ 	}
+diff --git a/cl_dll/hud.cpp b/cl_dll/hud.cpp
+index fb6b6dc..501d9e9 100644
+--- a/cl_dll/hud.cpp
++++ b/cl_dll/hud.cpp
+@@ -35,6 +35,7 @@
+ #include "camera.h"
+ 
+ #include "draw_util.h"
++#include "web_bridge.h"
+ 
+ #if _WIN32
+ #define strncasecmp _strnicmp
+@@ -279,6 +280,7 @@ void CHud :: Init( void )
+ 	gEngfuncs.pfnHookUserMsg( "Spectator", __MsgFunc_Spectator );
+ 
+ 	HOOK_MESSAGE( gHUD, Fog );
++	WebBridge_Init();
+ 
+ 
+ 	CVAR_CREATE( "_vgui_menus", "1", FCVAR_ARCHIVE | FCVAR_USERINFO );
+@@ -305,6 +307,12 @@ void CHud :: Init( void )
+ 	cl_min_ct    = CVAR_CREATE( "cl_min_ct", "2", FCVAR_ARCHIVE );
+ 	default_fov  = CVAR_CREATE( "default_fov", "90", 0 );
+ 	m_pCvarDraw  = CVAR_CREATE( "hud_draw", "1", FCVAR_ARCHIVE );
++#ifdef __EMSCRIPTEN__
++	hud_html     = CVAR_CREATE( "hud_html", "1", 0 ); // locked to 1 by WebBridge_Frame: the web page draws the HUD
++#else
++	hud_html     = CVAR_CREATE( "hud_html", "0", 0 ); // 1 = the web page draws health, armor, money, ammo, timer, kill feed
++#endif
++	hud_html_scores = CVAR_CREATE( "hud_html_scores", "0", 0 ); // 1 = also send "scores" while the scoreboard is hidden
+ 	fastsprites  = CVAR_CREATE( "fastsprites", "0", FCVAR_ARCHIVE );
+ 	cl_gunsmoke  = CVAR_CREATE( "cl_gunsmoke", "0", FCVAR_ARCHIVE );
+ 	cl_weapon_sparks = CVAR_CREATE( "cl_weapon_sparks", "1", FCVAR_ARCHIVE );
+diff --git a/cl_dll/hud.h b/cl_dll/hud.h
+index 91a58ac..c209481 100644
+--- a/cl_dll/hud.h
++++ b/cl_dll/hud.h
+@@ -776,6 +776,9 @@ public:
+ 	// [empty]
+ 	CHudMsgFunc(ShowTimer);
+ 
++	// whole seconds left on the round clock, never negative
++	int SecondsLeft( void );
++
+ 	int m_right;
+ private:
+ 	int m_HUD_timer;
+@@ -1017,6 +1020,8 @@ public:
+ 	cvar_t *cscl_currentmoney;
+ 	cvar_t *cscl_currentmap;
+ 	cvar_t *cscl_mapprefix;
++	cvar_t *hud_html;
++	cvar_t *hud_html_scores;
+ 
+ 	cvar_t* m_pCvarColor;
+ 	unsigned long m_iDefaultHUDColor;
+diff --git a/cl_dll/hud/money.cpp b/cl_dll/hud/money.cpp
+index ad30960..5772bb8 100644
+--- a/cl_dll/hud/money.cpp
++++ b/cl_dll/hud/money.cpp
+@@ -38,6 +38,7 @@ version.
+ #include <string.h>
+ #include "vgui_parser.h"
+ #include "draw_util.h"
++#include "web_bridge.h"
+ 
+ int CHudMoney::Init( )
+ {
+@@ -66,6 +67,9 @@ int CHudMoney::Draw(float flTime)
+ 	if (!(gHUD.m_iWeaponBits & (1<<(WEAPON_SUIT))))
+ 		return 1;
+ 
++	if( HUD_HTML_ACTIVE() )
++		return 1;
++
+ 	int r, g, b, alphaBalance;
+ 	m_fFade -= gHUD.m_flTimeDelta;
+ 	if( m_fFade < 0)
+@@ -152,6 +156,7 @@ int CHudMoney::MsgFunc_Money(const char *pszName, int iSize, void *pbuf)
+ 	m_iDelta = m_iMoneyCount - iOldCount;
+ 	m_fFade = 5.0f; //fade for 5 seconds
+ 	m_iFlags |= HUD_DRAW;
++	WebBridge_Money( m_iMoneyCount, m_iDelta );
+ 	return 1;
+ }
+ 
+diff --git a/cl_dll/hud/radar.cpp b/cl_dll/hud/radar.cpp
+index 43f2769..3d95eee 100644
+--- a/cl_dll/hud/radar.cpp
++++ b/cl_dll/hud/radar.cpp
+@@ -33,6 +33,7 @@ version.
+ #include "draw_util.h"
+ #include "triangleapi.h"
+ #include "vgui_parser.h"
++#include "web_bridge.h"
+ #ifndef M_PI
+ #define M_PI		3.14159265358979323846	// matches value in gcc v2 math.h
+ #endif
+@@ -519,6 +520,7 @@ int CHudRadar::MsgFunc_BombDrop(const char *pszName, int iSize, void *pbuf)
+ 	{
+ 		gHUD.m_SpectatorGui.m_bBombPlanted = 0;
+ 		gHUD.m_Timer.m_iFlags = 0;
++		WebBridge_BombPlanted();
+ 	}
+ 	return 1;
+ }
+diff --git a/cl_dll/hud/scoreboard.cpp b/cl_dll/hud/scoreboard.cpp
+index 619ad1e..3cbd2a1 100644
+--- a/cl_dll/hud/scoreboard.cpp
++++ b/cl_dll/hud/scoreboard.cpp
+@@ -28,6 +28,7 @@
+ #include <string.h>
+ #include <stdio.h>
+ #include "draw_util.h"
++#include "web_bridge.h"
+ 
+ hud_player_info_t   g_PlayerInfoList[MAX_PLAYERS+1]; // player info from the engine
+ extra_player_info_t	g_PlayerExtraInfo[MAX_PLAYERS+1]; // additional player info sent directly to the client dll
+@@ -127,6 +128,10 @@ void CHudScoreboard :: InitHUDData( void )
+ 
+ int CHudScoreboard :: Draw( float flTime )
+ {
++	// the page draws the scoreboard (web_bridge.cpp mirrors the checks below)
++	if( HUD_HTML_ACTIVE() )
++		return 1;
++
+ 	if( !m_bForceDraw )
+ 	{
+ 		if ( (!m_bShowscoresHeld && gHUD.m_Health.m_iHealth > 0 && !gHUD.m_iIntermission) )
+@@ -624,6 +629,8 @@ int CHudScoreboard :: MsgFunc_TeamScore( const char *pszName, int iSize, void *p
+ 	g_TeamInfo[i].scores_overriden = TRUE;
+ 	g_TeamInfo[i].frags = reader.ReadShort();
+ 	// g_TeamInfo[i].deaths = reader.ReadShort();
++
++	WebBridge_TeamScore( TeamName, g_TeamInfo[i].frags );
+ 	
+ 	return 1;
+ }
+diff --git a/cl_dll/hud/timer.cpp b/cl_dll/hud/timer.cpp
+index 02ccf7d..17043d6 100644
+--- a/cl_dll/hud/timer.cpp
++++ b/cl_dll/hud/timer.cpp
+@@ -36,6 +36,7 @@ version.
+ #include "vgui_parser.h"
+ #include <string.h>
+ #include "draw_util.h"
++#include "web_bridge.h"
+ 
+ int CHudTimer::Init()
+ {
+@@ -60,6 +61,16 @@ int CHudTimer::Draw( float fTime )
+ 
+ 	if (!(gHUD.m_iWeaponBits & (1<<(WEAPON_SUIT)) ))
+ 		return 1;
++
++	if( HUD_HTML_ACTIVE() )
++	{
++		// the page draws the clock; keep m_right where it would be, CHudScenario is placed after it
++		int iWatchWidth = gHUD.GetSpriteRect(m_HUD_timer).Width();
++		int iNumberWidth = gHUD.GetSpriteRect(gHUD.m_HUD_number_0).Width();
++		m_right = ScreenWidth/2 - 50 + iWatchWidth / 4 + 2 * iNumberWidth + iWatchWidth / 2 + 2 * iNumberWidth;
++		return 1;
++	}
++
+ 	int r, g, b;
+ 	// time must be positive
+ 	int minutes = max( 0, (int)( m_iTime + m_fStartTime - gHUD.m_flTime ) / 60);
+@@ -106,9 +117,15 @@ int CHudTimer::MsgFunc_RoundTime(const char *pszName, int iSize, void *pbuf)
+ 	m_iTime = reader.ReadShort();
+ 	m_fStartTime = gHUD.m_flTime;
+ 	m_iFlags = HUD_DRAW;
++	WebBridge_RoundTime();
+ 	return 1;
+ }
+ 
++int CHudTimer::SecondsLeft( void )
++{
++	return max( 0, (int)( m_iTime + m_fStartTime - gHUD.m_flTime ));
++}
++
+ int CHudTimer::MsgFunc_ShowTimer(const char *pszName, int iSize, void *pbuf)
+ {
+ 	m_iFlags = HUD_DRAW;
+diff --git a/cl_dll/hud_msg.cpp b/cl_dll/hud_msg.cpp
+index 0dba92b..59e560c 100644
+--- a/cl_dll/hud_msg.cpp
++++ b/cl_dll/hud_msg.cpp
+@@ -31,6 +31,7 @@
+ #include <cstring>
+ 
+ #include "events.h"
++#include "web_bridge.h"
+ 
+ #define MAX_CLIENTS 32
+ 
+@@ -83,6 +84,8 @@ int CHud :: MsgFunc_ResetHUD(const char *pszName, int iSize, void *pbuf )
+ 	g_iRShell       = gEngfuncs.pEventAPI->EV_FindModelIndex( "models/rshell.mdl" );
+ 	g_iPShell       = gEngfuncs.pEventAPI->EV_FindModelIndex( "models/pshell.mdl" );
+ 	g_iShotgunShell = gEngfuncs.pEventAPI->EV_FindModelIndex( "models/shotgunshell.mdl" );
++
++	WebBridge_ResetHUD();
+ 	
+ 	return 1;
+ }
+@@ -134,6 +137,8 @@ int CHud :: MsgFunc_InitHUD( const char *pszName, int iSize, void *pbuf )
+ 	// reset round time
+ 	g_flRoundTime   = 0.0f;
+ 
++	WebBridge_InitHUD();
++
+ 	return 1;
+ }
+ 
+diff --git a/cl_dll/hud_redraw.cpp b/cl_dll/hud_redraw.cpp
+index 1f2ad59..c9406b8 100644
+--- a/cl_dll/hud_redraw.cpp
++++ b/cl_dll/hud_redraw.cpp
+@@ -23,6 +23,7 @@
+ #include <string.h>
+ 
+ #include "draw_util.h"
++#include "web_bridge.h"
+ 
+ #define MAX_LOGO_FRAMES 56
+ 
+@@ -102,6 +103,8 @@ int CHud :: Redraw( float flTime, int intermission )
+ 
+ 	UpdateDefaultHUDColor();
+ 
++	WebBridge_Frame();
++
+ 	if ( m_pCvarDraw->value && (intermission || !(m_iHideHUDDisplay & HIDEHUD_ALL) ) )
+ 	{
+ 		for( HUDLIST *pList = m_pHudList; pList; pList = pList->pNext )
+diff --git a/cl_dll/saytext.cpp b/cl_dll/saytext.cpp
+index 0df0291..69a8423 100644
+--- a/cl_dll/saytext.cpp
++++ b/cl_dll/saytext.cpp
+@@ -28,6 +28,7 @@
+ #include "vgui_parser.h"
+ #include "draw_util.h"
+ #include "com_weapons.h"
++#include "web_bridge.h"
+ //#include "vgui_TeamFortressViewport.h"
+ 
+ extern float *GetClientColor( int clientIndex );
+@@ -120,6 +121,11 @@ int CHudSayText :: Draw( float flTime )
+ 			m_iFlags &= ~HUD_DRAW;
+ 		}
+ 	}
++
++	// the page draws the chat ("chat" events); keep scrolling so no stale
++	// lines show up when hud_html is turned off
++	if( HUD_HTML_ACTIVE() )
++		return 1;
+ 	
+ 	for (int i = 0; i < MAX_LINES; i++)
+ 	{
+@@ -365,6 +371,9 @@ int CHudSayText :: MsgFunc_SayText( const char *pszName, int iSize, void *pbuf )
+ 		break;
+ 	}
+ 	
++	// after the allowDead check; argv[0] is the sender's name for chat keys
++	WebBridge_SayText( fmt, client_index, argv, dst );
++
+ 	SayTextPrint( dst, strlen(dst), client_index );
+ 
+ 	delete[] fmt;
+diff --git a/cl_dll/text_message.cpp b/cl_dll/text_message.cpp
+index c2b6f9b..a057cc5 100644
+--- a/cl_dll/text_message.cpp
++++ b/cl_dll/text_message.cpp
+@@ -28,6 +28,7 @@
+ #include "vgui_parser.h"
+ #include "ctype.h"
+ #include "draw_util.h"
++#include "web_bridge.h"
+ 
+ int CHudTextMessage::Init(void)
+ {
+@@ -187,7 +188,9 @@ int CHudTextMessage::MsgFunc_TextMsg( const char *pszName, int iSize, void *pbuf
+ 	int clientIdx = -1;
+ 
+ 	static char szBuf[6][MAX_TEXTMSG_STRING];
+-	char *msg_text = LookupString( reader.ReadString(), &msg_dest );
++	char *msg_name = reader.ReadString();
++	WebBridge_TextMsg( msg_dest, msg_name );	// round end messages ("#CTs_Win"...)
++	char *msg_text = LookupString( msg_name, &msg_dest );
+ 	msg_text = strncpy( szBuf[0], msg_text, MAX_TEXTMSG_STRING );
+ 	szBuf[0][MAX_TEXTMSG_STRING - 1] = 0;
+ 
+@@ -249,6 +252,7 @@ int CHudTextMessage::MsgFunc_TextMsg( const char *pszName, int iSize, void *pbuf
+ 		psz[0] = 2; // mark, so SayTextPrint will color it
+ 		snprintf( psz+1, MAX_TEXTMSG_STRING-1, msg_text, szBuf[1], szBuf[2], szBuf[3], szBuf[4] );
+ 		gHUD.m_SayText.SayTextPrint( ConvertCRtoNL( psz ), 128 );
++		WebBridge_Notice( psz + 1 );
+ 		break;
+ 
+ 	case HUD_PRINTCONSOLE:
+@@ -262,6 +266,11 @@ int CHudTextMessage::MsgFunc_TextMsg( const char *pszName, int iSize, void *pbuf
+ 
+ 		clientIdx = atoi( szBuf[0] );
+ 		gHUD.m_SayText.SayTextPrint( ConvertCRtoNL( psz ), 128, clientIdx );
++		// "#Game_radio": name, message; "#Game_radio_location": name, place, message
++		if( szBuf[4][0] )
++			WebBridge_Radio( clientIdx, szBuf[2], szBuf[3], szBuf[4] );
++		else
++			WebBridge_Radio( clientIdx, szBuf[2], "", szBuf[3] );
+ 		break;
+ 	}
+ 
+diff --git a/cl_dll/web_bridge.cpp b/cl_dll/web_bridge.cpp
+new file mode 100644
+index 0000000..571f4b2
+--- /dev/null
++++ b/cl_dll/web_bridge.cpp
+@@ -0,0 +1,852 @@
++/*
++web_bridge.cpp -- hands HUD state to the web page (HTML HUD)
++See web_bridge.h for the JS contract.
++*/
++
++#include "hud.h"
++#include "cl_util.h"
++#include "parsemsg.h"
++#include "web_bridge.h"
++#include "r_studioint.h"
++#include "com_model.h"
++#include "vgui_parser.h"
++#include <string.h>
++#include <stdio.h>
++#include <stdarg.h>
++#include <stdlib.h>
++
++#ifdef __EMSCRIPTEN__
++#include <emscripten.h>
++
++// EM_JS bodies are stringified without macro expansion, so each one spells out
++// the Module.hudEvent call. See web_bridge.h for the contract.
++// Keep the parameter lists unpadded, "(int a, int b)": the side module loader
++// takes the last space-separated word of each parameter as the JS argument name.
++EM_JS( void, js_hud_health, (int hp), {
++	var f = Module["hudEvent"];
++	if( typeof f !== "function" ) return;
++	try { f( "health", { hp: hp } ); } catch( e ) { console.error( "hudEvent", e ); }
++} );
++EM_JS( void, js_hud_armor, (int ap, int helmet), {
++	var f = Module["hudEvent"];
++	if( typeof f !== "function" ) return;
++	try { f( "armor", { ap: ap, helmet: !!helmet } ); } catch( e ) { console.error( "hudEvent", e ); }
++} );
++EM_JS( void, js_hud_money, (int amount, int delta), {
++	var f = Module["hudEvent"];
++	if( typeof f !== "function" ) return;
++	try { f( "money", { amount: amount, delta: delta } ); } catch( e ) { console.error( "hudEvent", e ); }
++} );
++EM_JS( void, js_hud_weapon, (const char *name, int clip, int reserve), {
++	var f = Module["hudEvent"];
++	if( typeof f !== "function" ) return;
++	try { f( "weapon", { name: UTF8ToString( name ), clip: clip, reserve: reserve } ); } catch( e ) { console.error( "hudEvent", e ); }
++} );
++EM_JS( void, js_hud_timer, (int seconds, int bombPlanted), {
++	var f = Module["hudEvent"];
++	if( typeof f !== "function" ) return;
++	try { f( "timer", { seconds: seconds, bombPlanted: !!bombPlanted } ); } catch( e ) { console.error( "hudEvent", e ); }
++} );
++EM_JS( void, js_hud_kill, (const char *killer, const char *victim, const char *weapon, int headshot, const char *killerTeam, const char *victimTeam, int killerUserid, int victimUserid), {
++	var f = Module["hudEvent"];
++	if( typeof f !== "function" ) return;
++	try { f( "kill", {
++		killer: UTF8ToString( killer ), victim: UTF8ToString( victim ), weapon: UTF8ToString( weapon ),
++		headshot: !!headshot, killerTeam: UTF8ToString( killerTeam ), victimTeam: UTF8ToString( victimTeam ),
++		killerUserid: killerUserid, victimUserid: victimUserid
++	} ); } catch( e ) { console.error( "hudEvent", e ); }
++} );
++EM_JS( void, js_hud_alive, (int alive, int spectating), {
++	var f = Module["hudEvent"];
++	if( typeof f !== "function" ) return;
++	try { f( "alive", { alive: !!alive, spectating: !!spectating } ); } catch( e ) { console.error( "hudEvent", e ); }
++} );
++EM_JS( void, js_hud_reset, (void), {
++	var f = Module["hudEvent"];
++	if( typeof f !== "function" ) return;
++	try { f( "reset", {} ); } catch( e ) { console.error( "hudEvent", e ); }
++} );
++EM_JS( void, js_hud_scoreboard, (int visible), {
++	var f = Module["hudEvent"];
++	if( typeof f !== "function" ) return;
++	try { f( "scoreboard", { visible: !!visible } ); } catch( e ) { console.error( "hudEvent", e ); }
++} );
++// ctScore / tScore < 0: no TeamScore known yet
++EM_JS( void, js_hud_round, (const char *winner, const char *reason, const char *message, int ctScore, int tScore), {
++	var f = Module["hudEvent"];
++	if( typeof f !== "function" ) return;
++	try { f( "round", {
++		winner: UTF8ToString( winner ), reason: UTF8ToString( reason ), message: UTF8ToString( message ),
++		ctScore: ctScore < 0 ? null : ctScore, tScore: tScore < 0 ? null : tScore
++	} ); } catch( e ) { console.error( "hudEvent", e ); }
++} );
++EM_JS( void, js_hud_intermission, (int active, const char *map), {
++	var f = Module["hudEvent"];
++	if( typeof f !== "function" ) return;
++	try { f( "intermission", { active: !!active, map: UTF8ToString( map ) } ); } catch( e ) { console.error( "hudEvent", e ); }
++} );
++// json is built by WebBridge_Scores (valid UTF-8, strings escaped)
++EM_JS( void, js_hud_scores, (const char *json), {
++	var f = Module["hudEvent"];
++	if( typeof f !== "function" ) return;
++	try { f( "scores", JSON.parse( UTF8ToString( json ))); } catch( e ) { console.error( "hudEvent", e ); }
++} );
++// json is built by WebBridge_Chat (valid UTF-8, strings escaped)
++EM_JS( void, js_hud_chat, (const char *json), {
++	var f = Module["hudEvent"];
++	if( typeof f !== "function" ) return;
++	try { f( "chat", JSON.parse( UTF8ToString( json ))); } catch( e ) { console.error( "hudEvent", e ); }
++} );
++// json is built by WebBridge_MsgWcMode (valid UTF-8, strings escaped)
++EM_JS( void, js_hud_mode, (const char *json), {
++	var f = Module["hudEvent"];
++	if( typeof f !== "function" ) return;
++	try { f( "mode", JSON.parse( UTF8ToString( json ))); } catch( e ) { console.error( "hudEvent", e ); }
++} );
++// json is built by WebBridge_MsgWcKillInfo (valid UTF-8, strings escaped)
++EM_JS( void, js_hud_killinfo, (const char *json), {
++	var f = Module["hudEvent"];
++	if( typeof f !== "function" ) return;
++	try { f( "killinfo", JSON.parse( UTF8ToString( json ))); } catch( e ) { console.error( "hudEvent", e ); }
++} );
++
++#else
++
++static void js_hud_health( int ) { }
++static void js_hud_armor( int, int ) { }
++static void js_hud_money( int, int ) { }
++static void js_hud_weapon( const char *, int, int ) { }
++static void js_hud_timer( int, int ) { }
++static void js_hud_kill( const char *, const char *, const char *, int, const char *, const char *, int, int ) { }
++static void js_hud_round( const char *, const char *, const char *, int, int ) { }
++static void js_hud_intermission( int, const char * ) { }
++static void js_hud_alive( int, int ) { }
++static void js_hud_reset( void ) { }
++static void js_hud_scoreboard( int ) { }
++static void js_hud_scores( const char * ) { }
++static void js_hud_chat( const char * ) { }
++static void js_hud_mode( const char * ) { }
++static void js_hud_killinfo( const char * ) { }
++
++#endif
++
++// last sent values; known == false until the server told us
++static struct
++{
++	bool healthKnown;
++	int hp;
++
++	bool armorKnown;
++	int ap;
++	bool helmet;
++
++	bool moneyKnown;
++	int amount;
++
++	bool weaponKnown;
++	char weapon[MAX_WEAPON_NAME];
++	int clip;
++	int reserve;
++
++	bool timerKnown;
++	int seconds;
++	bool bombPlanted;
++
++	bool aliveKnown;
++	bool alive;
++	bool spectating;
++
++	bool scoreboard;	// last sent "scoreboard" visible
++	float scoresTime;	// gHUD.m_flTime of the last "scores"
++
++	bool ctScoreKnown;
++	int ctScore;
++	bool tScoreKnown;
++	int tScore;
++
++	const struct round_end_s *roundEnd;	// round end seen, "round" goes out next frame
++	bool intermission;	// last sent "intermission" active
++} s_web;
++
++// snapshot interval while the scoreboard is visible (or hud_html_scores is set)
++#define SCORES_INTERVAL 0.5f
++
++// set by HUD_GetStudioModelInterface; PlayerInfo gives the engine's
++// player_info_t, the only place the client can read a player's userid
++extern engine_studio_api_t IEngineStudio;
++
++// Round end center messages (TextMsg HUD_PRINTCENTER) of the CS game dll and
++// the winner / reason they stand for. Every round end sends exactly one of them
++// (CHalfLifeMultiplay::EndRoundMessage; same strings in HLDS mp.dll and
++// ReGameDLL_CS). "#Game_will_restart_in" (sv_restart) is not a round end.
++static const struct round_end_s
++{
++	const char *message;
++	const char *winner;	// "CT", "T" or "" (no winner)
++	const char *reason;
++} s_roundEnds[] =
++{
++	{ "#Terrorists_Win",                 "T",  "elimination" },
++	{ "#CTs_Win",                        "CT", "elimination" },
++	{ "#Target_Bombed",                  "T",  "bomb" },
++	{ "#Bomb_Defused",                   "CT", "defuse" },
++	{ "#Target_Saved",                   "CT", "time" },
++	{ "#Hostages_Not_Rescued",           "T",  "time" },
++	{ "#All_Hostages_Rescued",           "CT", "hostages" },
++	{ "#VIP_Escaped",                    "CT", "vip_escaped" },
++	{ "#VIP_Assassinated",               "T",  "vip_killed" },
++	{ "#VIP_Not_Escaped",                "T",  "time" },
++	{ "#Terrorists_Escaped",             "T",  "escaped" },
++	{ "#CTs_PreventEscape",              "CT", "escape_prevented" },
++	{ "#Escaping_Terrorists_Neutralized", "CT", "elimination" },
++	{ "#Terrorists_Not_Escaped",         "CT", "time" },
++	{ "#Round_Draw",                     "",   "draw" },
++	{ "#Cstrike_Tutor_Round_Over",       "",   "draw" },
++	{ "#Game_Commencing",                "",   "commencing" },
++};
++
++static const char *WebBridge_TeamName( int team )
++{
++	switch( team )
++	{
++	case TEAM_CT:        return "CT";
++	case TEAM_TERRORIST: return "T";
++	default:             return "";
++	}
++}
++
++void WebBridge_Health( int hp )
++{
++	if( s_web.healthKnown && s_web.hp == hp )
++		return;
++
++	s_web.healthKnown = true;
++	s_web.hp = hp;
++	js_hud_health( hp );
++}
++
++void WebBridge_Armor( int ap, bool helmet )
++{
++	if( s_web.armorKnown && s_web.ap == ap && s_web.helmet == helmet )
++		return;
++
++	s_web.armorKnown = true;
++	s_web.ap = ap;
++	s_web.helmet = helmet;
++	js_hud_armor( ap, helmet );
++}
++
++void WebBridge_Money( int amount, int delta )
++{
++	if( s_web.moneyKnown && s_web.amount == amount )
++		return;
++
++	s_web.moneyKnown = true;
++	s_web.amount = amount;
++	js_hud_money( amount, delta );
++}
++
++void WebBridge_Weapon( const char *name, int clip, int reserve )
++{
++	if( !name )
++		name = "";
++
++	if( !strncmp( name, "weapon_", 7 ))
++		name += 7;
++
++	if( s_web.weaponKnown && s_web.clip == clip && s_web.reserve == reserve && !strcmp( s_web.weapon, name ))
++		return;
++
++	s_web.weaponKnown = true;
++	strncpy( s_web.weapon, name, sizeof( s_web.weapon ));
++	s_web.weapon[sizeof( s_web.weapon ) - 1] = 0;
++	s_web.clip = clip;
++	s_web.reserve = reserve;
++	js_hud_weapon( s_web.weapon, clip, reserve );
++}
++
++void WebBridge_RoundTime( void )
++{
++	s_web.timerKnown = true;
++	s_web.bombPlanted = false;
++	s_web.seconds = gHUD.m_Timer.SecondsLeft();
++	js_hud_timer( s_web.seconds, false );
++}
++
++void WebBridge_BombPlanted( void )
++{
++	if( s_web.bombPlanted )
++		return;
++
++	s_web.timerKnown = true;
++	s_web.bombPlanted = true;
++	s_web.seconds = gHUD.m_Timer.SecondsLeft();
++	js_hud_timer( s_web.seconds, true );
++}
++
++void WebBridge_TeamScore( const char *team, int score )
++{
++	if( !team )
++		return;
++
++	if( !strcmp( team, "CT" ))
++	{
++		s_web.ctScoreKnown = true;
++		s_web.ctScore = score;
++	}
++	else if( !strcmp( team, "TERRORIST" ))
++	{
++		s_web.tScoreKnown = true;
++		s_web.tScore = score;
++	}
++}
++
++// Bounded JSON writer for the "scores" payload. On overflow nothing is sent.
++static struct
++{
++	char data[16384];
++	size_t len;
++	bool overflow;
++} s_json;
++
++static void Json_Printf( const char *fmt, ... )
++{
++	if( s_json.overflow )
++		return;
++
++	size_t room = sizeof( s_json.data ) - s_json.len;
++	va_list args;
++	va_start( args, fmt );
++	int n = vsnprintf( s_json.data + s_json.len, room, fmt, args );
++	va_end( args );
++
++	if( n < 0 || (size_t)n >= room )
++		s_json.overflow = true;
++	else
++		s_json.len += n;
++}
++
++// Length of the valid UTF-8 sequence at s, 0 if it is not valid
++static int Json_Utf8Length( const unsigned char *s )
++{
++	unsigned char c = s[0];
++	int len;
++	unsigned char lo = 0x80, hi = 0xBF;	// allowed range of the second byte
++
++	if( c >= 0xC2 && c <= 0xDF ) len = 2;
++	else if( c >= 0xE0 && c <= 0xEF ) len = 3;
++	else if( c >= 0xF0 && c <= 0xF4 ) len = 4;
++	else return 0;
++
++	if( c == 0xE0 ) lo = 0xA0;		// overlong
++	else if( c == 0xED ) hi = 0x9F;	// surrogates
++	else if( c == 0xF0 ) lo = 0x90;	// overlong
++	else if( c == 0xF4 ) hi = 0x8F;	// > U+10FFFF
++
++	if( s[1] < lo || s[1] > hi )
++		return 0;
++
++	for( int i = 2; i < len; i++ )
++	{
++		if( s[i] < 0x80 || s[i] > 0xBF )
++			return 0;
++	}
++
++	return len;
++}
++
++// Quoted JSON string. Player names are UTF-8 from the server and may be cut
++// mid-character or invalid: bad bytes become '?' so the JSON always parses
++// (UTF8ToString's fallback decoder would swallow the closing quote).
++static void Json_String( const char *str )
++{
++	const unsigned char *s = (const unsigned char *)( str ? str : "" );
++
++	Json_Printf( "\"" );
++
++	while( *s && !s_json.overflow )
++	{
++		unsigned char c = *s;
++
++		if( c == '"' || c == '\\' )
++		{
++			Json_Printf( "\\%c", c );
++			s++;
++		}
++		else if( c < 0x20 )
++		{
++			Json_Printf( "\\u%04x", c );
++			s++;
++		}
++		else if( c < 0x80 )
++		{
++			Json_Printf( "%c", c );
++			s++;
++		}
++		else
++		{
++			int len = Json_Utf8Length( s );
++
++			if( len )
++			{
++				Json_Printf( "%.*s", len, (const char *)s );
++				s += len;
++			}
++			else
++			{
++				Json_Printf( "?" );
++				s++;
++			}
++		}
++	}
++
++	Json_Printf( "\"" );
++}
++
++static const char *WebBridge_ScoreTeamName( int team )
++{
++	switch( team )
++	{
++	case TEAM_CT:        return "CT";
++	case TEAM_TERRORIST: return "T";
++	case TEAM_SPECTATOR: return "SPEC";
++	default:             return "";
++	}
++}
++
++// What CHudScoreboard::Draw would decide (it skips drawing when hud_html is set)
++// level name without "maps/" and ".bsp", "" before one is loaded
++static void WebBridge_MapName( char *map, size_t size )
++{
++	map[0] = 0;
++
++	const char *level = gEngfuncs.pfnGetLevelName();
++	if( !level || !level[0] )
++		return;
++
++	const char *base = strrchr( level, '/' );
++	base = base ? base + 1 : level;
++	strncpy( map, base, size - 1 );
++	map[size - 1] = 0;
++	char *ext = strrchr( map, '.' );
++	if( ext )
++		*ext = 0;
++}
++
++static bool WebBridge_ScoreboardVisible( void )
++{
++	if( !( gHUD.m_Scoreboard.m_iFlags & HUD_DRAW ) || !gHUD.m_pCvarDraw->value )
++		return false;
++
++	// CHud::Redraw draws nothing under HIDEHUD_ALL, except at intermission
++	if( !gHUD.m_iIntermission && ( gHUD.m_iHideHUDDisplay & HIDEHUD_ALL ))
++		return false;
++
++	return gHUD.m_Scoreboard.m_bForceDraw || gHUD.m_Scoreboard.m_bShowscoresHeld ||
++		gHUD.m_Health.m_iHealth <= 0 || gHUD.m_iIntermission;
++}
++
++static void WebBridge_Scores( void )
++{
++	struct
++	{
++		int players;
++		int sumping;
++		int frags;
++	} teams[2] = { };	// CT, T
++
++	s_json.len = 0;
++	s_json.overflow = false;
++
++	// refresh names and pings like the stock scoreboard does each draw;
++	// GetAllPlayersInfo stops one slot short, so fetch the last one too
++	gHUD.m_Scoreboard.GetAllPlayersInfo();
++	GetPlayerInfo( MAX_PLAYERS, &g_PlayerInfoList[MAX_PLAYERS] );
++
++	char map[64];
++	WebBridge_MapName( map, sizeof( map ));
++
++	Json_Printf( "{\"map\":" );
++	Json_String( map );
++	Json_Printf( ",\"server\":" );
++	Json_String( gHUD.m_szServerName );
++	Json_Printf( ",\"players\":[" );
++
++	bool first = true;
++	for( int i = 1; i <= MAX_PLAYERS; i++ )
++	{
++		hud_player_info_t *info = &g_PlayerInfoList[i];
++		extra_player_info_t *extra = &g_PlayerExtraInfo[i];
++
++		if( !info->name || !info->name[0] )
++			continue; // empty slot
++
++		int team = extra->teamnumber;
++		if( team == TEAM_CT || team == TEAM_TERRORIST )
++		{
++			int t = team == TEAM_CT ? 0 : 1;
++			teams[t].players++;
++			teams[t].sumping += info->ping;
++			teams[t].frags += extra->frags;
++		}
++
++		const char *bot = gEngfuncs.PlayerInfo_ValueForKey( i, "*bot" );
++
++		// server userid ("kick #<userid>"), 0 if unknown; PlayerInfo is 0-based
++		player_info_s *engineInfo = IEngineStudio.PlayerInfo ? IEngineStudio.PlayerInfo( i - 1 ) : NULL;
++		int userid = engineInfo ? engineInfo->userid : 0;
++
++		Json_Printf( "%s{\"id\":%d,\"userid\":%d,\"name\":", first ? "" : ",", i, userid );
++		Json_String( info->name );
++		Json_Printf( ",\"team\":\"%s\",\"frags\":%d,\"deaths\":%d,\"ping\":%d,"
++			"\"dead\":%s,\"bomb\":%s,\"vip\":%s,\"bot\":%s,\"local\":%s}",
++			WebBridge_ScoreTeamName( team ), extra->frags, extra->deaths, info->ping,
++			extra->dead ? "true" : "false", extra->has_c4 ? "true" : "false",
++			extra->vip ? "true" : "false", bot && atoi( bot ) > 0 ? "true" : "false",
++			info->thisplayer ? "true" : "false" );
++		first = false;
++	}
++
++	// like the stock scoreboard, fall back to summed frags without TeamScore
++	int ctScore = s_web.ctScoreKnown ? s_web.ctScore : teams[0].frags;
++	int tScore = s_web.tScoreKnown ? s_web.tScore : teams[1].frags;
++
++	Json_Printf( "],\"teams\":{"
++		"\"CT\":{\"score\":%d,\"players\":%d,\"avgPing\":%d},"
++		"\"T\":{\"score\":%d,\"players\":%d,\"avgPing\":%d}}}",
++		ctScore, teams[0].players, teams[0].players ? teams[0].sumping / teams[0].players : 0,
++		tScore, teams[1].players, teams[1].players ? teams[1].sumping / teams[1].players : 0 );
++
++	s_web.scoresTime = gHUD.m_flTime;
++
++	if( !s_json.overflow )
++		js_hud_scores( s_json.data );
++}
++
++static int WebBridge_UserId( int slot )
++{
++	if( slot < 1 || slot > MAX_PLAYERS || !IEngineStudio.PlayerInfo )
++		return 0;
++
++	player_info_s *info = IEngineStudio.PlayerInfo( slot - 1 );
++	return info ? info->userid : 0;
++}
++
++void WebBridge_Kill( const char *killer, const char *victim, const char *weapon, bool headshot, int killerTeam, int victimTeam, int killerSlot, int victimSlot )
++{
++	js_hud_kill( killer ? killer : "", victim ? victim : "", weapon ? weapon : "", headshot,
++		WebBridge_TeamName( killerTeam ), WebBridge_TeamName( victimTeam ),
++		WebBridge_UserId( killerSlot ), WebBridge_UserId( victimSlot ));
++}
++
++// SayText format keys that are player chat. Every key sends its sender's
++// name as argv[0] (MsgFunc_SayText replaces it with the slot's name for the
++// chat keys); textArg / locArg are the argv indexes of the message and the
++// location (-1: none). Other keys become "notice" lines.
++static const struct chat_key_s
++{
++	const char *key;
++	const char *kind;	// "say" or "name"
++	bool teamOnly;
++	bool dead;
++	bool spec;		// sender is a spectator
++	int textArg;
++	int locArg;
++} s_chatKeys[] =
++{
++	{ "#Cstrike_Chat_CT",      "say",  true,  false, false, 1, -1 },
++	{ "#Cstrike_Chat_T",       "say",  true,  false, false, 1, -1 },
++	{ "#Cstrike_Chat_CT_Dead", "say",  true,  true,  false, 1, -1 },
++	{ "#Cstrike_Chat_T_Dead",  "say",  true,  true,  false, 1, -1 },
++	{ "#Cstrike_Chat_Spec",    "say",  true,  false, true,  1, -1 },
++	{ "#Cstrike_Chat_All",     "say",  false, false, false, 1, -1 },
++	{ "#Cstrike_Chat_AllDead", "say",  false, true,  false, 1, -1 },
++	{ "#Cstrike_Chat_AllSpec", "say",  false, false, true,  1, -1 },
++	{ "#Cstrike_Name_Change",  "name", false, false, false, 1, -1 },	// argv[0] old name, argv[1] new name
++	{ "#Cstrike_Chat_T_Loc",   "say",  true,  false, false, 1, 2 },
++	{ "#Cstrike_Chat_CT_Loc",  "say",  true,  false, false, 1, 2 },
++};
++
++// Copy of str without the SayText color codes \x01-\x04 and without
++// trailing newlines
++static void WebBridge_ChatClean( const char *str, char *out, size_t size )
++{
++	size_t len = 0;
++
++	for( const char *s = str ? str : ""; *s && len < size - 1; s++ )
++	{
++		if( *s >= 1 && *s <= 4 )
++			continue;
++		out[len++] = *s;
++	}
++
++	while( len > 0 && ( out[len - 1] == '\n' || out[len - 1] == '\r' ))
++		len--;
++
++	out[len] = 0;
++}
++
++static void WebBridge_Chat( const char *kind, int slot, const char *name, bool dead, bool teamOnly, bool spec, const char *location, const char *text )
++{
++	char buf[512];
++	const char *team = "";
++
++	if( slot >= 1 && slot <= MAX_PLAYERS )
++		team = WebBridge_ScoreTeamName( g_PlayerExtraInfo[slot].teamnumber );
++	else
++		slot = 0;
++
++	// a spectator chat key without TeamInfo (unassigned) still means SPEC
++	if( spec && !team[0] )
++		team = "SPEC";
++
++	s_json.len = 0;
++	s_json.overflow = false;
++
++	Json_Printf( "{\"kind\":\"%s\",\"slot\":%d,\"name\":", kind, slot );
++	WebBridge_ChatClean( name, buf, sizeof( buf ));
++	Json_String( buf );
++	Json_Printf( ",\"team\":\"%s\",\"dead\":%s,\"teamOnly\":%s,\"location\":",
++		team, dead ? "true" : "false", teamOnly ? "true" : "false" );
++	WebBridge_ChatClean( location, buf, sizeof( buf ));
++	Json_String( buf );
++	Json_Printf( ",\"text\":" );
++	WebBridge_ChatClean( text, buf, sizeof( buf ));
++	Json_String( buf );
++	Json_Printf( "}" );
++
++	if( !s_json.overflow )
++		js_hud_chat( s_json.data );
++}
++
++void WebBridge_SayText( const char *fmt, int slot, char *const argv[3], const char *formatted )
++{
++	if( fmt && fmt[0] == '#' )
++	{
++		for( size_t i = 0; i < sizeof( s_chatKeys ) / sizeof( s_chatKeys[0] ); i++ )
++		{
++			const chat_key_s *k = &s_chatKeys[i];
++
++			if( strcmp( fmt, k->key ))
++				continue;
++
++			WebBridge_Chat( k->kind, slot, argv[0], k->dead, k->teamOnly, k->spec,
++				k->locArg >= 0 ? argv[k->locArg] : "", argv[k->textArg] );
++			return;
++		}
++	}
++
++	WebBridge_Chat( "notice", 0, "", false, false, false, "", formatted );
++}
++
++void WebBridge_Notice( const char *text )
++{
++	WebBridge_Chat( "notice", 0, "", false, false, false, "", text );
++}
++
++void WebBridge_Radio( int slot, const char *name, const char *location, const char *text )
++{
++	// radio messages are title / localization keys ("#Fire_in_the_hole");
++	// TextMsg already looked them up in titles.txt, try the dictionary too
++	if( text && text[0] == '#' )
++		text = Localize( text );
++
++	bool dead = slot >= 1 && slot <= MAX_PLAYERS && g_PlayerExtraInfo[slot].dead;
++	WebBridge_Chat( "radio", slot, name, dead, true, false, location, text );
++}
++
++void WebBridge_TextMsg( int dest, const char *message )
++{
++	if( dest != HUD_PRINTCENTER || !message || message[0] != '#' )
++		return;
++
++	for( size_t i = 0; i < sizeof( s_roundEnds ) / sizeof( s_roundEnds[0] ); i++ )
++	{
++		if( !strcmp( message, s_roundEnds[i].message ))
++		{
++			// sent from WebBridge_Frame, after the TeamScore messages of the
++			// same packet
++			s_web.roundEnd = &s_roundEnds[i];
++			return;
++		}
++	}
++}
++
++// WcMode (cs16-web-server's wc_gamemode.sma), in this order: byte mode,
++// byte level, byte levels, byte kills, byte killsNeeded, byte leaderLevel,
++// short protection (ms), string weapon, string next, string leader,
++// string winner
++static int WebBridge_MsgWcMode( const char *pszName, int iSize, void *pbuf )
++{
++	BufferReader reader( pszName, pbuf, iSize );
++	int mode = reader.ReadByte();
++	int level = reader.ReadByte();
++	int levels = reader.ReadByte();
++	int kills = reader.ReadByte();
++	int killsNeeded = reader.ReadByte();
++	int leaderLevel = reader.ReadByte();
++	int protection = reader.ReadShort();
++	// ReadString returns one static buffer: copy each string before the next
++	char weapon[64], next[64], leader[64], winner[64];
++	strncpy( weapon, reader.ReadString(), sizeof( weapon ) - 1 ); weapon[sizeof( weapon ) - 1] = 0;
++	strncpy( next, reader.ReadString(), sizeof( next ) - 1 ); next[sizeof( next ) - 1] = 0;
++	strncpy( leader, reader.ReadString(), sizeof( leader ) - 1 ); leader[sizeof( leader ) - 1] = 0;
++	strncpy( winner, reader.ReadString(), sizeof( winner ) - 1 ); winner[sizeof( winner ) - 1] = 0;
++
++	s_json.len = 0;
++	s_json.overflow = false;
++
++	Json_Printf( "{\"mode\":%d,\"level\":%d,\"levels\":%d,\"kills\":%d,\"killsNeeded\":%d,"
++		"\"leaderLevel\":%d,\"protection\":%d,\"weapon\":",
++		mode, level, levels, kills, killsNeeded, leaderLevel, protection < 0 ? 0 : protection );
++	Json_String( weapon );
++	Json_Printf( ",\"next\":" );
++	Json_String( next );
++	Json_Printf( ",\"leader\":" );
++	Json_String( leader );
++	Json_Printf( ",\"winner\":" );
++	Json_String( winner );
++	Json_Printf( "}" );
++
++	if( !s_json.overflow )
++		js_hud_mode( s_json.data );
++	return 1;
++}
++
++// WcKillInfo (cs16-web-server's wc_killinfo.sma), in this order: long killer
++// (userid), short health, short armor, byte headshot, byte blind, byte wall,
++// short distance (m), string weapon
++static int WebBridge_MsgWcKillInfo( const char *pszName, int iSize, void *pbuf )
++{
++	BufferReader reader( pszName, pbuf, iSize );
++	int killer = reader.ReadLong();
++	int health = reader.ReadShort();
++	int armor = reader.ReadShort();
++	int headshot = reader.ReadByte();
++	int blind = reader.ReadByte();
++	int wall = reader.ReadByte();
++	int distance = reader.ReadShort();
++	char weapon[64];
++	strncpy( weapon, reader.ReadString(), sizeof( weapon ) - 1 ); weapon[sizeof( weapon ) - 1] = 0;
++
++	s_json.len = 0;
++	s_json.overflow = false;
++
++	Json_Printf( "{\"killerUserid\":%d,\"health\":%d,\"armor\":%d,\"weapon\":",
++		killer, health, armor );
++	Json_String( weapon );
++	Json_Printf( ",\"headshot\":%s,\"blind\":%s,\"wall\":%s,\"distance\":%d}",
++		headshot ? "true" : "false", blind ? "true" : "false", wall ? "true" : "false", distance );
++
++	if( !s_json.overflow )
++		js_hud_killinfo( s_json.data );
++	return 1;
++}
++
++void WebBridge_Init( void )
++{
++	gEngfuncs.pfnHookUserMsg( "WcMode", WebBridge_MsgWcMode );
++	gEngfuncs.pfnHookUserMsg( "WcKillInfo", WebBridge_MsgWcKillInfo );
++}
++
++void WebBridge_Frame( void )
++{
++#ifdef __EMSCRIPTEN__
++	// The web build always uses the page's HUD: undo any change to hud_html
++	// (console, config, server stuffcmd) on the next frame.
++	if( gHUD.hud_html && gHUD.hud_html->value != 1.0f )
++		gEngfuncs.Cvar_SetValue( "hud_html", 1.0f );
++#endif
++
++	if( s_web.timerKnown )
++	{
++		int seconds = gHUD.m_Timer.SecondsLeft();
++
++		if( seconds != s_web.seconds )
++		{
++			s_web.seconds = seconds;
++			js_hud_timer( seconds, s_web.bombPlanted );
++		}
++	}
++
++	int local = gHUD.m_Scoreboard.m_iPlayerNum;
++	bool spectating = g_iUser1 || gEngfuncs.IsSpectateOnly();
++	bool dead = local > 0 && local <= MAX_PLAYERS && g_PlayerExtraInfo[local].dead;
++	bool alive = !spectating && !dead;
++
++	if( !s_web.aliveKnown || s_web.alive != alive || s_web.spectating != spectating )
++	{
++		s_web.aliveKnown = true;
++		s_web.alive = alive;
++		s_web.spectating = spectating;
++		js_hud_alive( alive, spectating );
++	}
++
++	if( s_web.roundEnd )
++	{
++		const round_end_s *end = s_web.roundEnd;
++		s_web.roundEnd = NULL;
++		js_hud_round( end->winner, end->reason, end->message,
++			s_web.ctScoreKnown ? s_web.ctScore : -1, s_web.tScoreKnown ? s_web.tScore : -1 );
++	}
++
++	// engine intermission flag (svc_intermission at map end), before the
++	// scoreboard it forces open
++	bool intermission = gHUD.m_iIntermission != 0;
++	if( intermission != s_web.intermission )
++	{
++		char map[64];
++		WebBridge_MapName( map, sizeof( map ));
++		s_web.intermission = intermission;
++		js_hud_intermission( intermission, map );
++	}
++
++	bool scoreboard = WebBridge_ScoreboardVisible();
++	// the page asks for scores while the scoreboard is hidden (admin menu)
++	bool live = gHUD.hud_html_scores && gHUD.hud_html_scores->value != 0.0f;
++
++	if( scoreboard != s_web.scoreboard )
++	{
++		s_web.scoreboard = scoreboard;
++		// fresh scores first, so the page never shows the previous snapshot
++		if( scoreboard )
++			WebBridge_Scores();
++		js_hud_scoreboard( scoreboard );
++	}
++	else if(( scoreboard || live ) && ( gHUD.m_flTime - s_web.scoresTime >= SCORES_INTERVAL || gHUD.m_flTime < s_web.scoresTime ))
++	{
++		WebBridge_Scores();
++	}
++}
++
++void WebBridge_ResetHUD( void )
++{
++	if( s_web.healthKnown )
++		js_hud_health( s_web.hp );
++	if( s_web.armorKnown )
++		js_hud_armor( s_web.ap, s_web.helmet );
++	if( s_web.moneyKnown )
++		js_hud_money( s_web.amount, 0 );
++	if( s_web.weaponKnown )
++		js_hud_weapon( s_web.weapon, s_web.clip, s_web.reserve );
++	if( s_web.timerKnown )
++		js_hud_timer( s_web.seconds, s_web.bombPlanted );
++	if( s_web.aliveKnown )
++		js_hud_alive( s_web.alive, s_web.spectating );
++}
++
++void WebBridge_InitHUD( void )
++{
++	// the old round clock means nothing on a new map, wait for RoundTime
++	s_web.timerKnown = false;
++	s_web.bombPlanted = false;
++	// the page hides its scoreboard on "reset"; the server resends TeamScore
++	s_web.scoreboard = false;
++	s_web.ctScoreKnown = false;
++	s_web.tScoreKnown = false;
++	s_web.roundEnd = NULL;
++	s_web.intermission = false;
++
++	js_hud_reset();
++	WebBridge_ResetHUD();
++}
+diff --git a/cl_dll/web_bridge.h b/cl_dll/web_bridge.h
+new file mode 100644
+index 0000000..2c10ccb
+--- /dev/null
++++ b/cl_dll/web_bridge.h
+@@ -0,0 +1,243 @@
++/*
++web_bridge.h -- hands HUD state to the web page (HTML HUD)
++
++All functions are no-ops when not built with Emscripten.
++
++JS contract
++-----------
++Every event calls one function the page puts on the engine's Module object:
++
++	Module.hudEvent( type, payload )
++
++`type` is a string, `payload` a plain object. Nothing is called (and nothing
++breaks) when Module.hudEvent is not a function. Exceptions thrown by the
++handler are caught and logged with console.error.
++
++	type       payload
++	"health"   { hp: number }
++	"armor"    { ap: number, helmet: boolean }
++	"money"    { amount: number, delta: number }
++	"weapon"   { name: string, clip: number, reserve: number }
++	"timer"    { seconds: number, bombPlanted: boolean }
++	"kill"     { killer: string, victim: string, weapon: string, headshot: boolean,
++	             killerTeam: "CT" | "T" | "", victimTeam: "CT" | "T" | "",
++	             killerUserid: number, victimUserid: number }
++	"alive"    { alive: boolean, spectating: boolean }
++	"reset"    {}
++	"round"    { winner: "CT" | "T" | "", reason: Reason, message: string,
++	             ctScore: number | null, tScore: number | null }
++	           Reason = "elimination" | "bomb" | "defuse" | "time" | "hostages" |
++	                    "vip_escaped" | "vip_killed" | "escaped" |
++	                    "escape_prevented" | "draw" | "commencing"
++	"intermission" { active: boolean, map: string }
++	"scoreboard" { visible: boolean }
++	"scores"   { map: string, server: string,
++	             teams: { CT: Team, T: Team },
++	             players: Player[] }
++	           Team   = { score: number, players: number, avgPing: number }
++	           Player = { id: number, userid: number, name: string,
++	                      team: "CT" | "T" | "SPEC" | "",
++	                      frags: number, deaths: number, ping: number, dead: boolean,
++	                      bomb: boolean, vip: boolean, bot: boolean, local: boolean }
++	"chat"     { kind: "say" | "name" | "radio" | "notice", slot: number,
++	             name: string, team: "CT" | "T" | "SPEC" | "", dead: boolean,
++	             teamOnly: boolean, location: string, text: string }
++
++When each fires:
++- health  - Health message, only when hp changed.
++- armor   - Battery / ArmorType messages, only when ap or helmet changed.
++- money   - Money message, only when amount changed. delta = new - previous
++            amount as computed by the stock HUD (0 in a resend).
++- weapon  - CurWeapon / AmmoX / WeaponList messages, only when name, clip or
++            reserve changed. name is the short weapon name ("ak47", "knife",
++            "hegrenade", ...; "weapon_" stripped), "" when there is no current
++            weapon. clip is -1 for weapons without a magazine (knife, grenades,
++            c4). reserve is -1 when the weapon uses no ammo (knife, "").
++- timer   - every time the integer number of seconds left changes (polled
++            each frame), on every RoundTime message (even if unchanged), and
++            when the bomb is planted. seconds counts down the freeze time first,
++            then the round time (whatever the last RoundTime said), clamped at 0.
++            bombPlanted becomes true on BombDrop with the planted flag and false
++            on the next RoundTime (new round) or reset. The stock HUD hides
++            its clock while the bomb is planted; seconds keeps counting anyway.
++- kill    - every DeathMsg (not deduplicated). weapon is the death-notice
++            weapon name ("ak47", "grenade", "knife", "world", "teammate"...).
++            killer is "" for suicide / world kills. For a non-player victim
++            victim is the object name and victimTeam is "".
++            killerUserid / victimUserid are the server userids (as in
++            "scores") of the killer and victim slots, 0 when there is no
++            player (suicide / world kill, non-player victim) or it can't be
++            read.
++- alive   - polled each frame, sent when either flag changes.
++            spectating = observer mode (g_iUser1) or spectator-only client;
++            alive = !spectating && local player not flagged dead (ScoreAttrib).
++- reset   - InitHUD (connect / map change). Followed immediately by a resend
++            of the last known value of every other event type, so the page can
++            clear everything on "reset" and rebuild from what follows.
++            Every ResetHUD (each spawn / new round) also resends all last known
++            values (without a "reset" before them).
++- round   - once per round end, the frame after the round end center message
++            (TextMsg HUD_PRINTCENTER, see s_roundEnds in web_bridge.cpp), so
++            the TeamScore messages sent with it are already counted.
++            message is the raw title ("#CTs_Win", "#Target_Bombed"...).
++            winner / reason:
++              "#Terrorists_Win"                  T   elimination
++              "#CTs_Win"                         CT  elimination
++              "#Escaping_Terrorists_Neutralized" CT  elimination
++              "#Target_Bombed"                   T   bomb
++              "#Bomb_Defused"                    CT  defuse
++              "#Target_Saved"                    CT  time
++              "#Hostages_Not_Rescued"            T   time
++              "#VIP_Not_Escaped"                 T   time
++              "#Terrorists_Not_Escaped"          CT  time
++              "#All_Hostages_Rescued"            CT  hostages
++              "#VIP_Escaped"                     CT  vip_escaped
++              "#VIP_Assassinated"                T   vip_killed
++              "#Terrorists_Escaped"              T   escaped
++              "#CTs_PreventEscape"               CT  escape_prevented
++              "#Round_Draw"                      ""  draw
++              "#Cstrike_Tutor_Round_Over"        ""  draw
++              "#Game_Commencing"                 ""  commencing (first players
++                                                     joined; not a real round)
++            ctScore / tScore are the last TeamScore values (rounds won), null
++            before one arrived on this map. There is no round start event:
++            the next round starts with a RoundTime message, i.e. a "timer"
++            event whose seconds jump up.
++- intermission - polled each frame (the engine's intermission flag, set by
++            svc_intermission when the map ends), sent when it changes. map is
++            the current level name as in "scores". The scoreboard is forced
++            visible during intermission, so "scores" follows. A map change
++            ends it with "reset" (InitHUD), not with active false (that only
++            comes if the engine clears the flag without a new map). The next
++            map is a server cvar the client can't read, so it is not sent.
++
++- scoreboard - polled each frame, sent when it changes. visible is what the
++            stock scoreboard's Draw would decide: +showscores held,
++            showscoreboard2, local health 0 (the death cam, until the server
++            moves the player to observer mode) or intermission; and only once
++            a ScoreInfo arrived and while the HUD is drawn at all (hud_draw,
++            HIDEHUD_ALL). Not resent; after "reset" it is hidden.
++- scores  - while the scoreboard is visible: right before scoreboard
++            { visible: true }, then every 0.5 s; also every 0.5 s while the
++            cvar hud_html_scores is nonzero, whether or not the scoreboard
++            is visible. A full snapshot each time.
++            map is the level name without "maps/" and ".bsp" ("" before one is
++            loaded), server the ServerName message ("" if none). players lists
++            every occupied slot in slot order (unsorted), names are refreshed
++            through GetPlayerInfo like the stock scoreboard. team "SPEC" also
++            covers unassigned players, "" means no TeamInfo yet. ping can be 0
++            for everyone (Xash bug, see DrawPlayers in scoreboard.cpp); bot
++            players have bot = true. id is the slot (entity index, 1-based);
++            userid is the server's userid for "kick #<userid>" (unique per
++            connection, from the engine's player_info_t through the studio
++            API), 0 if unknown. teams[x].score is the last TeamScore
++            (rounds won), or the team's summed frags until one arrives;
++            players / avgPing count only that team's players.
++- chat    - one event per chat line, from the same three places that feed
++            the stock chat (CHudSayText::SayTextPrint), not deduplicated and
++            never resent:
++            * SayText message with a player chat format key, after the stock
++              check that hides dead players' chat from living players (a
++              living, non-spectating player never gets a *Dead / *Spec
++              line). Fields come from the key and the message arguments,
++              not from the formatted line:
++                key                     kind  teamOnly dead  location
++                #Cstrike_Chat_All       say   false    false ""
++                #Cstrike_Chat_AllDead   say   false    true  ""
++                #Cstrike_Chat_AllSpec   say   false    false ""   (team "SPEC" *)
++                #Cstrike_Chat_CT / _T   say   true     false ""
++                #Cstrike_Chat_CT_Dead / _T_Dead  say true true ""
++                #Cstrike_Chat_Spec      say   true     false ""   (team "SPEC" *)
++                #Cstrike_Chat_CT_Loc / _T_Loc    say true false place name
++                #Cstrike_Name_Change    name  false    false ""
++              (* when the slot has no TeamInfo yet; otherwise its team)
++              slot is the sender's slot (entity index, 1-based), name its
++              current name (GetPlayerInfo, as the stock chat prints it).
++              For "name", name is the old name and text the new name, both
++              as the server sent them (the slot's player info may already
++              have the new name).
++            * SayText with any other format (another key such as
++              #Spec_PlayerItem, or a plain string from a plugin): "notice"
++              with the formatted line as text.
++            * TextMsg HUD_PRINTTALK: "notice", text is the formatted line.
++            * TextMsg HUD_PRINTRADIO: "radio", slot / name are the sender
++              (name as the server sent it), location the place name for
++              #Game_radio_location ("" otherwise), text the radio message
++              (title / localization key looked up, e.g. "Fire in the hole!").
++              teamOnly is always true (radio only reaches teammates) and
++              dead is the sender's scoreboard dead flag.
++            "notice" lines have slot 0, name "", team "", dead and teamOnly
++            false, location "". team is the sender slot's TeamInfo
++            (g_PlayerExtraInfo[slot].teamnumber; "SPEC" covers unassigned,
++            "" before TeamInfo), so #Cstrike_Chat_All lines have a team too.
++            The color codes \x01-\x04 and trailing newlines are stripped
++            from name, location and text; each is cut at 511 bytes. Strings
++            are valid UTF-8 (bad bytes become '?'). Player text, so the page
++            must insert it as text, never as HTML.
++
++  "mode"     { mode, level, levels, kills, killsNeeded, leaderLevel,
++               protection, weapon, next, leader, winner }   (0.0.10+)
++            From the server's WcMode user message (cs16-web-server's
++            wc_gamemode.sma), sent only to clients whose userinfo has
++            wc_html_hud 1, whenever the player's Gun Game / Deathmatch state
++            changes. mode 0 classic (the mode ended), 1 Gun Game,
++            2 Deathmatch. level / levels / kills / killsNeeded / leaderLevel:
++            Gun Game, 1-based, 0 otherwise. protection: spawn protection
++            left in ms, 0 none. weapon / next: display names ("MP5"), next
++            "" on the last level. leader / winner: player names ("" none /
++            not won yet). Not resent by the client; the server resends on
++            change.
++  "killinfo" { killerUserid, health, armor, weapon, headshot, blind, wall,
++               distance }   (0.0.10+)
++            From the server's WcKillInfo user message (wc_killinfo.sma),
++            sent only to the victim of a player kill (team kills included,
++            not suicides / world), only if their userinfo has wc_html_hud 1.
++            Arrives right after the "kill" event of that death.
++            killerUserid: as kill's killerUserid. health / armor: the
++            killer's at the kill (health 0: already dead). weapon: DeathMsg
++            weapon name ("ak47", "grenade", "knife"). headshot / blind /
++            wall: booleans; blind = killer fully flashed (gun kills only),
++            wall = the bullet went through a wall. distance: metres, rounded.
++  Both messages are registered by server plugins, so their ids are not
++  fixed; WebBridge_Init hooks them by name.
++
++Values not received from the server yet are not resent.
++
++The menu library (3rdparty/mainui_cpp/BaseMenu.cpp) sends one more event the
++same way: "menu" { visible: boolean }, checked every UI_UpdateMenu frame and on
++UI_CloseMenu, sent when the main menu opens or closes.
++
++cvar hud_html (default 0): nonzero skips drawing the stock HUD parts the
++page replaces (including the whole scoreboard and the chat lines; the chat
++still plays misc/talk.wav and goes to the console). Events are sent regardless of hud_html.
++In the Emscripten build (0.0.9+) it defaults to 1 and is locked there:
++WebBridge_Frame sets it back to 1 whenever something else changes it.
++
++cvar hud_html_scores (default 0): nonzero also sends "scores" every 0.5 s
++while the scoreboard is hidden (the page's admin player list).
++*/
++
++#pragma once
++#ifndef WEB_BRIDGE_H
++#define WEB_BRIDGE_H
++
++#define HUD_HTML_ACTIVE() ( gHUD.hud_html && gHUD.hud_html->value != 0.0f )
++
++void WebBridge_Health( int hp );
++void WebBridge_Armor( int ap, bool helmet );
++void WebBridge_Money( int amount, int delta );
++void WebBridge_Weapon( const char *name, int clip, int reserve );
++void WebBridge_RoundTime( void );	// RoundTime message: force a timer event
++void WebBridge_BombPlanted( void );
++void WebBridge_TeamScore( const char *team, int score );	// TeamScore message ("CT" / "TERRORIST")
++void WebBridge_Kill( const char *killer, const char *victim, const char *weapon, bool headshot, int killerTeam, int victimTeam, int killerSlot, int victimSlot );
++void WebBridge_TextMsg( int dest, const char *message );	// TextMsg: round end center messages
++void WebBridge_SayText( const char *fmt, int slot, char *const argv[3], const char *formatted );	// SayText: argv[0] is the sender's name
++void WebBridge_Notice( const char *text );	// TextMsg HUD_PRINTTALK
++void WebBridge_Radio( int slot, const char *name, const char *location, const char *text );	// TextMsg HUD_PRINTRADIO
++void WebBridge_Init( void );		// CHud::Init: hooks the server plugins' WcMode / WcKillInfo
++void WebBridge_Frame( void );		// once per frame: timer seconds, alive state, scoreboard
++void WebBridge_InitHUD( void );		// sends "reset" + resend
++void WebBridge_ResetHUD( void );	// resend
++
++#endif // WEB_BRIDGE_H

@@ -232,7 +232,7 @@ WORKDIR /client
 
 COPY package.json package.json
 COPY package-lock.json package-lock.json
-COPY vendor/cs16-client-0.0.9.tgz vendor/cs16-client-0.0.9.tgz
+COPY vendor/cs16-client-0.0.10.tgz vendor/cs16-client-0.0.10.tgz
 COPY vendor/xash3d-fwgs-1.0.0.tgz vendor/xash3d-fwgs-1.0.0.tgz
 RUN npm ci
 COPY vite.config.ts vite.config.ts

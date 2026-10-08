@@ -1,0 +1,56 @@
+diff --git a/BaseMenu.cpp b/BaseMenu.cpp
+index 8339501..b83c1b6 100644
+--- a/BaseMenu.cpp
++++ b/BaseMenu.cpp
+@@ -33,6 +33,33 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ #endif
+ #include "cursor_type.h"
+ 
++#ifdef __EMSCRIPTEN__
++#include <emscripten.h>
++
++// Tells the web page (Module.hudEvent, see cl_dll/web_bridge.h) when the menu
++// opens or closes, so it can hide its HTML HUD. EM_JS parameter lists must
++// not be padded: the loader takes the last word as the argument name.
++EM_JS( void, js_menu_visible, (int visible), {
++	var f = Module["hudEvent"];
++	if( typeof f !== "function" ) return;
++	try { f( "menu", { visible: !!visible } ); } catch( e ) { console.error( "hudEvent", e ); }
++} );
++#else
++static void js_menu_visible( int ) { }
++#endif
++
++static void UI_WebMenuState( void )
++{
++	static int lastVisible = -1;
++	int visible = uiStatic.menu.IsActive() ? 1 : 0;
++
++	if( visible == lastVisible )
++		return;
++
++	lastVisible = visible;
++	js_menu_visible( visible );
++}
++
+ cvar_t		*ui_showmodels;
+ cvar_t		*ui_show_window_stack;
+ cvar_t		*ui_borderclip;
+@@ -603,6 +630,8 @@ void UI_CloseMenu( void )
+ //	EngFuncs::KEY_ClearStates ();
+ 	if( !uiStatic.client.IsActive() )
+ 		EngFuncs::KEY_SetDest( KEY_GAME );
++
++	UI_WebMenuState();
+ }
+ 
+ // =====================================================================
+@@ -639,6 +668,8 @@ void UI_UpdateMenu( float flTime )
+ 
+ 	UI_DrawFinalCredits ();
+ 
++	UI_WebMenuState();
++
+ 	// also moved opening main menu here from SetActiveMenu, so
+ 	// translation strings could will be loaded at this moment
+ 	if( uiStatic.nextFrameActive )
