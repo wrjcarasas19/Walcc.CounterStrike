@@ -124,7 +124,16 @@ export class Xash3DWebRTC extends Xash3D {
   /** Voice: `userid` is now on `lane` (0 when the lane goes quiet). */
   onVoiceLane?: (lane: number, userid: number) => void;
   /** Voice: the incoming audio of `lane` (once per connection). */
-  onVoiceTrack?: (lane: number, track: MediaStreamTrack) => void;
+  onVoiceTrack?: (
+    lane: number,
+    track: MediaStreamTrack,
+    receiver: RTCRtpReceiver
+  ) => void;
+  /**
+   * Voice: the userids the admin has muted, the whole list each time
+   * (`{"event":"voice","data":{"muted":[3,7]}}`, A.6).
+   */
+  onVoiceMuted?: (userids: number[]) => void;
 
   private channel?: RTCDataChannel;
   private resolve?: () => void;
@@ -175,7 +184,7 @@ export class Xash3DWebRTC extends Xash3D {
     peer.ontrack = (e) => {
       if (this.peer !== peer) return;
       const lane = this.laneMids.indexOf(e.transceiver.mid ?? '');
-      if (lane >= 0) this.onVoiceTrack?.(lane, e.track);
+      if (lane >= 0) this.onVoiceTrack?.(lane, e.track, e.receiver);
     };
     peer.ondatachannel = (e) => {
       const channel = e.channel;
@@ -334,11 +343,17 @@ export class Xash3DWebRTC extends Xash3D {
     }
   }
 
-  // A "voice" event, from the signaling socket or the voice data channel.
+  // A "voice" event, from the signaling socket or the voice data channel:
+  // a lane change ({lane, userid}) or the admin-muted list ({muted}).
   private voiceLane(data: any) {
-    const { lane, userid } = data ?? {};
+    const { lane, userid, muted } = data ?? {};
     if (Number.isInteger(lane) && Number.isInteger(userid)) {
       this.onVoiceLane?.(lane, userid);
+    }
+    if (Array.isArray(muted)) {
+      this.onVoiceMuted?.(
+        muted.filter((id: unknown) => Number.isInteger(id) && Number(id) > 0)
+      );
     }
   }
 

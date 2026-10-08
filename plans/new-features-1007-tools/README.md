@@ -11,7 +11,8 @@ with the game zip. Scripts here import `../new-features-1006-tools/lib.mjs`.
   directory in `new-features-1006-tools` (so `cache/` and `node_modules`
   are found there). Same env (`OUT`, `BASE`, `ADMIN_PASSWORD`, `VERBOSE`,
   `ZIP_PORT`) plus `VOICE_ENABLE`, `START`, `DURATION`, `LABEL` and
-  `NETWORK` (the docker network, default `host`), `DEATHS`. Import Playwright as
+  `NETWORK` (the docker network, default `host`), `DEATHS`, `CYCLES`,
+  `STOP_AFTER`, `FPS`. Import Playwright as
   `../new-features-1006-tools/node_modules/playwright/index.mjs`.
 - `check-engine-voice.mjs talker|listener [ct|t]`: the A.0 spike, the
   engine's own voice chat (`voice_enable`, `+voicerecord`) with Chromium's
@@ -110,6 +111,28 @@ with the game zip. Scripts here import `../new-features-1006-tools/lib.mjs`.
   viewport (844x390) holds the microphone button with CDP touch events and
   B hears it. Screenshots `a4-*.png` in `out/`. `novoice`, against
   `VOICE=0 run-server.sh de_dust2 0`: K asks for nothing. Prints OK / FAIL.
+
+- `check-voice-hud.mjs`: A.5, the speaking list and the mutes through the
+  real page (voice-hud.ts). Start the server without bots (`run-server.sh
+  de_dust2 0`); after a client rebuild, start it again: the server keeps
+  the page's files gzipped in memory from its start (`static.go`), so
+  `PUBLIC_DIR` changes aren't served to browsers until then. HudA and
+  HudB (desktop, fake mic) join as CTs: `CYCLES` (default 5) presses of
+  K, timing B's list entry against B's lane event (DOM mutation and the
+  next frame), and its removal against the last
+  packet B played (`getSynchronizationSources`, as the page polls it), A's
+  `setMicTrack(null)` and the server's quiet event; A's own entry against
+  the key. Then B's scoreboard (Tab): speaking icon, the hidden mute buttons
+  while the pointer is locked, a right click frees it, clicking mutes
+  (`voice-mutes` in localStorage), a click on the game locks again; muted:
+  level 0 after the master gain and the lane's gain 0, not listed; B loads
+  the page again and rejoins: still muted, then unmuted by a click and heard;
+  a `{"muted":[userid]}` voice event fed to both pages shows the crossed-out
+  microphone (A.6's display hook); HudC on a touch phone viewport: the list
+  above the chat, the scoreboard (`+showscores`) mute button tapped with CDP
+  touch events. `STOP_AFTER=1` stops after the timing; `FPS` sets the
+  engines' `fps_max` (it didn't make the pages' timers less late here).
+  Screenshots `a5-*.png`. Prints OK / FAIL.
 
 ## Notes
 

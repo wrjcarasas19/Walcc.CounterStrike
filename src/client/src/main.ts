@@ -4,6 +4,7 @@ import { setAnnouncerOptions, startAnnouncer } from './announcer';
 import { attachChat, detachChat } from './chat';
 // After ./chat: an open chat input keeps the talk key (it types there).
 import { attachVoice, detachVoice, initVoice } from './voice';
+import './voice-hud';
 import { createEngine } from './engine';
 import { GameFilesError, getGameFiles } from './gamefiles';
 import {

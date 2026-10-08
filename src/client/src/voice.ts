@@ -38,6 +38,16 @@ const MIC_IDLE_MS = 30_000;
 const NOTICE_MS = 6_000;
 /** The microphone test stops by itself after this long. */
 const TEST_MS = 20_000;
+/**
+ * A lane that played nothing from its speaker for this long counts as not
+ * talking (the speaking indicators), long before the server announces it
+ * quiet (500 ms after the last packet, voice_forward.go). Opus sends a
+ * packet every 20 ms while the key is held, and the time is taken after the
+ * jitter buffer, so ordinary network jitter doesn't count.
+ */
+const LANE_SILENT_MS = 70;
+/** How often the lanes' last packets are looked at while anyone talks. */
+const ACTIVITY_POLL_MS = 20;
 
 const BLOCKED_HELP =
   'Allow the microphone for this site: click the icon at the left of the ' +
@@ -46,15 +56,31 @@ const BLOCKED_HELP =
 const INSECURE_HELP = 'Voice chat needs the page to be opened over https.';
 
 export type VoiceEvent =
-  /** `userid` (the engine's) is now heard on `lane`; 0: the lane is quiet. */
-  | { type: 'lane'; lane: number; userid: number }
+  /**
+   * `userid` (the engine's) is now heard on `lane`; 0: the lane is quiet.
+   * `active` false: the lane still belongs to userid but nothing has come
+   * from them for LANE_SILENT_MS (they let go of the key); the same event
+   * without it says their packets come again.
+   */
+  | { type: 'lane'; lane: number; userid: number; active?: boolean }
   /** The local player started or stopped sending. */
-  | { type: 'talking'; talking: boolean };
+  | { type: 'talking'; talking: boolean }
+  /** The userids the admin has muted (the whole list; A.6 sends it). */
+  | { type: 'muted'; userids: number[] };
 
 type Holder = 'key' | 'touch';
 
 type Lane = {
   userid: number;
+  /** Packets from userid are arriving (see LANE_SILENT_MS). */
+  active: boolean;
+  receiver?: RTCRtpReceiver;
+  /** Last packet's time seen from the receiver, and when it last changed. */
+  packetTime?: number;
+  packetSeen?: number;
+  /** When userid's lane event came (their first packets may still be in
+   *  the jitter buffer then). */
+  since?: number;
   /** Plays nothing; Chrome only feeds a remote track to Web Audio while a
    *  media element plays it. */
   element?: HTMLAudioElement;
@@ -101,6 +127,9 @@ let testing = false;
 let audio: AudioContext | undefined;
 let master: GainNode | undefined;
 const lanes: Lane[] = [];
+let activityTimer: ReturnType<typeof setInterval> | undefined;
+/** Admin-muted userids, from the server (cleared with each connection). */
+let adminMuted: number[] = [];
 
 let noticeTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -418,12 +447,25 @@ function dropLane(index: number): void {
   lane.gain?.disconnect();
   if (lane.element) lane.element.srcObject = null;
   if (lane.userid) emit({ type: 'lane', lane: index, userid: 0 });
-  lanes[index] = { userid: 0 };
+  lanes[index] = { userid: 0, active: false };
 }
 
-function onVoiceTrack(index: number, track: MediaStreamTrack): void {
-  // A new connection: its lanes start quiet.
+function setAdminMuted(userids: number[]): void {
+  if (userids.join() === adminMuted.join()) return;
+  adminMuted = userids;
+  emit({ type: 'muted', userids });
+}
+
+function onVoiceTrack(
+  index: number,
+  track: MediaStreamTrack,
+  receiver?: RTCRtpReceiver
+): void {
+  // A new connection: its lanes start quiet, and nobody is admin-muted
+  // until its server says so (lane 0's track comes first, with the offer,
+  // before the voice data channel can carry the list).
   dropLane(index);
+  if (index === 0) setAdminMuted([]);
   const context = audioContext();
   const stream = new MediaStream([track]);
   const element = new Audio();
@@ -433,7 +475,14 @@ function onVoiceTrack(index: number, track: MediaStreamTrack): void {
   const source = context.createMediaStreamSource(stream);
   const gain = context.createGain();
   source.connect(gain).connect(master!);
-  const lane: Lane = { userid: 0, element, source, gain };
+  const lane: Lane = {
+    userid: 0,
+    active: false,
+    receiver,
+    element,
+    source,
+    gain,
+  };
   lanes[index] = lane;
   applyLaneGain(lane);
   applyVolume();
@@ -441,10 +490,86 @@ function onVoiceTrack(index: number, track: MediaStreamTrack): void {
 }
 
 function onVoiceLane(index: number, userid: number): void {
-  const lane = (lanes[index] ??= { userid: 0 });
+  const lane = (lanes[index] ??= { userid: 0, active: false });
   lane.userid = userid;
+  // The event comes with the speaker's first packet.
+  lane.active = userid !== 0;
+  lane.packetTime = lastPacketTime(lane);
+  lane.packetSeen = lane.since = performance.now();
   applyLaneGain(lane);
   emit({ type: 'lane', lane: index, userid });
+  watchActivity();
+}
+
+/**
+ * The receiver's last packet time (`RTCRtpSynchronizationSource.timestamp`:
+ * when its audio was last delivered to the track; epoch milliseconds in
+ * Chrome, see packetAge).
+ */
+function lastPacketTime(lane: Lane): number | undefined {
+  try {
+    const sources = lane.receiver?.getSynchronizationSources?.() ?? [];
+    return sources.reduce<number | undefined>(
+      (latest, source) =>
+        latest === undefined || source.timestamp > latest
+          ? source.timestamp
+          : latest,
+      undefined
+    );
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * While a lane has a speaker, notices when their packets stop and start
+ * again (a `lane` event with `active`), so the indicators follow the voice
+ * rather than the server's 500 ms quiet event.
+ */
+function watchActivity(): void {
+  const wanted = lanes.some((lane) => lane?.userid && lane.receiver);
+  if (!wanted) {
+    clearInterval(activityTimer);
+    activityTimer = undefined;
+    return;
+  }
+  activityTimer ??= setInterval(checkActivity, ACTIVITY_POLL_MS);
+}
+
+/**
+ * How long ago the lane's last packet came. The timestamp is on the epoch
+ * clock (performance.timeOrigin + now) where browsers follow the spec; if
+ * it isn't (far from it), the time since it last changed is used instead.
+ */
+function packetAge(lane: Lane, time: number, now: number): number {
+  const age = performance.timeOrigin + now - time;
+  if (age > -1_000 && age < 60_000) return Math.max(0, age);
+  return now - (lane.packetSeen ?? now);
+}
+
+function checkActivity(): void {
+  const now = performance.now();
+  lanes.forEach((lane, index) => {
+    if (!lane?.userid || !lane.receiver) return;
+    // No packet delivered yet on this receiver: wait for the first.
+    const time = lastPacketTime(lane);
+    if (time === undefined) return;
+    if (time !== lane.packetTime) {
+      lane.packetTime = time;
+      lane.packetSeen = now;
+    }
+    const silent =
+      Math.min(packetAge(lane, time, now), now - (lane.since ?? now)) >=
+      LANE_SILENT_MS;
+    if (!silent && !lane.active) {
+      lane.active = true;
+      emit({ type: 'lane', lane: index, userid: lane.userid });
+    } else if (silent && lane.active) {
+      lane.active = false;
+      emit({ type: 'lane', lane: index, userid: lane.userid, active: false });
+    }
+  });
+  watchActivity();
 }
 
 // Audio can only start after a user gesture; the first key or tap in game
@@ -670,6 +795,7 @@ export function initVoice(target: Xash3DWebRTC): void {
   engine = target;
   target.onVoiceTrack = onVoiceTrack;
   target.onVoiceLane = onVoiceLane;
+  target.onVoiceMuted = setAdminMuted;
 }
 
 /**
@@ -694,13 +820,17 @@ export function detachVoice(): void {
   closeMic();
   hideNotice();
   for (let index = 0; index < lanes.length; index++) dropLane(index);
+  setAdminMuted([]);
   void audio?.suspend();
   renderButton();
 }
 
-// --- For A.5 (speaking indicators and mutes) ----------------------------
+// --- For the speaking list and mutes (voice-hud.ts) ---------------------
 
-/** Calls listener on lane changes and when the local player talks. */
+/**
+ * Calls listener on lane changes, when the local player talks and when the
+ * admin-muted list changes.
+ */
 export function onVoiceEvent(
   listener: (event: VoiceEvent) => void
 ): () => void {
@@ -717,4 +847,29 @@ export function setPlayerGain(gain: (userid: number) => number): void {
 /** Whether the local player is sending (key or button held, or the tail). */
 export function isTalking(): boolean {
   return talking;
+}
+
+/** Whether the game is played with touch controls (attachVoice). */
+export function usesTouchControls(): boolean {
+  return inGame && touchControls;
+}
+
+/** Whether the current connection's server offers voice. */
+export function voiceOffered(): boolean {
+  return !!engine?.voiceAvailable;
+}
+
+/** The userids the admin has muted on this connection's server. */
+export function adminMutedUserids(): readonly number[] {
+  return adminMuted;
+}
+
+/**
+ * The engine userid heard on each lane (0: quiet). activeOnly: only lanes
+ * whose packets are arriving now (the speaking indicators).
+ */
+export function laneSpeakers(activeOnly = false): number[] {
+  return lanes.map((lane) =>
+    lane && (!activeOnly || lane.active) ? lane.userid : 0
+  );
 }

@@ -1048,6 +1048,172 @@ keep K from voice; 0.0.10 is what's shipped).
   forwarding; A.6 may want the page to tell the server, to save the
   bandwidth).
 
+### A.5 done (2026-10-08): speaking indicators and mutes
+
+**What changed** (client only; no Go, no plugin).
+
+- `src/client/src/voice-hud.ts` (new, imported by `main.ts` after
+  `./voice`):
+  - **Who is who:** userid → name / team / local / bot from the HUD's
+    `scores` snapshots (`ScorePlayer.userid`, the engine userid the lane
+    events carry). Scores only come while the scoreboard is open unless
+    someone asks for live scores, so voice-hud calls
+    `setLiveScores('voice', voiceEnabled)` (2 Hz `scores` while voice is on;
+    the announcer already does the same by default). A userid not in the
+    last snapshot shows as "Player #id" until the next one.
+  - **Speaking list** `#hud-voice` (`index.html`, before `#hud-chat`):
+    left, just above the chat feed; its `bottom` is set in px from the
+    feed's top (ResizeObserver on the feed and `#hud`, MutationObserver on
+    `#hud`'s class/style, so it follows lines coming and going, the chat
+    input and the on-screen keyboard). One entry per speaker in the order
+    they started: sound icon (pulsing) + name in team colour (spectators /
+    unassigned grey) with a left border in that colour; the local player
+    first while sending, with a **mic icon** (a red crossed-out mic when
+    admin-muted). Locally muted players aren't listed. Rendered
+    synchronously in the voice event listener (no rAF batching); dims with
+    the rest of the HUD under the scoreboard, hidden with the menu.
+  - **Scoreboard voice cell** (new grid column between name and K; the
+    labels rows got an empty cell; spectators get one after their name):
+    green pulsing speaker while that player is heard (local: while
+    sending); red crossed-out mic when the admin muted them (for everyone,
+    including their own row); a **mute button** on every human row but
+    your own (no bots). Mutes are this browser's, **by name**, in
+    localStorage `voice-mutes` (JSON array of names, newest last, at most
+    200; every read and write in try/catch; a bad value reads as no mutes).
+    Muting calls `setPlayerGain((userid) => muted name ? 0 : 1)`, again
+    whenever the userid → name map changes (a muted name reconnecting with a
+    new userid, a rename), so muted lanes play at gain 0.
+  - **Clicking the scoreboard.** The scoreboard is drawn while Tab is held
+    and the HUD never takes input, and on desktop the game has the pointer
+    locked. **Decision (as in CS 1.6): with the scoreboard open, a right
+    click frees the pointer** (window capture listener before the engine's;
+    the right mousedown/mouseup and the context menu never reach the game),
+    and `#hud.sb-pointer` makes only the mute buttons take the pointer
+    (`pointer-events: auto` on `.sb-mute`; the rest of the scoreboard still
+    lets clicks through to the game). Until then only a muted player's
+    button shows (as an icon), and a hint at the bottom says "Right-click
+    while holding Tab to mute players". With touch controls the buttons can
+    always be tapped while the scoreboard is open (a phone browser may still
+    have granted the pointer lock on a tap: it was granted in the emulated
+    phone). Presses are handled on `pointerdown` (rows are rebuilt with
+    each snapshot, so a click could end on a new element), found by
+    `data-name`, with `preventDefault` + `stopPropagation`. After Tab, the
+    next click on the game locks the pointer again (checked).
+- `src/client/src/hud.ts`: `setScoreVoice(fill)` (fills each row's
+  `.sb-voice` cell), `redrawScores()` (re-renders the last snapshot),
+  `isScoreboardOpen()`, `getLatestScores()`; `scoreRow` and the spectator
+  names build the cell.
+- `src/client/src/voice.ts`:
+  - **Indicators follow the audio, not the server's quiet event.** The
+    server announces a lane quiet only 500 ms after its last packet
+    (`voice_forward.go`), which can't meet "within 100 ms". The page now
+    polls each lane's `RTCRtpReceiver.getSynchronizationSources()` every
+    20 ms (`ACTIVITY_POLL_MS`) while any lane has a speaker: when nothing
+    was **played** from it for 70 ms (`LANE_SILENT_MS`; the time is taken
+    after the jitter buffer, so ordinary jitter doesn't count), the lane
+    becomes inactive and a `lane` event with `active: false` is emitted
+    (same userid; the next packet makes it active again, a lane event
+    without `active`). The timestamp is epoch ms in Chrome (checked); if a
+    browser's isn't (far from `performance.timeOrigin + now`), the time
+    since it last changed is used. Right after a lane event the lane counts
+    as active for 70 ms whatever the receiver says (the speaker's first
+    packets may still be in the jitter buffer), so a takeover doesn't
+    flicker. `laneSpeakers(activeOnly)` gives the userids per lane.
+  - `onVoiceTrack` gets the `RTCRtpReceiver` too (`webrtc.ts`).
+  - New exports: `voiceOffered()`, `adminMutedUserids()`,
+    `laneSpeakers()`, `usesTouchControls()`; `VoiceEvent` gains
+    `{type:'muted', userids}` and `active` on lane events.
+- **Admin-mute display hook for A.6** (`webrtc.ts` + `voice.ts`): see
+  "What A.6 needs to know" below.
+- README: Features bullet (who is talking, mutes, admin mute). Tools:
+  `check-voice-hud.mjs`; `pw.sh` passes `CYCLES`, `STOP_AFTER`, `FPS`
+  (README there).
+
+**What was checked** (`npm run build`, `tsc --noEmit`; Prettier with
+`--trailing-comma es5` clean on every file touched except `webrtc.ts` and
+README's YAML block, which differ at HEAD by the same lines; no Go
+touched). Image rebuilt (`local/cs16-web-server:latest`; the A.4 image is
+tagged `local/cs16-web-server:pre-a5`); `check-voice-hud.mjs` against it,
+headless Chromium, fake microphone, de_dust2 without bots, **all OK** in the
+final run (numbers from it; earlier `PUBLIC_DIR` runs agreed):
+
+- **Appear:** B's list showed HudA **1.0–10.5 ms after B's lane event**
+  (DOM mutation; median 1 ms); the lane event came 22–167 ms after A's
+  keydown (capture + network + the A.2 path). The next animation frame
+  after the mutation came 164–246 ms later: the page is starved (below), so
+  that is when it was painted here.
+- **Clear:** B's entry went **163–353 ms after the last packet B played**,
+  210–422 ms after A's `setMicTrack(null)` (the end of the 200 ms tail),
+  and **197–546 ms before the server's quiet event**. B's 20 ms poll
+  actually ran only every **276–438 ms** (median per cycle), and each
+  removal came at the first poll after the 70 ms, so on this machine the
+  delay is the timer starvation, not the rule. (The machine had a load
+  average of ~7.5 on 4 cores before the test started; two SwiftShader
+  engines on top; `fps_max 20` didn't help.)
+- A's own entry (mic icon): 1–6 ms after the keydown, gone 0–1 ms after
+  sending stopped.
+- Scoreboard (Tab held): speaking icon on HudA's row; mute buttons hidden
+  while the pointer is locked, hint shown; right click → pointer unlocked,
+  `sb-pointer`, button `pointer-events: auto`, hint hidden; click → muted,
+  `voice-mutes` = `["HudA"]`; Tab up closes it; a click on the game locks
+  the pointer again (`canvas`).
+- **Muted:** A talks, B's level after the master gain **0.00000** (peak
+  RMS), lane 0's gain 0 (others 1), HudA not listed. **After loading the
+  page again and rejoining** (same browser context): still muted (level 0,
+  gain 0, button shown pressed), then a click unmutes and A is heard again
+  (peak RMS 0.02–0.23 across runs) and listed; `voice-mutes` = `[]`.
+- **Admin-mute hook:** `{"muted":[1]}` fed to both pages' voice handler:
+  red crossed-out mic on HudA's row on B's scoreboard and on A's own row;
+  A holding K shows its own entry with the crossed-out mic. `[]` clears it.
+- **Layout** (screenshots `a5-*.png` in the tools' `out/`): desktop
+  1280×800 the list sits above two chat lines, left aligned with them;
+  scoreboard with the speaker, with the pointer free, muted, admin-muted.
+  **Phone viewport** 844×390 (touch, `isMobile`): the list's bottom at 294
+  px, the chat feed's top at 297; the scoreboard (`+showscores`) mute
+  button is tappable (CDP touch) and turns red (hover styles only for
+  `hover: hover`, a tapped button kept the hover colour before).
+
+**Not checked:** Firefox, Safari, real phones (in particular
+`getSynchronizationSources` timestamps there: if one isn't epoch-based the
+fallback is used; if a browser returns none, the indicator waits for the
+server's quiet event as before); the clearing delay on a machine whose
+timers run on time (here the polls were 300–400 ms late; by the rule it is
+70 ms + up to 20 ms after the last packet played); the right click not
+also firing the game's `+attack2` (the listener stops it before the
+canvas, but the engine's reaction wasn't observed); the pointer lock on a
+real Android phone; a muted player's first few milliseconds before their
+lane event (a lane whose speaker isn't known yet plays at gain 1, A.4);
+someone renaming to a muted name (mutes are by name by design, so the
+mute follows the name); more than 2 people talking at once (the list is
+one entry per lane, at most 4 + you).
+
+**What A.6 needs to know.**
+
+- **Admin mute, server → page:** send on the `voice` data channel (or the
+  signaling socket before it opens, like the lane events)
+  `{"event":"voice","data":{"muted":[<userid>, ...]}}` with the **whole
+  list** of admin-muted **engine userids** each time it changes, and once
+  to each player when their voice channel opens (an empty list may be
+  omitted then: the page starts each connection with none). Integers > 0
+  are kept, anything else in the array is dropped; `lane`/`userid` and
+  `muted` may share one message. The page shows a crossed-out mic on those
+  players' scoreboard rows (for everyone, theirs included) and, if the
+  local player is in it, in their own speaking entry while they hold K.
+  It doesn't stop the player sending: the server drops their audio
+  (`rosterPolicy.adminMuted`). Hook: `Xash3DWebRTC.onVoiceMuted` →
+  `voice.ts` `setAdminMuted` → `VoiceEvent` `{type:'muted'}` /
+  `adminMutedUserids()`.
+- Everyone needs the list (not only the muted player), so send it to all
+  players in voice when it changes.
+- With `VOICE=0` / no voice UI (A.6): the scoreboard voice cells and the
+  hint only appear when `voiceOffered()` (the server offered voice), and
+  the speaking list only has entries from lane events or the local
+  player talking, so no voice means none of A.5 shows. Live scores are
+  asked for whenever the Voice chat setting is on, even on a server
+  without voice (cheap; A.6 may tie it to `voiceOffered()` too).
+- The server's 500 ms lane release is unchanged and still decides when a
+  lane can be taken over; the page's indicators no longer wait for it.
+
 ## Open questions
 
 - A.0: decided, WebRTC audio (see Progress). Engine voice works too and is
@@ -1056,5 +1222,9 @@ keep K from voice; 0.0.10 is what's shipped).
 - A.4: push to talk only, or also an open-mic option with voice activity
   detection? Keep the microphone open 30 s after talking (instant next
   press) or close it at once (no recording indicator, ~0.1–0.3 s to reopen)?
+- A.5: right-click with Tab held (CS 1.6 style) to reach the mute
+  buttons, or also a player list in the settings panel (F3) for muting
+  without the scoreboard? Speaking indicators clear 70 ms after the last
+  packet played: flicker on bad networks is possible.
 - A.6: admin voice mute per connection or per address until map change?
 - B.2: target ratio, and adaptive bots on or off by default?

@@ -657,6 +657,65 @@ canvas,
   fill: var(--danger);
 }
 
+/* Speaking list (voice-hud.ts): left, just above the chat feed; the
+   script sets `bottom` from where the feed's top is. Newest at the bottom. */
+.hud-voice {
+  position: absolute;
+  bottom: 7.4em;
+  left: 1.2em;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3em;
+  max-width: 40%;
+  margin-bottom: 0.3em;
+}
+
+.hud-voice-entry {
+  display: flex;
+  align-items: center;
+  gap: 0.45em;
+  max-width: 100%;
+  padding: 0.2em 0.7em 0.2em 0.5em;
+  background: var(--hud-panel);
+  border: 1px solid var(--divider);
+  border-left: 2px solid currentColor;
+  font-weight: 700;
+  font-size: 1.05em;
+  white-space: nowrap;
+}
+
+.hud-voice-entry.ct {
+  color: var(--team-ct);
+}
+
+.hud-voice-entry.t {
+  color: var(--team-t);
+}
+
+.hud-voice-entry.spec {
+  color: var(--label);
+}
+
+.hud-voice-icon {
+  flex: none;
+  width: 1.1em;
+  height: 1.1em;
+  fill: currentColor;
+  animation: hud-pulse 1s ease-in-out infinite;
+}
+
+.hud-voice-entry.admin-muted .hud-voice-icon {
+  fill: var(--danger);
+  animation: none;
+}
+
+.hud-voice-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Chat feed: bottom left, above the health and armor panels (fixed, so lines
    don't jump when the vitals hide on death). Newest line at the bottom. */
 .hud-chat {
@@ -1037,7 +1096,7 @@ canvas,
 
 .sb-row {
   display: grid;
-  grid-template-columns: 1.4em minmax(0, 1fr) 2em 2em 2.6em;
+  grid-template-columns: 1.4em minmax(0, 1fr) 2.6em 2em 2em 2.6em;
   align-items: center;
   column-gap: 0.6em;
   padding: 0.18em 0.4em;
@@ -1140,9 +1199,87 @@ canvas,
 }
 
 .sb-spectator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.sb-spectator-name {
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+/* Voice (voice-hud.ts): who is talking, the admin's mute, and this
+   player's own mute buttons. The buttons only take the pointer while the
+   game doesn't have it locked (#hud.sb-pointer); until then only a muted
+   player's button shows, as an icon. */
+.sb-voice {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.2em;
+  height: 1.4em;
+}
+
+.sb-voice-icon {
+  flex: none;
+  width: 1.15em;
+  height: 1.15em;
+  fill: var(--label);
+}
+
+.sb-voice-icon.speaking {
+  fill: var(--gain);
+  animation: hud-pulse 1s ease-in-out infinite;
+}
+
+.sb-voice-icon.admin-muted {
+  fill: var(--danger);
+}
+
+.sb-mute {
+  display: flex;
+  margin: -0.15em;
+  padding: 0.15em;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.sb-mute .sb-voice-icon {
+  fill: var(--muted);
+}
+
+.sb-mute.muted .sb-voice-icon {
+  fill: var(--danger);
+}
+
+#hud:not(.sb-pointer) .sb-mute:not(.muted) {
+  display: none;
+}
+
+#hud.sb-pointer .sb-mute {
+  pointer-events: auto;
+}
+
+@media (hover: hover) {
+  #hud.sb-pointer .sb-mute:hover .sb-voice-icon {
+    fill: var(--text);
+  }
+}
+
+.sb-voice-hint {
+  margin: 0;
+  padding: 0.45em 1.1em;
+  border-top: 1px solid var(--divider);
+  font-size: 0.8em;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--muted);
 }
 
 .sb-spectator.local {

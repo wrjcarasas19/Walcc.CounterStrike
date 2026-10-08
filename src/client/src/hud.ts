@@ -283,6 +283,8 @@ let lastSession = '';
 const roundStarts = createRoundStartDetector();
 let roundBannerTimer: ReturnType<typeof setTimeout> | undefined;
 let latestScores: Scores | undefined;
+// Fills each scoreboard row's voice cell (voice-hud.ts).
+let scoreVoice: ((player: ScorePlayer, cell: HTMLElement) => void) | undefined;
 let summaryMapName = '';
 let lastSummary = '';
 let nextMapRequest = 0;
@@ -329,6 +331,33 @@ export function onHudEvent(listener: (event: HudEvent) => void): () => void {
  */
 export function isHudActive(): boolean {
   return bridgeSeen && !hud.hidden;
+}
+
+/** True while the scoreboard (Tab) is shown. */
+export function isScoreboardOpen(): boolean {
+  return !scoreboard.hidden;
+}
+
+/** The last scores snapshot since the last reset, if any. */
+export function getLatestScores(): Scores | undefined {
+  return latestScores;
+}
+
+/**
+ * Sets what goes in each scoreboard row's voice cell (between the name and
+ * the kills; spectators get one after their name) and redraws.
+ */
+export function setScoreVoice(
+  fill: (player: ScorePlayer, cell: HTMLElement) => void
+): void {
+  scoreVoice = fill;
+  redrawScores();
+}
+
+/** Redraws the scoreboard from the last snapshot (e.g. the voice cells). */
+export function redrawScores(): void {
+  lastScores = '';
+  if (latestScores) renderScores(latestScores);
 }
 
 /** True while the main menu (mainui, drawn in the canvas) is open. */
@@ -650,6 +679,10 @@ function scoreRow(player: ScorePlayer): HTMLElement {
   name.className = 'sb-name';
   name.textContent = player.name;
 
+  const voice = document.createElement('span');
+  voice.className = 'sb-voice';
+  scoreVoice?.(player, voice);
+
   const cells = [player.frags, player.deaths].map((value) => {
     const cell = document.createElement('span');
     cell.textContent = String(value);
@@ -659,7 +692,7 @@ function scoreRow(player: ScorePlayer): HTMLElement {
   const ping = document.createElement('span');
   ping.textContent = player.bot ? 'BOT' : String(player.ping);
 
-  row.append(status, name, ...cells, ping);
+  row.append(status, name, voice, ...cells, ping);
   return row;
 }
 
@@ -697,7 +730,13 @@ function renderScores(scores: Scores): void {
     ...spectators.map((player) => {
       const el = document.createElement('span');
       el.className = player.local ? 'sb-spectator local' : 'sb-spectator';
-      el.textContent = player.name;
+      const name = document.createElement('span');
+      name.className = 'sb-spectator-name';
+      name.textContent = player.name;
+      const voice = document.createElement('span');
+      voice.className = 'sb-voice';
+      scoreVoice?.(player, voice);
+      el.append(name, voice);
       return el;
     })
   );
