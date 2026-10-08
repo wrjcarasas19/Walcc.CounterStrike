@@ -61,10 +61,10 @@ type rosterLine struct {
 type rosterState struct {
 	alltalk      bool
 	intermission bool
-	// voiceEnable is sv_voiceenable. Not used yet: A.6 turns voice off
-	// with it.
-	voiceEnable bool
-	players     []rosterLine
+	// voiceOff is sv_voiceenable 0: voice chat is off (nobody hears
+	// anybody; rosterPolicy.mayHear).
+	voiceOff bool
+	players  []rosterLine
 }
 
 var errNoRoster = errors.New("no wc_roster header in the output (is wc_roster.amxx loaded?)")
@@ -84,7 +84,7 @@ func parseRoster(out string) (rosterState, error) {
 				st.alltalk = f[1] != "0"
 				st.intermission = f[3] != "0"
 				// Older plugin output without it: voice stays on.
-				st.voiceEnable = len(f) < 6 || f[4] != "voiceenable" || f[5] != "0"
+				st.voiceOff = len(f) >= 6 && f[4] == "voiceenable" && f[5] == "0"
 			}
 			continue
 		}
@@ -155,7 +155,7 @@ func canHear(listener, speaker rosterPlayer, alltalk, intermission bool) bool {
 type voiceRoster struct {
 	alltalk      bool
 	intermission bool
-	voiceEnable  bool
+	voiceOff     bool
 	players      map[*voicePeer]rosterPlayer
 }
 
@@ -163,7 +163,7 @@ type voiceRoster struct {
 // peerAt returns the voicePeer of the player the engine knows by ip, or nil
 // (no such player, not this slot's current player, or no voice).
 func buildVoiceRoster(st rosterState, peerAt func(ip [4]byte) *voicePeer) *voiceRoster {
-	r := &voiceRoster{alltalk: st.alltalk, intermission: st.intermission, voiceEnable: st.voiceEnable, players: make(map[*voicePeer]rosterPlayer, len(st.players))}
+	r := &voiceRoster{alltalk: st.alltalk, intermission: st.intermission, voiceOff: st.voiceOff, players: make(map[*voicePeer]rosterPlayer, len(st.players))}
 	for _, line := range st.players {
 		if p := peerAt(line.ip); p != nil {
 			r.players[p] = line.rosterPlayer
@@ -203,7 +203,7 @@ func (p *rosterPolicy) userID(speaker *voicePeer) (int, bool) {
 
 func (p *rosterPolicy) mayHear(listener, speaker *voicePeer) bool {
 	r := p.roster.Load()
-	if r == nil {
+	if r == nil || r.voiceOff {
 		return false
 	}
 	l, ok := r.players[listener]
@@ -214,8 +214,23 @@ func (p *rosterPolicy) mayHear(listener, speaker *voicePeer) bool {
 	return ok && canHear(l, s, r.alltalk, r.intermission)
 }
 
-// adminMuted is the A.6 hook; nobody is muted yet.
-func (p *rosterPolicy) adminMuted(_ *voicePeer) bool { return false }
+// adminMuted is the admin's mute of this connection (voice_admin.go).
+func (p *rosterPolicy) adminMuted(speaker *voicePeer) bool { return speaker.adminMuted.Load() }
+
+// peerOf returns the voicePeer of the player with this engine userid in the
+// roster, or nil.
+func (p *rosterPolicy) peerOf(userid int) *voicePeer {
+	r := p.roster.Load()
+	if r == nil {
+		return nil
+	}
+	for peer, player := range r.players {
+		if player.userid == userid {
+			return peer
+		}
+	}
+	return nil
+}
 
 // voicePolicyNow is the server's voice policy (the hub in voices uses it).
 var voicePolicyNow = &rosterPolicy{}
@@ -232,6 +247,8 @@ type rosterPoller struct {
 	lastGood    time.Time
 	failedSince time.Time
 	failing     bool
+	// voiceOff is the last sv_voiceenable 0 seen, to log changes.
+	voiceOff bool
 }
 
 func newRosterPoller(console consoleRunner, hub *voiceHub, policy *rosterPolicy, peerAt func([4]byte) *voicePeer) *rosterPoller {
@@ -292,6 +309,16 @@ func (r *rosterPoller) poll(ctx context.Context, now time.Time) {
 	}
 	r.failedSince = time.Time{}
 	r.lastGood = now
+	if r.voiceOff != st.voiceOff {
+		r.voiceOff = st.voiceOff
+		if r.voiceOff {
+			log.Errorf("Voice: sv_voiceenable is 0: voice chat is off")
+		} else {
+			log.Errorf("Voice: sv_voiceenable is 1: voice chat is on")
+		}
+	}
 	r.policy.set(buildVoiceRoster(st, r.peerAt))
 	r.hub.recheck()
+	// A muted player who left, or whose userid only now became known.
+	r.hub.refreshMuted()
 }

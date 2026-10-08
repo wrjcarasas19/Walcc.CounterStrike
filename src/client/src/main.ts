@@ -1,9 +1,16 @@
-import { attachAdmin, detachAdmin } from './admin';
+import { attachAdmin, detachAdmin, setVoiceState } from './admin';
 import { setAnnouncerOptions, startAnnouncer } from './announcer';
 // Before ./wheel: its key listeners must run before the wheel's (chat.ts).
 import { attachChat, detachChat } from './chat';
 // After ./chat: an open chat input keeps the talk key (it types there).
-import { attachVoice, detachVoice, initVoice } from './voice';
+import {
+  adminMutedUserids,
+  attachVoice,
+  detachVoice,
+  initVoice,
+  onVoiceEvent,
+  voiceOffered,
+} from './voice';
 import './voice-hud';
 import { createEngine } from './engine';
 import { GameFilesError, getGameFiles } from './gamefiles';
@@ -68,6 +75,13 @@ applyAnnouncerSettings(getSettings());
 onSettingsChange((settings, changed) => {
   if (changed.some((key) => key.startsWith('announcer'))) {
     applyAnnouncerSettings(settings);
+  }
+});
+
+// The F4 Players tab's voice mute buttons (admin/players.ts).
+onVoiceEvent((event) => {
+  if (event.type === 'muted' || event.type === 'offered') {
+    setVoiceState(voiceOffered(), adminMutedUserids());
   }
 });
 

@@ -49,7 +49,8 @@ const (
 )
 
 // voicePolicy decides who hears whom: rosterPolicy (voice_roster.go), fed
-// by the roster plugin (teams, alive, sv_alltalk); A.6 adds the admin mute.
+// by the roster plugin (teams, alive, sv_alltalk, sv_voiceenable), plus the
+// admin mute (voice_admin.go).
 // Its methods are called under the hub's lock for every packet and
 // listener, so they must not block.
 type voicePolicy interface {
@@ -95,9 +96,12 @@ type laneWrite struct {
 // voiceHub routes voice between the players in it.
 type voiceHub struct {
 	policy voicePolicy
-	// mu guards peers and, in each peer, joined, out and events.
+	// mu guards peers, muted and, in each peer, joined, out and events.
 	mu    sync.Mutex
 	peers map[*voicePeer]struct{}
+	// muted is the admin-muted userids last sent to the players, sorted
+	// (voice_admin.go).
+	muted []int
 }
 
 // voices is the server's voice hub (sfu.go joins players to it).
@@ -119,6 +123,10 @@ func (h *voiceHub) join(p *voicePeer, ip [4]byte) {
 	p.ip = ip
 	p.joined = true
 	h.peers[p] = struct{}{}
+	// The page starts each connection with nobody muted.
+	if len(h.muted) > 0 {
+		p.offerMuted(h.muted)
+	}
 }
 
 // leave removes a player: lanes they had on others are released (and
@@ -161,7 +169,7 @@ func (h *voiceHub) route(speaker *voicePeer, seq uint16, ts uint32, now time.Tim
 		return out
 	}
 	for l := range h.peers {
-		if l == speaker || !h.policy.mayHear(l, speaker) {
+		if l == speaker || l.deaf.Load() || !h.policy.mayHear(l, speaker) {
 			continue
 		}
 		i := l.laneOf(speaker)
@@ -200,19 +208,21 @@ func (h *voiceHub) sweep(now time.Time) {
 }
 
 // recheck releases (and announces quiet) the lanes whose listener may no
-// longer hear their speaker, after the policy changed (a new roster): the
+// longer hear their speaker, after the policy changed (a new roster, an
+// admin mute, sv_voiceenable 0) or the listener asked for no audio: the
 // speaker's audio already stops at the next packet, this tells the page at
 // once instead of laneReleaseAfter later.
 func (h *voiceHub) recheck() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for l := range h.peers {
+		deaf := l.deaf.Load()
 		for i := range l.out {
 			s := l.out[i].speaker
 			if s == nil {
 				continue
 			}
-			if _, known := h.policy.userID(s); known && !h.policy.adminMuted(s) && h.policy.mayHear(l, s) {
+			if _, known := h.policy.userID(s); known && !deaf && !h.policy.adminMuted(s) && h.policy.mayHear(l, s) {
 				continue
 			}
 			l.out[i].speaker = nil
@@ -275,10 +285,21 @@ func (p *voicePeer) queue(lane, userid int) {
 	}
 }
 
-// sendEvents writes the queued lane events until leave closes the queue.
+// sendEvents writes the queued lane events, and the admin-muted list when
+// it changes, until leave closes the queue.
 func (p *voicePeer) sendEvents() {
-	for e := range p.events {
-		_ = p.announceLane(e.Lane, e.UserID)
+	for {
+		select {
+		case e, ok := <-p.events:
+			if !ok {
+				return
+			}
+			_ = p.announceLane(e.Lane, e.UserID)
+		case <-p.mutedNotify:
+			if list, ok := p.takeMuted(); ok {
+				_ = p.sendVoiceEvent(voiceMutedEvent{Muted: list})
+			}
+		}
 	}
 }
 

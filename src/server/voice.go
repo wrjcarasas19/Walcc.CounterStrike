@@ -80,6 +80,19 @@ type voicePeer struct {
 	channel     io.Writer
 	// micTaken is set once a track is read as the microphone.
 	micTaken atomic.Bool
+	// deaf: the page asked for no audio ({"listen":false} on the voice
+	// channel: its Voice chat setting is off), so it is skipped as a
+	// listener.
+	deaf atomic.Bool
+	// adminMuted: the admin muted this player (voice_admin.go); for this
+	// connection only.
+	adminMuted atomic.Bool
+	// The admin-muted list waiting to be sent (voice_admin.go): set by the
+	// hub, taken by sendEvents, which mutedNotify wakes.
+	mutedLock    sync.Mutex
+	mutedList    []int
+	mutedPending bool
+	mutedNotify  chan struct{}
 
 	// Hub state (voice_forward.go), guarded by the hub's mu: ip is the
 	// address the engine knows the player by (peerSlot); joined while in
@@ -109,18 +122,24 @@ func (v *voicePeer) announceLane(lane, userid int) error {
 	return v.sendVoiceEvent(voiceLaneEvent{Lane: lane, UserID: userid})
 }
 
+// voiceMutedEvent is the whole list of admin-muted engine userids.
+type voiceMutedEvent struct {
+	Muted []int `json:"muted"`
+}
+
 // sendVoiceEvent sends a "voice" event on the voice data channel, or on
 // the signaling WebSocket before the channel is open (or if writing to it
 // fails). The data channel lasts as long as the game's connection, while
 // the WebSocket may be lost mid-game (sfu.go goes on without it).
-func (v *voicePeer) sendVoiceEvent(e voiceLaneEvent) error {
+// e is a voiceLaneEvent or a voiceMutedEvent.
+func (v *voicePeer) sendVoiceEvent(e any) error {
 	v.channelLock.Lock()
 	channel := v.channel
 	v.channelLock.Unlock()
 	if channel != nil {
 		msg, err := json.Marshal(struct {
-			Event string         `json:"event"`
-			Data  voiceLaneEvent `json:"data"`
+			Event string `json:"event"`
+			Data  any    `json:"data"`
 		}{"voice", e})
 		if err != nil {
 			return err
@@ -152,7 +171,7 @@ func addVoiceTransceivers(pc *webrtc.PeerConnection, signal func(string, any) er
 	if err != nil {
 		return nil, err
 	}
-	v := &voicePeer{mic: mic, signal: signal, events: make(chan voiceLaneEvent, voiceEventQueue)}
+	v := &voicePeer{mic: mic, signal: signal, events: make(chan voiceLaneEvent, voiceEventQueue), mutedNotify: make(chan struct{}, 1)}
 	for i := range v.lanes {
 		track, err := webrtc.NewTrackLocalStaticRTP(voiceCodec.RTPCodecCapability, fmt.Sprintf("lane%d", i), "voice")
 		if err != nil {
@@ -180,16 +199,18 @@ func addVoiceTransceivers(pc *webrtc.PeerConnection, signal func(string, any) er
 		v.channelLock.Lock()
 		v.channel = d
 		v.channelLock.Unlock()
-		// The page sends nothing on it; read until it closes.
+		// The page's requests (voicePeer.request); read until it closes.
 		go func() {
 			buf := make([]byte, 1500)
 			for {
-				if _, err := d.Read(buf); err != nil {
+				n, err := d.Read(buf)
+				if err != nil {
 					v.channelLock.Lock()
 					v.channel = nil
 					v.channelLock.Unlock()
 					return
 				}
+				v.request(hub, buf[:n])
 			}
 		}()
 	})
@@ -197,6 +218,27 @@ func addVoiceTransceivers(pc *webrtc.PeerConnection, signal func(string, any) er
 		v.onTrack(hub, track, receiver)
 	})
 	return v, nil
+}
+
+// voiceRequest is a message from the page on the voice data channel. Any
+// field may be missing; unknown fields are ignored.
+type voiceRequest struct {
+	// Listen false: the page plays no voice (its Voice chat setting is
+	// off), so the server sends it none; true again when it is turned on.
+	Listen *bool `json:"listen"`
+}
+
+// request handles one message from the page; anything that isn't a
+// voiceRequest is ignored.
+func (v *voicePeer) request(hub *voiceHub, msg []byte) {
+	var r voiceRequest
+	if json.Unmarshal(msg, &r) != nil {
+		return
+	}
+	if r.Listen != nil && v.deaf.Swap(!*r.Listen) != !*r.Listen {
+		// Lanes this player has go at once (announced quiet).
+		hub.recheck()
+	}
 }
 
 // voiceEventQueue is how many lane events can wait for a slow page.

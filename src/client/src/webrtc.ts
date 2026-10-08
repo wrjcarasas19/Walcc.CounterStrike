@@ -148,6 +148,10 @@ export class Xash3DWebRTC extends Xash3D {
   // Voice transceivers of the current connection (none without voice).
   private mic?: RTCRtpTransceiver;
   private laneMids: string[] = [];
+  // The "voice" data channel of the current connection, and whether this
+  // page wants lane audio (kept across connections; setVoiceListening).
+  private voiceChannel?: RTCDataChannel;
+  private voiceListening = true;
 
   constructor(opts?: Xash3DOptions) {
     const memory = new WebAssembly.Memory({
@@ -198,6 +202,16 @@ export class Xash3DWebRTC extends Xash3D {
             if (parsed?.event === 'voice') this.voiceLane(parsed.data);
           } catch {}
         };
+        // The page's requests go back on it; the server assumes a page
+        // listens until told otherwise.
+        this.voiceChannel = channel;
+        const opened = () => {
+          if (this.peer === peer && !this.voiceListening) {
+            this.voiceSend({ listen: false });
+          }
+        };
+        if (channel.readyState === 'open') opened();
+        else channel.onopen = opened;
         return;
       }
       if (channel.label !== 'game') return;
@@ -250,6 +264,7 @@ export class Xash3DWebRTC extends Xash3D {
     this.ws = undefined;
     this.peer = undefined;
     this.channel = undefined;
+    this.voiceChannel = undefined;
     this.mic = undefined;
     this.laneMids = [];
     if (ws) {
@@ -432,6 +447,27 @@ export class Xash3DWebRTC extends Xash3D {
   /** Whether the server offered voice on the current connection. */
   get voiceAvailable(): boolean {
     return !!this.mic;
+  }
+
+  /**
+   * Whether the server should send this page lane audio: false while the
+   * Voice chat setting is off, so no bandwidth goes on voice nobody plays.
+   * Kept for later connections (sent when their voice channel opens).
+   */
+  setVoiceListening(listening: boolean) {
+    if (listening === this.voiceListening) return;
+    this.voiceListening = listening;
+    this.voiceSend({ listen: listening });
+  }
+
+  // Sends a request to the server on the voice data channel (dropped when
+  // it isn't open; old servers ignore it).
+  private voiceSend(message: Record<string, unknown>) {
+    const channel = this.voiceChannel;
+    if (channel?.readyState !== 'open') return;
+    try {
+      channel.send(JSON.stringify(message));
+    } catch {}
   }
 
   /**

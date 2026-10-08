@@ -61,7 +61,7 @@ func TestParseRoster(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := rosterState{alltalk: false, intermission: true, voiceEnable: true, players: []rosterLine{
+	want := rosterState{alltalk: false, intermission: true, players: []rosterLine{
 		{[4]byte{0, 12, 34, 56}, rosterPlayer{7, teamT, true}},
 		{[4]byte{3, 1, 2, 3}, rosterPlayer{12, teamCT, false}},
 		{[4]byte{5, 9, 9, 9}, rosterPlayer{3, teamSpec, false}},
@@ -71,11 +71,11 @@ func TestParseRoster(t *testing.T) {
 	}
 
 	st, err = parseRoster("alltalk 1 intermission 0 voiceenable 0\n")
-	if err != nil || !st.alltalk || st.intermission || st.voiceEnable || len(st.players) != 0 {
+	if err != nil || !st.alltalk || st.intermission || !st.voiceOff || len(st.players) != 0 {
 		t.Fatalf("empty roster: %+v, %v", st, err)
 	}
 	// Without voiceenable (an older plugin), voice stays on.
-	if st, err = parseRoster("alltalk 0 intermission 0\n"); err != nil || !st.voiceEnable {
+	if st, err = parseRoster("alltalk 0 intermission 0\n"); err != nil || st.voiceOff {
 		t.Fatalf("no voiceenable: %+v, %v", st, err)
 	}
 	// Anything before the header is skipped (other prints).
@@ -122,7 +122,7 @@ func TestRosterPolicy(t *testing.T) {
 		t.Fatal("a player not in the roster is heard or hears")
 	}
 	if pol.adminMuted(a) {
-		t.Fatal("admin mute is A.6")
+		t.Fatal("admin-muted without a mute")
 	}
 	st.alltalk = true
 	pol.set(buildVoiceRoster(st, rosterPeers(map[[4]byte]*voicePeer{{0, 1, 1, 1}: a, {2, 1, 1, 1}: c})))

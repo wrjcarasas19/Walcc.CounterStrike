@@ -1,11 +1,12 @@
 import { onHudEvent } from './hud';
+import { onLobbyStatus } from './lobby';
 import { anyModalOpen } from './modal';
 import {
   onSettingsPanel,
   setDeviceOptions,
   settingsGroupFields,
 } from './settings';
-import type { Settings } from './settings/schema';
+import type { SettingKey, Settings } from './settings/schema';
 import { getSettings, onSettingsChange } from './settings/store';
 import { VOICE_MIC_CONSTRAINTS, type Xash3DWebRTC } from './webrtc';
 
@@ -66,7 +67,9 @@ export type VoiceEvent =
   /** The local player started or stopped sending. */
   | { type: 'talking'; talking: boolean }
   /** The userids the admin has muted (the whole list; A.6 sends it). */
-  | { type: 'muted'; userids: number[] };
+  | { type: 'muted'; userids: number[] }
+  /** Whether the current connection's server offers voice changed. */
+  | { type: 'offered'; offered: boolean };
 
 type Holder = 'key' | 'touch';
 
@@ -130,6 +133,10 @@ const lanes: Lane[] = [];
 let activityTimer: ReturnType<typeof setInterval> | undefined;
 /** Admin-muted userids, from the server (cleared with each connection). */
 let adminMuted: number[] = [];
+/** The login page's /status.json says the server has voice off (VOICE=0). */
+let lobbyVoiceOff = false;
+/** voiceOffered() when the 'offered' event was last emitted. */
+let lastOffered = false;
 
 let noticeTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -465,7 +472,10 @@ function onVoiceTrack(
   // until its server says so (lane 0's track comes first, with the offer,
   // before the voice data channel can carry the list).
   dropLane(index);
-  if (index === 0) setAdminMuted([]);
+  if (index === 0) {
+    setAdminMuted([]);
+    renderVoiceUi();
+  }
   const context = audioContext();
   const stream = new MediaStream([track]);
   const element = new Audio();
@@ -759,6 +769,9 @@ onSettingsPanel((open) => {
 renderTest();
 
 onSettingsChange((settings, changed) => {
+  if (changed.includes('voiceEnabled')) {
+    engine?.setVoiceListening(settings.voiceEnabled);
+  }
   if (changed.includes('voiceEnabled') && !settings.voiceEnabled) {
     // Off: stop sending, close the microphone, play nothing.
     stopTalking();
@@ -785,6 +798,41 @@ onHudEvent((event) => {
   renderButton();
 });
 
+// --- Without voice ------------------------------------------------------
+
+/** Key settings that only matter with voice (hidden with the Voice group). */
+const VOICE_KEY_SETTINGS: readonly SettingKey[] = ['voiceKey'];
+
+/**
+ * Shows the voice settings only where voice can be used: in game when the
+ * server offered it; on the login page unless /status.json says the server
+ * has it off (VOICE=0). Emits 'offered' when that changes in game. The
+ * rest of the voice UI (mic button, speaking list, scoreboard cells) is
+ * already shown only when offered.
+ */
+function renderVoiceUi(): void {
+  const shown = inGame ? voiceOffered() : !lobbyVoiceOff;
+  const section = settingsGroupFields('Voice')?.closest('section');
+  if (section) section.hidden = !shown;
+  for (const key of VOICE_KEY_SETTINGS) {
+    const field = document
+      .getElementById(`setting-${key}`)
+      ?.closest<HTMLElement>('.field');
+    if (field) field.hidden = !shown;
+  }
+  const offered = voiceOffered();
+  if (offered !== lastOffered) {
+    lastOffered = offered;
+    emit({ type: 'offered', offered });
+  }
+}
+
+onLobbyStatus((status) => {
+  if (status.voiceOff === lobbyVoiceOff) return;
+  lobbyVoiceOff = status.voiceOff;
+  renderVoiceUi();
+});
+
 // --- Engine -------------------------------------------------------------
 
 /**
@@ -796,6 +844,8 @@ export function initVoice(target: Xash3DWebRTC): void {
   target.onVoiceTrack = onVoiceTrack;
   target.onVoiceLane = onVoiceLane;
   target.onVoiceMuted = setAdminMuted;
+  // With Voice chat off the server sends no lane audio.
+  target.setVoiceListening(enabled());
 }
 
 /**
@@ -811,6 +861,7 @@ export function attachVoice(touch: boolean): void {
   engine.Cmd_ExecuteString('unbind k');
   applyVolume();
   renderButton();
+  renderVoiceUi();
 }
 
 /** Stops talking and playing (connection lost). */
@@ -823,6 +874,7 @@ export function detachVoice(): void {
   setAdminMuted([]);
   void audio?.suspend();
   renderButton();
+  renderVoiceUi();
 }
 
 // --- For the speaking list and mutes (voice-hud.ts) ---------------------

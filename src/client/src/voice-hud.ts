@@ -27,7 +27,8 @@ import {
 //   (a crossed-out one when the admin has muted them). Locally muted
 //   players aren't listed. Names and team colours
 //   come from the scoreboard snapshots (`scores`, by engine userid), which
-//   the client sends every 0.5 s while voice is on (setLiveScores).
+//   the client sends every 0.5 s while voice is on and offered
+//   (setLiveScores).
 // - The scoreboard's voice cell: a speaker while that player is heard (or,
 //   for the local player, sending), a crossed-out microphone when the admin
 //   has muted them (everyone sees it), and a mute button. Mutes are this
@@ -250,6 +251,7 @@ function updateSpeaking(): void {
 }
 
 onVoiceEvent((event) => {
+  if (event.type === 'offered') applySettings();
   if (event.type === 'lane') updateSpeaking();
   renderList();
   redrawScores();
@@ -372,9 +374,12 @@ onHudEvent((event) => {
   }
 });
 
-/** Scores (names, teams) come all the time while voice is on. */
+/**
+ * Scores (names, teams) come all the time while voice is on and the
+ * server offers it.
+ */
 function applySettings(): void {
-  setLiveScores('voice', getSettings().voiceEnabled);
+  setLiveScores('voice', getSettings().voiceEnabled && voiceOffered());
 }
 
 applySettings();

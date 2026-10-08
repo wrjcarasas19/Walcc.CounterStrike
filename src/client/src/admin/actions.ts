@@ -133,7 +133,8 @@ export type ClaimEntry = {
  * player's real address, which rcon can't reach (src/server/admin_bans.go);
  * nextmap reads amx_nextmap, and only the API gets the engine's answer
  * (src/server/admin_maps.go); claimed names live in the Go server's
- * database (src/server/admin_names.go).
+ * database (src/server/admin_names.go); voice chat is forwarded by the Go
+ * server, which keeps the voice mutes (src/server/voice_admin.go).
  */
 export type ApiOnlyAction =
   | { action: 'bans' }
@@ -141,7 +142,9 @@ export type ApiOnlyAction =
   | { action: 'ban'; userid: number; slot: number }
   | { action: 'unban'; address: string }
   | { action: 'claims' }
-  | { action: 'release_claim'; name: string };
+  | { action: 'release_claim'; name: string }
+  | { action: 'voice_mute'; userid: number }
+  | { action: 'voice_unmute'; userid: number };
 
 // An IPv4 address or an IPv6 /64, as the server lists them.
 const BAN_ADDRESS_PATTERN = /^(?:[0-9.]{7,15}|[0-9a-f:]{2,39}\/64)$/;
@@ -163,6 +166,10 @@ export function checkApiOnlyAction(action: ApiOnlyAction): void {
       ) {
         throw new Error(`Not a claimed name: ${action.name}`);
       }
+      return;
+    case 'voice_mute':
+    case 'voice_unmute':
+      checkWhole('userid', action.userid, 1, USERID_MAX);
       return;
     case 'ban':
       checkWhole('userid', action.userid, 1, USERID_MAX);

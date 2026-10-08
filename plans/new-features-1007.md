@@ -1255,6 +1255,183 @@ one entry per lane, at most 4 + you).
 - The server's 500 ms lane release is unchanged and still decides when a
   lane can be taken over; the page's indicators no longer wait for it.
 
+### A.6 done (2026-10-08): server and admin controls
+
+**What changed.**
+
+- **Admin voice mute** (`src/server/voice_admin.go`, new). Admin API
+  actions `voice_mute {userid}` / `voice_unmute {userid}` (`voiceActions`,
+  merged into `adminActions` like the bans; `prepare` runners, since they
+  change Go state and send no engine command). The runner finds the
+  player's `voicePeer` from the current roster (`rosterPolicy.peerOf`),
+  sets `voicePeer.adminMuted` (atomic; `rosterPolicy.adminMuted` reads it,
+  so it is safe under the hub lock), calls `recheck` (the player's lanes go
+  at once, with quiet events) and `refreshMuted`, and answers
+  `{"output":...,"voiceMuted":[userids]}` (field left out when empty).
+  Logged as `admin: <ip>: voice_mute #7`. Refused with 409 when the player
+  isn't in the hub ("player #7 isn't in voice chat": not in the roster, an
+  old page, left) or with `VOICE=0`. **Decision kept: per connection** (the
+  plan's default). Keying the mute on the `voicePeer` makes it last over
+  map changes (the WebRTC connection and the engine userid both survive a
+  changelevel) and end with the connection, with no clean-up; a reconnect
+  is a new peer and a new userid. The alternative of keeping it in
+  `wc_roster.sma` (which would also work over rcon) was rejected: AMXX
+  reloads plugins on every map change, so the mute would end at each map.
+  So **muting needs the admin API**, like bans (`ApiOnlyAction` in
+  `actions.ts`; with rcon only, no Mute button and the Players note says
+  so).
+- **The muted list to the pages**: `voiceHub.refreshMuted` works out the
+  sorted userids of the admin-muted players in the hub and, when it
+  differs from the last one, queues it for every player in voice
+  (`voicePeer.offerMuted`: the latest list + a 1-slot notify channel, so
+  only the newest list is sent); `sendEvents` sends it as
+  `{"event":"voice","data":{"muted":[...]}}` through `sendVoiceEvent`
+  (voice data channel, or the WebSocket before it opens; now takes any
+  event). It runs after each mute, after each roster read (a muted player
+  who left drops out within 250 ms), and `join` queues the current list for
+  a new player when it isn't empty.
+- **`sv_voiceenable 0`**: `rosterState`/`voiceRoster` field is now
+  `voiceOff` (zero value = on, so rosters built without the header field
+  stay on); `rosterPolicy.mayHear` is false for everyone while it is set,
+  so the poll's `recheck` releases every lane (quiet events) and `route`
+  sends nothing; userids stay known (the muted list doesn't change). The
+  poller logs changes ("Voice: sv_voiceenable is 0: voice chat is off").
+  Added to `adminCvars` and `cvars.ts`/`match.ts` as **Voice chat**
+  (on/off, applies now) at the top of the voice fields in the Match tab;
+  it was missing, so the Match tab couldn't set it before. No `.sma`
+  change: A.3's header already reported it.
+- **`{"listen":false}`**: the server now reads the `voice` data channel
+  (`voicePeer.request`, JSON `voiceRequest{Listen *bool}`, unknown fields
+  ignored, bad JSON ignored). `listen:false` sets `voicePeer.deaf`:
+  `route` skips that listener and `recheck` releases its lanes;
+  `listen:true` clears it. The page (`webrtc.ts setVoiceListening`, from
+  `voice.ts` at `initVoice` and on Voice chat setting changes) sends it on
+  change, and `listen:false` again when a new connection's voice channel
+  opens (the server assumes listening). Old servers ignore it.
+- **Live scores tied to `voiceOffered()`** (`voice-hud.ts`): new
+  `VoiceEvent` `{type:'offered'}` emitted by `voice.ts` when
+  `voiceOffered()` changes (checked when lane 0's track arrives, in
+  `attachVoice` and `detachVoice`).
+- **`VOICE=0` hides all voice UI.** Before, the mic button, speaking list,
+  scoreboard cells and hint were already gated on `voiceOffered()`, but the
+  F3 Voice settings group and the talk key were always shown. Now
+  `voice.ts renderVoiceUi` hides the Voice group and the key settings
+  listed in `VOICE_KEY_SETTINGS` (`['voiceKey']`) in game when the server
+  didn't offer voice, and on the login page when `/status.json` has the new
+  `voiceOff: true` (`status.go`, only with `VOICE=0`; `lobby.ts` parses it
+  and has a new `onLobbyStatus` listener). `.settings-group[hidden]` CSS.
+- **Players tab** (`admin/players.ts`): a **Mute** / **Unmute** button
+  (labels kept short: "Mute voice" squeezed the names in the menu's width;
+  `aria-label` "Mute AdmA in voice chat", `aria-pressed`, a title saying
+  it lasts until unmuted or reconnect) before Kick/Ban on every human row
+  when the admin API is on and the server offers voice; disabled on your
+  own row. State from the server's list and each action's answer. **The
+  tab doesn't import `voice.ts`**: `./admin` is imported first in
+  `main.ts`, so that would load `voice.ts` before `chat.ts` and swap the
+  order of their capture key listeners (K must type "k" in chat). Instead
+  `main.ts` passes `voiceOffered()` / `adminMutedUserids()` to
+  `setVoiceState` (exported by `./admin`) on `muted`/`offered` events.
+- **Privacy, checked**: the voice code writes no files; its only log lines
+  are the admin's mutes, `sv_voiceenable` changes, roster failures, a full
+  event queue and a dropped non-mic track (its id and codec). RTP is only
+  held in a reused 1500-byte buffer while it is forwarded. The console
+  commands of the roster poll are quiet (A.3 patch). README says voice is
+  never recorded, stored or logged, plus `VOICE`, the controls and the
+  bandwidth (≤ 32 kbit/s up while talking, ≤ 4 × 32 kbit/s down).
+- README: "Voice chat" paragraph after the bans one, `VOICE` row,
+  `/status.json` `voiceOff`. Tools: `check-voice-admin.mjs` (README there).
+
+**What was checked.**
+
+- Go (`gotest.sh`: gofmt, vet, all tests). New `voice_admin_test.go`:
+  mute (lanes released with quiet events, nothing forwarded, the list
+  queued for everyone including the muted player, others still heard, a
+  second mute changes and sends nothing, a later joiner gets the list,
+  unmute sends `[]` and audio flows, unknown userid / player who left
+  refused); the list after a muted player leaves (next roster read); the
+  muted event on the wire (`{"muted":[3,7]}`, coalesced to the latest,
+  `[]` not `null`); `{"listen":false}` / `true` (lanes released, skipped
+  as a listener, can still talk, bad messages ignored); `voiceenable 0` in
+  the roster through the poller (lanes released, nothing forwarded either
+  way, userids kept) and back to 1; the admin API (`voice_mute` /
+  `voice_unmute` answers and logs, already-unmuted, not in voice = 409, no
+  session = 401, `VOICE=0` = 409, no engine command). `admin_actions_test`:
+  `sv_voiceenable` 0/1 accepted, 2 refused; bad `voice_mute` fields
+  refused.
+- `npm run build`, `tsc --noEmit`; Prettier (`--trailing-comma es5`) clean
+  on every client file touched except `webrtc.ts` (differs at HEAD on the
+  same lines as before; my additions are clean); README re-run through
+  Prettier with the YAML block's quotes kept as at HEAD.
+- Image rebuilt (`local/cs16-web-server:latest`; the A.5 image is tagged
+  `local/cs16-web-server:pre-a6`). `check-voice-admin.mjs` against it,
+  headless Chromium, fake microphone, de_dust2 without bots, **all OK**:
+  - baseline: B got 189 packets / 3 s from A (userid 1);
+  - B clicks Mute on AdmA in F4 → Players: button → "Unmute"
+    (`aria-pressed` true), status "Done. Nobody hears AdmA in voice chat.";
+    A holds K: **B got 0 packets and no lane event**; both pages got
+    `{"muted":[1]}`; crossed-out mic on AdmA's row on B's and A's
+    scoreboards; A's own speaking entry `admin-muted`;
+  - Unmute: B got 192 packets, crossed-out mic gone;
+  - `sv_voiceenable 0` through the admin API's `cvar` action (200): **B got
+    0, A got 0** talking both ways; `1`: B got 183;
+  - B turns Voice chat off (F3): the page sent `{"listen":false}`, **B got 0
+    packets** while A talked; on again: 180;
+  - server log: `admin: ...: voice_mute #1`, `voice_unmute #1`, the two
+    `cvar: sv_voiceenable` lines and the poller's two "Voice:
+    sv_voiceenable" lines; nothing else about voice.
+  - `novoice` (`VOICE=0`; run on the image built just before the button
+    labels were shortened, the rest identical): `status.json` has
+    `voiceOff: true`; login page: Voice group and talk key hidden; in game:
+    `voiceAvailable` false, 0 `getUserMedia` after holding K, no mic
+    button, no Voice group / key, empty speaking list, no scoreboard voice
+    cell content or hint, no Mute button in the Players tab. With voice on
+    the login page shows them.
+  - Screenshots `a6-*.png` (Players tab with Mute / Unmute, admin-muted
+    scoreboard and own entry, the `VOICE=0` Players tab).
+- **Not checked:** Firefox, Safari, phones; the Players tab on a phone
+  width (three buttons per row; desktop menu width is fine);
+  `sv_voiceenable 0` surviving a map change (it is the engine's cvar and
+  `server.cfg` only runs at start, but the game's `config.cfg` sets it to
+  1 and wasn't checked to be re-run on changelevel); a mute surviving a map
+  change (by design it should: same connection and userid; only in the unit
+  tests' terms); the mute over rcon (not offered); the live-scores change
+  beyond the code (no headless measure of the `scores` rate); a server
+  restarted with a different `VOICE` under a reconnecting page (the
+  'offered' state is re-checked only when a lane track arrives, in
+  `attachVoice` or `detachVoice`).
+
+**What A.7 needs to know.**
+
+- Page → server messages: `voicePeer.request` in `voice.go` parses
+  `voiceRequest`; add `Talk *string` (`"all"`/`"team"`) there. Unknown
+  fields are already ignored and an old server ignores the whole message.
+  `webrtc.ts` has a private `voiceSend(message)` (drops it if the voice
+  channel isn't open); add a public method like `setVoiceListening`. Note
+  `{"talk":...}` must arrive before the mic track's first packets: the
+  data channel is reliable/ordered but RTP isn't on it, so send it before
+  `setMicTrack(track)` and expect a few packets of race; per-speaker mode
+  state can live next to `deaf`/`adminMuted` on `voicePeer` (atomics, read
+  under the hub lock).
+- Hear rules: `route` calls `policy.mayHear(l, speaker)`; `recheck` too.
+  `rosterPolicy.mayHear` already returns false for everyone when
+  `voiceOff`, so an `all` mode check added there (or a new policy method)
+  keeps `sv_voiceenable 0` and the not-in-roster rule; admin mute and
+  `deaf` are checked separately in `route`/`recheck`, so they apply to
+  `all` too without more work.
+- `wc_voice_all` on the roster header: `parseRoster` reads fields by
+  position (`alltalk`, `intermission`, then `voiceenable` at 4–5): append
+  `wc_voice_all <0|1>` at 6–7 and keep old output (no field) meaning the
+  default 1. Use the zero-value-safe naming (`voiceAllOff`) like
+  `voiceOff`, since tests build `rosterState` literals.
+- Lane events: `voiceLaneEvent{Lane, UserID}` is compared with `==` in
+  tests; adding an `All bool` field (JSON `all`, omitempty) keeps it
+  comparable. `route` queues the lane event when a speaker takes a lane
+  (`l.queue(i, userid)`).
+- Settings: the new `voiceAllKey` must be added to `VOICE_KEY_SETTINGS` in
+  `voice.ts`, so it is hidden with `VOICE=0` like `voiceKey`.
+- Match tab: `sv_voiceenable` and `sv_alltalk` are the voice fields in
+  `FIELDS`; put `wc_voice_all` next to them (and in `adminCvars`).
+
 ## Open questions
 
 - A.0: decided, WebRTC audio (see Progress). Engine voice works too and is
@@ -1267,5 +1444,7 @@ one entry per lane, at most 4 + you).
   buttons, or also a player list in the settings panel (F3) for muting
   without the scoreboard? Speaking indicators clear 70 ms after the last
   packet played: flicker on bad networks is possible.
-- A.6: admin voice mute per connection or per address until map change?
+- A.6: admin voice mute is per connection (kept over map changes, ends
+  on reconnect) and needs the admin API; is that enough, or should it
+  follow the real address (a player reconnecting to escape a mute)?
 - B.2: target ratio, and adaptive bots on or off by default?

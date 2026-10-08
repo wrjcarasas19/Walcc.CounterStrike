@@ -44,6 +44,7 @@ import {
 
 const FIELDS: readonly CvarName[] = [
   'mp_friendlyfire',
+  'sv_voiceenable',
   'sv_alltalk',
   'mp_timelimit',
   'mp_roundtime',

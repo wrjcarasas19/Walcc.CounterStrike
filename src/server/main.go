@@ -126,6 +126,10 @@ func main() {
 	if voiceEnabled {
 		ensureConsole()
 		go newRosterPoller(console, voices, voicePolicyNow, gameVoicePeer).run(context.Background())
+		if adminCommands != nil {
+			// Set before runSFU serves the admin API.
+			adminCommands.env.voice = &voiceControl{hub: voices, policy: voicePolicyNow}
+		}
 	}
 
 	// Server queries for /status.json work without the admin API: they

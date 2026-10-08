@@ -77,16 +77,16 @@ Then open http://127.0.0.1:27016 in your browser!
 
 ## 🌍 Environment Variables
 
-| Variable           | Description                                                                                                                                                                                                                                                                           | Example            |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
-| `IP`               | Server IP address for WebRTC connection                                                                                                                                                                                                                                               | `123.45.67.89`     |
-| `PORT`             | UDP port for CS server (must be open)                                                                                                                                                                                                                                                 | `27018`            |
-| `ADMIN_PASSWORD`   | Login for the F4 admin menu (admin API), at least 8 characters; unset: the menu uses `RCON_PASSWORD`                                                                                                                                                                                  | `long-pass-phrase` |
-| `RCON_PASSWORD`    | rcon password, only needed without `ADMIN_PASSWORD`; unset disables rcon. Letters, digits and `_.~!@#%^*=+,:?-`, ≤ 64                                                                                                                                                                 | `Xk9_m2.Lq7`       |
-| `BOT_QUOTA`        | Players (humans + YaPB bots) to keep in the game, 0–32; bots leave as humans join. Default `0` (no bots)                                                                                                                                                                              | `6`                |
-| `DATA_DIR`         | Directory of the ban list (`bans.json`) and the leaderboard (`leaderboard.db`); default `data` in the working dir, `/xashds/data` in the image                                                                                                                                        | `/xashds/data`     |
-| `LEADERBOARD_BOTS` | `1` lists YaPB bots on the leaderboard too; default `0` (bots get no row, but kills on them and deaths by them count)                                                                                                                                                                 | `1`                |
-| `VOICE`            | `0` turns voice chat off: no audio tracks in the WebRTC offer. Default `1` (push to talk in the page, see Features; the server forwards it with the CS 1.6 rules: teammates only, the living don't hear the dead, everyone with `sv_alltalk 1` (F4 Match tab) or at the end of a map) | `0`                |
+| Variable           | Description                                                                                                                                                                                                                                                                                                             | Example            |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| `IP`               | Server IP address for WebRTC connection                                                                                                                                                                                                                                                                                 | `123.45.67.89`     |
+| `PORT`             | UDP port for CS server (must be open)                                                                                                                                                                                                                                                                                   | `27018`            |
+| `ADMIN_PASSWORD`   | Login for the F4 admin menu (admin API), at least 8 characters; unset: the menu uses `RCON_PASSWORD`                                                                                                                                                                                                                    | `long-pass-phrase` |
+| `RCON_PASSWORD`    | rcon password, only needed without `ADMIN_PASSWORD`; unset disables rcon. Letters, digits and `_.~!@#%^*=+,:?-`, ≤ 64                                                                                                                                                                                                   | `Xk9_m2.Lq7`       |
+| `BOT_QUOTA`        | Players (humans + YaPB bots) to keep in the game, 0–32; bots leave as humans join. Default `0` (no bots)                                                                                                                                                                                                                | `6`                |
+| `DATA_DIR`         | Directory of the ban list (`bans.json`) and the leaderboard (`leaderboard.db`); default `data` in the working dir, `/xashds/data` in the image                                                                                                                                                                          | `/xashds/data`     |
+| `LEADERBOARD_BOTS` | `1` lists YaPB bots on the leaderboard too; default `0` (bots get no row, but kills on them and deaths by them count)                                                                                                                                                                                                   | `1`                |
+| `VOICE`            | `0` turns voice chat off: no audio tracks in the WebRTC offer and no voice controls in the page. Default `1` (push to talk in the page, see Features; the server forwards it with the CS 1.6 rules: teammates only, the living don't hear the dead, everyone with `sv_alltalk 1` (F4 Match tab) or at the end of a map) | `0`                |
 
 With docker compose, put the passwords in a `.env` file next to
 `docker-compose.yml` (ignored by git; see `.env.example`). Never set them in
@@ -125,10 +125,33 @@ restarts. Without `ADMIN_PASSWORD` (rcon only) there is no Ban button, but
 a saved ban list still applies. The engine's own `banid` / `addip` don't
 work here: the engine only sees made-up addresses for WebRTC players.
 
+Voice chat (on unless `VOICE=0`) goes over the same WebRTC connection as
+the game, as Opus audio: each player sends at most 32 kbit/s, and only
+while holding the talk key, and receives at most 4 × 32 kbit/s (up to 4
+people heard at once; nothing while nobody they can hear is talking, and
+nothing at all while their Voice chat setting is off). The server forwards
+the audio packets as they come and **never records, stores or logs voice**:
+no audio reaches the disk, the game logs or the server's output, and the
+only voice log lines are the admin's mutes (`admin: <address>: voice_mute
+#7`) and `sv_voiceenable` changes. Admin controls:
+
+- `VOICE=0` (env): no audio in the WebRTC offer and no voice controls in
+  the page (no talk key, microphone button, speaking list, scoreboard voice
+  buttons or Voice settings).
+- **Voice chat** in the F4 Match tab (`sv_voiceenable`, applies at once):
+  Off stops all voice; On brings it back.
+- **All talk (voice)** in the Match tab (`sv_alltalk`): everyone hears
+  everyone.
+- **Mute** / Unmute next to each player in the F4 Players tab (needs
+  `ADMIN_PASSWORD`): nobody hears that player in voice chat until they are
+  unmuted or reconnect, and everyone sees a crossed-out microphone next to
+  their name.
+
 Lobby status: `GET /status.json` returns the current map, the player count
 and max players, each player's name and score (bots marked), the time left
-and the next map (the last two need AMX Mod X), and `gameMode` (1 Gun Game,
-2 Deathmatch, left out for a classic game). The login page shows it as
+and the next map (the last two need AMX Mod X), `gameMode` (1 Gun Game,
+2 Deathmatch, left out for a classic game), and `voiceOff: true` with
+`VOICE=0` (the login page then hides its voice settings). The login page shows it as
 "de_dust2 · 5/16 players" (or "de_dust2 · Gun Game · 5/16 players") with
 the names, refreshed every 5 seconds.
 **Player names are public:** anyone who opens the page (or the endpoint)

@@ -8,6 +8,7 @@
 export type CvarName =
   | 'mp_friendlyfire'
   | 'sv_alltalk'
+  | 'sv_voiceenable'
   | 'mp_timelimit'
   | 'mp_roundtime'
   | 'mp_startmoney'
@@ -66,6 +67,18 @@ export const CVARS: Readonly<Record<CvarName, CvarDef>> = {
   sv_alltalk: {
     name: 'sv_alltalk',
     label: 'All talk (voice)',
+    unit: '',
+    kind: 'bool',
+    min: 0,
+    max: 1,
+    decimals: 0,
+    applies: 'now',
+  },
+  // The engine's cvar, which the roster plugin reports: 0 turns voice chat
+  // off at once (the server forwards nothing; src/server/voice_roster.go).
+  sv_voiceenable: {
+    name: 'sv_voiceenable',
+    label: 'Voice chat',
     unit: '',
     kind: 'bool',
     min: 0,

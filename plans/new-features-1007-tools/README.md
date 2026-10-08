@@ -134,6 +134,22 @@ with the game zip. Scripts here import `../new-features-1006-tools/lib.mjs`.
   engines' `fps_max` (it didn't make the pages' timers less late here).
   Screenshots `a5-*.png`. Prints OK / FAIL.
 
+- `check-voice-admin.mjs [novoice]`: A.6, the server and admin controls.
+  Start the server without bots (`run-server.sh de_dust2 0`). AdmA
+  (talker) and AdmB (listener, admin) join as CTs: baseline (B gets A's
+  RTP); B clicks Mute on AdmA's row in F4 → Players: B gets no packets and
+  no lane event while A holds K, both pages get `{"muted":[userid]}`, both
+  scoreboards show the crossed-out microphone and A's own speaking entry is
+  crossed out; Unmute: heard again; `sv_voiceenable 0` / `1` through the
+  admin API (the Match tab's `cvar` action): nobody heard / heard again;
+  B turns Voice chat off in F3: the page sends `{"listen":false}` and the
+  server sends B nothing, on again: heard. Also: the login page shows the
+  Voice settings. `novoice`, against `VOICE=0 run-server.sh de_dust2 0`:
+  status.json `voiceOff`, no Voice settings on the login page or in game,
+  no mic button, speaking list, scoreboard voice cells or hint, no
+  `getUserMedia` on K, no Mute button in the Players tab. Screenshots
+  `a6-*.png`. Prints OK / FAIL.
+
 ## Notes
 
 - Chromium flags for a fake microphone: `--use-fake-ui-for-media-stream
