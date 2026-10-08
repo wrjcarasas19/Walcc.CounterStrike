@@ -551,6 +551,9 @@ function onKillCounted(kill: KillEvent, result: KillResult): void {
     getAnnouncerOptions()
   );
   if (call.firstBlood) showToast(`${call.firstBlood} drew first blood`);
+  if (call.otherStreak && getSettings().killStreakToasts) {
+    showToast(call.otherStreak);
+  }
   if (call.sound) announce(call.sound);
   renderSession();
 }

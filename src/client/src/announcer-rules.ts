@@ -81,7 +81,8 @@ export function pickSound(
 
 /**
  * What the player can change (C.3 adds them to the Sound settings as
- * announcerVolume, announcerHeadshots and announcerOthers).
+ * announcerVolume, announcerHeadshots, announcerOthers and
+ * announcerOtherStreaks).
  */
 export type AnnouncerOptions = {
   /** 0-100 %; 0 turns the announcer off. */
@@ -90,12 +91,15 @@ export type AnnouncerOptions = {
   headshots: boolean;
   /** Other players' first blood. */
   others: boolean;
+  /** Other players' multi-kills and streaks (sound and toast). */
+  otherStreaks: boolean;
 };
 
 export const DEFAULT_ANNOUNCER_OPTIONS: Readonly<AnnouncerOptions> = {
   volume: 70,
   headshots: true,
   others: true,
+  otherStreaks: true,
 };
 
 /** double-kill ... rampage for a multi-kill count (2, 3, 4, 5+). */
@@ -120,6 +124,21 @@ export function streakSound(streak: number): SoundName | undefined {
       return 'godlike';
   }
   return undefined;
+}
+
+/** "Killing spree" ... "Godlike" for a streak sound, "" otherwise. */
+export function streakLabel(sound: SoundName | undefined): string {
+  switch (sound) {
+    case 'killing-spree':
+      return 'Killing spree';
+    case 'dominating':
+      return 'Dominating';
+    case 'unstoppable':
+      return 'Unstoppable';
+    case 'godlike':
+      return 'Godlike';
+  }
+  return '';
 }
 
 /** The knife's name in kill events (the DeathMsg weapon). */
@@ -182,6 +201,11 @@ export type KillCall = {
   sound?: SoundName;
   /** Set on the round's (or map's) first enemy kill: the killer's name. */
   firstBlood?: string;
+  /**
+   * Another player's multi-kill or streak (with otherStreaks), as toast
+   * text: "Walter: Double kill", "Walter: Killing spree · Triple kill".
+   */
+  otherStreak?: string;
 };
 
 export type AnnouncerTriggers = ReturnType<typeof createAnnouncerTriggers>;
@@ -240,7 +264,19 @@ export function createAnnouncerTriggers() {
         if (kill.weapon === KNIFE) candidates.push('humiliation');
         // pickSound keeps it out whenever a multi-kill plays.
         if (kill.headshot && options.headshots) candidates.push('headshot');
-      } else if (
+      } else if (result.killer && options.otherStreaks) {
+        // Only the big moments for other players: no headshot, humiliation.
+        const multi = result.killer.multiKill;
+        const multiSound = multi && multiKillSound(multi.count);
+        const streak = streakSound(result.killer.streak);
+        if (multiSound) candidates.push(multiSound);
+        if (streak) candidates.push(streak);
+        const labels = [streakLabel(streak), multi?.label ?? ''];
+        const text = labels.filter(Boolean).join(' · ');
+        if (text) call.otherStreak = `${result.killer.name}: ${text}`;
+      }
+      if (
+        !result.local &&
         localName &&
         kill.victim === localName &&
         kill.weapon === KNIFE

@@ -296,4 +296,50 @@ assert.equal(
   undefined
 );
 
+// Other players' multi-kills and streaks (otherStreaks): sound and toast
+// text with the killer's name; nothing with the option off; never their
+// headshots or knife kills.
+{
+  const st = createSessionStats();
+  st.setLocalName('Me');
+  const tr = createAnnouncerTriggers();
+  tr.setGameMode(2); // first blood out of the way below
+  let at = 0;
+  const other = (e: ReturnType<typeof k>, options = opts, dt = 10_000) => {
+    at += dt;
+    return tr.kill(e, st.recordKill(e as any, at), 'Me', options);
+  };
+  const bob = (victim: string, o: any = {}) =>
+    k('Bob', victim, { kt: 'T', vt: 'CT', ...o });
+  assert.equal(other(bob('A1')).firstBlood, 'Bob');
+  assert.deepEqual(other(bob('A2', { hs: true })), { sound: undefined });
+  assert.deepEqual(other(bob('A3'), opts, 1000), {
+    sound: 'double-kill',
+    otherStreak: 'Bob: Double kill',
+  });
+  assert.deepEqual(other(bob('A4'), { ...opts, otherStreaks: false }, 1000), {
+    sound: undefined,
+  });
+  // 5th kill in a row, also a quad kill: both in the toast; the sounds tie
+  // and the multi-kill plays, as for my own kills.
+  assert.deepEqual(other(bob('A5'), opts, 1000), {
+    sound: 'quad-kill',
+    otherStreak: 'Bob: Killing spree · Quad kill',
+  });
+  assert.deepEqual(other(bob('A6', { weapon: 'knife' })), {
+    sound: undefined,
+  });
+  // A multi-kill chain is per killer: Cid's kill doesn't extend Bob's.
+  assert.deepEqual(other(k('Cid', 'B1'), opts, 1000), { sound: undefined });
+  assert.equal(other(bob('A7'), opts, 1000).otherStreak, 'Bob: Double kill');
+  // Knifed by a player on a multi-kill: the victim hears the multi-kill.
+  assert.deepEqual(other(bob('Me', { weapon: 'knife' }), opts, 1000), {
+    sound: 'triple-kill',
+    otherStreak: 'Bob: Triple kill',
+  });
+  // My own multi-kill isn't an "other" one.
+  other(k('Me', 'C1'));
+  assert.deepEqual(other(k('Me', 'C2'), opts, 1000), { sound: 'double-kill' });
+}
+
 console.log('smoke-announcer-c2: ok');

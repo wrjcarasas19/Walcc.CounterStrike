@@ -57,6 +57,7 @@ function applyAnnouncerSettings(settings: Readonly<Settings>): void {
     volume: settings.announcerVolume,
     headshots: settings.announcerHeadshots,
     others: settings.announcerOthers,
+    otherStreaks: settings.announcerOtherStreaks,
   });
   setLiveScores('announcer', settings.announcerVolume > 0);
 }

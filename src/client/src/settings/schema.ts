@@ -127,6 +127,12 @@ export const SETTINGS = {
     label: "Hear other players' first blood",
     default: true,
   }),
+  announcerOtherStreaks: toggleSetting({
+    group: 'Sound',
+    label: "Other players' kill streaks",
+    hint: 'Double kill, killing spree... sound and toast',
+    default: true,
+  }),
   hudScale: numberSetting({
     group: 'HUD',
     label: 'HUD size',

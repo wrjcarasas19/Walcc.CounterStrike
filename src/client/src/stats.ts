@@ -55,15 +55,23 @@ export type KillResult = {
   /** False when the event was ignored (non-player victim, no victim). */
   counted: boolean;
   kind?: 'kill' | 'teamkill' | 'suicide';
-  /** Set when the local player made an enemy kill. */
-  local?: { streak: number; multiKill?: MultiKill };
+  /** Set on every enemy kill: the killer's streak and multi-kill. */
+  killer?: KillerResult;
+  /** Set when the local player made an enemy kill (same values as killer). */
+  local?: KillerResult;
+};
+
+export type KillerResult = {
+  name: string;
+  streak: number;
+  multiKill?: MultiKill;
 };
 
 /** What the stats need from a `scores` player. */
 export type ScoreIdentity = { userid?: number; name: string; local: boolean };
 
 /**
- * Kills by the local player at most this far apart (from one kill to the
+ * Kills by one player at most this far apart (from one kill to the
  * next) form one multi-kill: two make a double kill, three a triple kill...
  */
 export const MULTI_KILL_WINDOW_MS = 4_000;
@@ -128,8 +136,10 @@ export function createSessionStats(windowMs = MULTI_KILL_WINDOW_MS) {
   // userid -> name in the last scores snapshot that had it.
   const names = new Map<number, string>();
   let localName = '';
-  let lastLocalKill = -Infinity;
-  let multiKill = 0;
+  // killer -> their last enemy kill (performance.now()) and the multi-kill
+  // count it ended. Not reset by the killer's death: a grenade thrown just
+  // before dying still adds to the multi-kill.
+  const multiKills = new Map<string, { last: number; count: number }>();
 
   function entry(name: string): PlayerStats {
     let stats = players.get(name);
@@ -189,6 +199,11 @@ export function createSessionStats(windowMs = MULTI_KILL_WINDOW_MS) {
     if (from === to) return;
     if (localName === from) localName = to;
     renameDuels(from, to);
+    const chain = multiKills.get(from);
+    if (chain) {
+      multiKills.delete(from);
+      if (!multiKills.has(to)) multiKills.set(to, chain);
+    }
     const old = players.get(from);
     if (!old) return;
     players.delete(from);
@@ -250,20 +265,22 @@ export function createSessionStats(windowMs = MULTI_KILL_WINDOW_MS) {
       addDuelKills(kill.killer, kill.victim, 1);
       died(victim, false);
 
-      const result: KillResult = { counted: true, kind: 'kill' };
-      if (localName && kill.killer === localName) {
-        // Not reset by the local player's death: a grenade thrown just
-        // before dying still adds to the multi-kill.
-        multiKill = now - lastLocalKill <= windowMs ? multiKill + 1 : 1;
-        lastLocalKill = now;
-        result.local = { streak: killer.streak };
-        if (multiKill >= 2) {
-          result.local.multiKill = {
-            count: multiKill,
-            label: multiKillLabel(multiKill),
-          };
-        }
+      const chain = multiKills.get(kill.killer);
+      const count = chain && now - chain.last <= windowMs ? chain.count + 1 : 1;
+      multiKills.set(kill.killer, { last: now, count });
+      const killerResult: KillerResult = {
+        name: kill.killer,
+        streak: killer.streak,
+      };
+      if (count >= 2) {
+        killerResult.multiKill = { count, label: multiKillLabel(count) };
       }
+      const result: KillResult = {
+        counted: true,
+        kind: 'kill',
+        killer: killerResult,
+      };
+      if (localName && kill.killer === localName) result.local = killerResult;
       return result;
     },
 
@@ -333,8 +350,7 @@ export function createSessionStats(windowMs = MULTI_KILL_WINDOW_MS) {
     reset(): void {
       players.clear();
       duels.clear();
-      lastLocalKill = -Infinity;
-      multiKill = 0;
+      multiKills.clear();
     },
   };
 }

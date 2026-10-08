@@ -20,6 +20,8 @@ assert.equal(r.local!.streak, 4);
 // Others' kills never produce local results
 r = s.recordKill(k('Bob', 'Ann', { kt: 'T', vt: 'CT' }), 20000);
 assert.equal(r.local, undefined);
+// ...but every enemy kill has the killer's streak and multi-kill
+assert.deepEqual(r.killer, { name: 'Bob', streak: 1 });
 // Me dies
 s.recordKill(k('Bob', 'Me', { kt: 'T', vt: 'CT', hs: true }), 21000);
 let me = s.local()!;
@@ -151,4 +153,15 @@ assert.deepEqual(d.duel('Me2', 'Walty'), { aKills: 0, bKills: 0 });
 assert.deepEqual(d.duel('Cid', 'Me2'), { aKills: 0, bKills: 0 });
 d.recordKill(k('Me2', 'Walty'), 16);
 assert.deepEqual(d.duel('Me2', 'Walty'), { aKills: 1, bKills: 0 });
+// Multi-kills per killer, following renames
+{
+  const o = createSessionStats();
+  o.setLocalName('Me');
+  o.recordKill(k('Bob', 'Ann', { kt: 'T', vt: 'CT' }), 0);
+  assert.equal(o.recordKill(k('Bob', 'Cid', { kt: 'T', vt: 'CT' }), 500).killer!.multiKill!.label, 'Double kill');
+  assert.equal(o.recordKill(k('Bob', 'Ann', { kt: 'T', vt: 'T' }), 600).killer, undefined, 'team kill');
+  o.updatePlayers([{ userid: 9, name: 'Bob', local: false }]);
+  o.updatePlayers([{ userid: 9, name: 'Bobby', local: false }]);
+  assert.deepEqual(o.recordKill(k('Bobby', 'Dan', { kt: 'T', vt: 'CT' }), 1000).killer, { name: 'Bobby', streak: 3, multiKill: { count: 3, label: 'Triple kill' } });
+}
 console.log('ok');
