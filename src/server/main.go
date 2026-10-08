@@ -70,6 +70,9 @@ func main() {
 	if !ok {
 		fmt.Fprintf(os.Stderr, "WARNING: BOT_QUOTA must be a whole number from 0 to %d: using 0 (no bots)\n", botQuotaMax)
 	}
+	if voiceEnabled, ok = parseVoice(os.Getenv("VOICE")); !ok {
+		fmt.Fprintln(os.Stderr, "WARNING: VOICE must be 0 or 1: voice chat is on")
+	}
 	baseDir := os.Getenv("XASH3D_BASEDIR")
 	if baseDir == "" {
 		baseDir = "."

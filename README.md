@@ -84,6 +84,7 @@ Then open http://127.0.0.1:27016 in your browser!
 | `BOT_QUOTA`        | Players (humans + YaPB bots) to keep in the game, 0–32; bots leave as humans join. Default `0` (no bots)                                       | `6`                |
 | `DATA_DIR`         | Directory of the ban list (`bans.json`) and the leaderboard (`leaderboard.db`); default `data` in the working dir, `/xashds/data` in the image | `/xashds/data`     |
 | `LEADERBOARD_BOTS` | `1` lists YaPB bots on the leaderboard too; default `0` (bots get no row, but kills on them and deaths by them count)                          | `1`                |
+| `VOICE`            | `0` turns voice chat off: no audio tracks in the WebRTC offer. Default `1` (voice chat is being built; no voice UI yet)                        | `0`                |
 
 With docker compose, put the passwords in a `.env` file next to
 `docker-compose.yml` (ignored by git; see `.env.example`). Never set them in

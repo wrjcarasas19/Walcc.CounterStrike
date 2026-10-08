@@ -440,6 +440,115 @@ scoreboard icons) is noted. **Decision to review** if the user prefers
   `plans/new-features-1006-tools/cache/gamezip_8308.zip` (see that README;
   `cache/` is gitignored).
 
+### A.1 done (2026-10-08): audio in the single offer
+
+**What changed.**
+
+- `src/server/voice.go` (new): `voiceLanes = 4`; `parseVoice` /
+  `voiceEnabled` (the A.6 `VOICE` env gate, **stubbed now**: `""`/`1` on,
+  `0` off, anything else warns and stays on; read in `main.go`);
+  `newWebRTCAPI` (Opus 48000/2 PT 111 only, **empty interceptor registry**:
+  before this pion registered its default codecs and interceptors
+  (NACK, RTCP reports, TWCC) although only the data channel was used;
+  now nothing is sent on an audio stream without voice);
+  `addVoiceTransceivers(pc, signal)` adds, before the offer, one
+  **recvonly** mic transceiver first, then 4 **sendonly** lanes, each a
+  `TrackLocalStaticRTP` (id `lane0`..`lane3`, stream `voice`), and starts a
+  goroutine per lane sender that reads and drops RTCP (ends with the
+  PeerConnection). `voicePeer{mic, lanes, signal}` and
+  `announceLane(lane, userid)` sends `{"event":"voice","data":{"lane":n,"userid":u}}`
+  on the signaling WebSocket (`userid` 0 = quiet). **Lanes are numbered
+  from 0** (0–3), in sendonly m-line order.
+- `src/server/sfu.go`: `websocketHandler` calls `addVoiceTransceivers`
+  after creating the data channel when `voiceEnabled`, keeps the result in
+  `gameSession.voice`; `runSFU` uses `newWebRTCAPI`. Still one offer, no
+  renegotiation. m-lines: mids 0 (mic), 1–4 (lanes), 5 (data), one BUNDLE.
+- `src/client/src/webrtc.ts`: `voiceMids(sdp)` finds the mic (the audio
+  m-line the server only receives on) and the lanes (sendonly, in order)
+  from the offer, **before** `setRemoteDescription` (which fires
+  `ontrack`). The mic transceiver is set to `sendonly` before the answer,
+  with no track, so nothing is sent. New on `Xash3DWebRTC`:
+  `voiceAvailable`, `setMicTrack(track | null)` (`replaceTrack`, then caps
+  `maxBitrate` at `VOICE_MAX_BITRATE` = 32 000 when encodings exist; also
+  tried right after the answer), `onVoiceLane(lane, userid)` (from `voice`
+  events; non-integer data ignored), `onVoiceTrack(lane, track)` (from
+  `ontrack`, matched by mid). `VOICE_MIC_CONSTRAINTS` (mono, echo
+  cancellation, noise suppression, auto gain) is exported for A.4's
+  `getUserMedia`. Teardown clears all of it.
+- README: `VOICE` row in the env table. Tools:
+  `plans/new-features-1007-tools/check-voice-signaling.mjs` (README
+  there); the 1006 `run-server.sh` passes `VOICE` and can serve another
+  client build with `PUBLIC_DIR`.
+- **Engine voice not turned off yet.** A.1 adds no way to talk over
+  WebRTC, so the engine's own voice (K = `+voicerecord`) is left as it
+  was; turning it off belongs with A.4 (the step that makes WebRTC voice
+  usable), see the A.0 notes.
+
+**What was checked.**
+
+- Go: `gotest.sh` (gofmt clean, vet, all tests). New `voice_test.go`:
+  `parseVoice`; the offer has 1 recvonly + 4 sendonly Opus audio m-lines,
+  mic first, plus the data channel, all in one BUNDLE; with voice off it is
+  data only; a pion client that adds nothing (like an old page) answers and
+  the server accepts the answer; `announceLane` events and lane bounds.
+- `npm run build`, `tsc --noEmit`; Prettier: my additions are clean
+  (`webrtc.ts` and `README.md` already failed `--check` at HEAD on lines I
+  didn't touch; the diff Prettier wants is the same size before and after).
+- Image rebuilt (`local/cs16-web-server:latest`; the previous image is
+  tagged `local/cs16-web-server:pre-a1`). Headless Chromium with the fake
+  mic, `check-voice-signaling.mjs`, de_dust2 with 2 bots:
+  - voice on, new page: 1 offer; offer mids 0 recvonly, 1–4 sendonly
+    (Opus), 5 application; answer 0 sendonly, 1–4 recvonly; page found mic
+    0 and lanes 1–4. **10 s silent: 0 RTP packets either way**; transport
+    31 pkt/s up / 51 down, ICE RTT ~1 ms.
+  - `VOICE=0`: offer and answer data only; silent 31 / 50 pkt/s, same RTT.
+    So voice unused costs nothing measurable.
+  - `talk`: `setMicTrack(fake mic)` → `maxBitrate` [32000], ~50 RTP pkt/s
+    out (+~3.5 KB/s on the transport, ≈ 28 kbit/s); `setMicTrack(null)` →
+    0 RTP, back to 31 pkt/s; still 1 offer in total (no renegotiation).
+    The server has no `OnTrack` yet, so pion drops that audio quietly (no
+    log lines).
+  - Fed `voice` events → `onVoiceLane` got `{2,7}`, `{2,0}`; bad data
+    ignored.
+  - **Old client** (page copied from the pre-A.1 image; `webrtc.ts` was
+    the same as `origin/main`'s) against the voice server: joins and plays;
+    it answers mic `inactive`, lanes `recvonly`; 0 RTP while silent; `voice`
+    events ignored.
+- **Not checked:** Firefox, Safari, phones (no browsers for them here);
+  in particular whether Firefox/Safari have sender encodings before a
+  track is attached (if not, `setMicTrack` applies the cap then). No
+  incoming lane audio yet (A.2), so `onVoiceTrack` firing was only seen
+  indirectly (the lanes' transceivers exist; not logged).
+
+**What A.2 needs to know.**
+
+- `gameSession.voice` (`*voicePeer`) holds `mic` (the
+  `RTPTransceiver`; set `peerConnection.OnTrack` in `websocketHandler`
+  or in `addVoiceTransceivers`, and check the track's
+  `RTPTransceiver`/mid is the mic's) and `lanes[i]` (write with
+  `WriteRTP`; it rewrites SSRC/PT, A.2 does seq/timestamp). Nothing ties
+  `voicePeer` to `peerSlot` yet: the slot is made in
+  `gameSession.channelOpened`; A.2 can copy `session.voice` into the
+  `peerSlot` there and clean up in `release`.
+- **Old clients answer the lanes `recvonly`** too, so the server could
+  send them audio they never play. Forward only to players whose answer
+  has the mic m-line (mid of `voice.mic.Mid()`) as `sendonly`/`sendrecv`
+  (read `pc.RemoteDescription()` after the answer), i.e. pages with voice
+  code.
+- `signal` is the signaling socket's `WriteJSON`. **The socket can close
+  after the game is connected** (the session goes on: "losing the
+  signaling socket no longer ends the game", and the page sets `this.ws =
+  undefined`), so `voice` events can stop reaching a player mid-game.
+  Writes then just fail. A.2/A.5 should decide whether that's acceptable
+  or move the events to the data channel / a second data channel (that
+  would mean renegotiation unless created up front).
+- No interceptors: no RTCP sender reports or NACK. If A.2 wants sender
+  reports (A/V sync isn't needed) it has to add them to `newWebRTCAPI`;
+  measure the silent packet rate again if so.
+- The client's mic is `sendonly` from the answer on and A.4 only needs
+  `getUserMedia({audio: VOICE_MIC_CONSTRAINTS})` +
+  `engine.setMicTrack(track)` / `setMicTrack(null)`.
+
 ## Open questions
 
 - A.0: decided, WebRTC audio (see Progress). Engine voice works too and is

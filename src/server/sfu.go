@@ -262,6 +262,8 @@ type gameSession struct {
 	ip        [4]byte
 	hasSlot   bool
 	connected chan struct{}
+	// voice is the player's voice chat (voice.go); nil when VOICE=0.
+	voice *voicePeer
 }
 
 // channelOpened takes a slot for the open game channel and returns the
@@ -411,6 +413,16 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) { // nolint
 	})
 	defer gameChannel.Close()
 
+	// Voice chat's audio transceivers are part of the same offer.
+	if voiceEnabled {
+		session.voice, err = addVoiceTransceivers(peerConnection, c.WriteJSON)
+		if err != nil {
+			log.Errorf("Failed to add voice transceivers: %v", err)
+
+			return
+		}
+	}
+
 	// Trickle ICE. Emit server candidate to client
 	peerConnection.OnICECandidate(func(i *webrtc.ICECandidate) {
 		if i == nil {
@@ -447,8 +459,9 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) { // nolint
 		return c.SetReadDeadline(time.Now().Add(pongWait))
 	})
 
-	// Send the single offer for this connection. The data channel is fixed
-	// up front, so there is never any renegotiation after the answer.
+	// Send the single offer for this connection. The data channel and the
+	// voice transceivers are fixed up front, so there is never any
+	// renegotiation after the answer.
 	offer, err := peerConnection.CreateOffer(nil)
 	if err != nil {
 		log.Errorf("Failed to create offer: %v", err)
@@ -714,8 +727,10 @@ func runSFU(admin http.Handler, console *engineConsole, query *engineQuery, lead
 		settingEngine.SetNAT1To1IPs([]string{ip}, webrtc.ICECandidateTypeHost)
 	}
 
-	// Data channels only: no media codecs or RTP interceptors needed.
-	api = webrtc.NewAPI(webrtc.WithSettingEngine(settingEngine))
+	var err error
+	if api, err = newWebRTCAPI(settingEngine); err != nil {
+		panic(err)
+	}
 
 	receive := newPacketReceiver(packets, recvIdleWait)
 	goxash3d_fwgs.DefaultXash3D.RegisterRecvfromCallback(func() *goxash3d_fwgs.Packet {

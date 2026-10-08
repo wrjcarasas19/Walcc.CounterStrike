@@ -68,6 +68,37 @@ class LiveHeapNet extends Net {
   }
 }
 
+/** Opus bitrate cap for the microphone, in bit/s. */
+export const VOICE_MAX_BITRATE = 32_000;
+
+/** getUserMedia audio constraints for voice chat (mono, browser cleanup on). */
+export const VOICE_MIC_CONSTRAINTS: MediaTrackConstraints = {
+  channelCount: 1,
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+};
+
+/**
+ * The voice m-lines of the server's offer (src/server/voice.go): the mic is
+ * the audio m-line the server only receives on, the lanes the ones it only
+ * sends on, lane 0 first. Empty when the server has voice off.
+ */
+export function voiceMids(sdp: string): { mic?: string; lanes: string[] } {
+  const result: { mic?: string; lanes: string[] } = { lanes: [] };
+  for (const section of sdp.split(/\r?\nm=/).slice(1)) {
+    if (!section.startsWith('audio ')) continue;
+    const mid = /\na=mid:(\S+)/.exec(section)?.[1];
+    if (mid === undefined) continue;
+    if (/\na=recvonly\b/.test(section)) {
+      result.mic ??= mid;
+    } else if (/\na=sendonly\b/.test(section)) {
+      result.lanes.push(mid);
+    }
+  }
+  return result;
+}
+
 export type ConnectErrorKind =
   // The signaling WebSocket never opened (server down, refused or rate limited).
   | 'unreachable'
@@ -90,6 +121,10 @@ export class ConnectError extends Error {
 export class Xash3DWebRTC extends Xash3D {
   /** Called when an established connection to the game server is lost. */
   onDisconnect?: (error: Error) => void;
+  /** Voice: `userid` is now on `lane` (0 when the lane goes quiet). */
+  onVoiceLane?: (lane: number, userid: number) => void;
+  /** Voice: the incoming audio of `lane` (once per connection). */
+  onVoiceTrack?: (lane: number, track: MediaStreamTrack) => void;
 
   private channel?: RTCDataChannel;
   private resolve?: () => void;
@@ -101,6 +136,9 @@ export class Xash3DWebRTC extends Xash3D {
   private timeout?: ReturnType<typeof setTimeout>;
   private connected = false;
   private signaling: Promise<void> = Promise.resolve();
+  // Voice transceivers of the current connection (none without voice).
+  private mic?: RTCRtpTransceiver;
+  private laneMids: string[] = [];
 
   constructor(opts?: Xash3DOptions) {
     const memory = new WebAssembly.Memory({
@@ -133,6 +171,11 @@ export class Xash3DWebRTC extends Xash3D {
           peer
         );
       }
+    };
+    peer.ontrack = (e) => {
+      if (this.peer !== peer) return;
+      const lane = this.laneMids.indexOf(e.transceiver.mid ?? '');
+      if (lane >= 0) this.onVoiceTrack?.(lane, e.track);
     };
     peer.ondatachannel = (e) => {
       const channel = e.channel;
@@ -186,6 +229,8 @@ export class Xash3DWebRTC extends Xash3D {
     this.ws = undefined;
     this.peer = undefined;
     this.channel = undefined;
+    this.mic = undefined;
+    this.laneMids = [];
     if (ws) {
       ws.onopen = ws.onerror = ws.onclose = ws.onmessage = null;
       ws.close();
@@ -194,6 +239,7 @@ export class Xash3DWebRTC extends Xash3D {
       peer.onicecandidate = null;
       peer.onconnectionstatechange = null;
       peer.ondatachannel = null;
+      peer.ontrack = null;
       peer.close();
     }
   }
@@ -240,16 +286,33 @@ export class Xash3DWebRTC extends Xash3D {
     if (this.peer !== peer) return;
     switch (parsed.event) {
       case 'offer': {
+        // Known before setRemoteDescription, which fires ontrack.
+        const voice = voiceMids(parsed.data.sdp ?? '');
+        this.laneMids = voice.lanes;
         await peer.setRemoteDescription(parsed.data);
+        // The mic is answered as sendonly so a track can be attached later
+        // with replaceTrack, without renegotiating; with no track nothing
+        // is sent.
+        const mic = peer.getTransceivers().find((t) => t.mid === voice.mic);
+        if (mic) mic.direction = 'sendonly';
+        this.mic = mic;
         const answer = await peer.createAnswer();
         await peer.setLocalDescription(answer);
         this.wsSend('answer', answer);
+        if (mic) await this.limitMicSender();
         if (!this.wasRemote) {
           this.wasRemote = true;
           for (const c of this.candidates) {
             await peer.addIceCandidate(c);
           }
           this.candidates = [];
+        }
+        break;
+      }
+      case 'voice': {
+        const { lane, userid } = parsed.data ?? {};
+        if (Number.isInteger(lane) && Number.isInteger(userid)) {
+          this.onVoiceLane?.(lane, userid);
         }
         break;
       }
@@ -333,6 +396,44 @@ export class Xash3DWebRTC extends Xash3D {
           });
       };
     });
+  }
+
+  /** Whether the server offered voice on the current connection. */
+  get voiceAvailable(): boolean {
+    return !!this.mic;
+  }
+
+  /**
+   * Sends `track` (from getUserMedia with VOICE_MIC_CONSTRAINTS) as the
+   * microphone, or stops sending with null. No renegotiation. Resolves
+   * false when the connection has no voice.
+   */
+  async setMicTrack(track: MediaStreamTrack | null): Promise<boolean> {
+    const mic = this.mic;
+    if (!mic) return false;
+    await mic.sender.replaceTrack(track);
+    if (track) await this.limitMicSender();
+    return true;
+  }
+
+  // Caps the mic's bitrate. Some browsers have no encodings until a track
+  // is attached, so this runs again then.
+  private async limitMicSender() {
+    const sender = this.mic?.sender;
+    if (!sender) return;
+    try {
+      const params = sender.getParameters();
+      if (!params.encodings?.length) return;
+      if (params.encodings.every((e) => e.maxBitrate === VOICE_MAX_BITRATE)) {
+        return;
+      }
+      for (const encoding of params.encodings) {
+        encoding.maxBitrate = VOICE_MAX_BITRATE;
+      }
+      await sender.setParameters(params);
+    } catch (error) {
+      console.warn('Could not cap the voice bitrate:', error);
+    }
   }
 
   sendto(packet: Packet) {
