@@ -156,34 +156,34 @@ jobs:
           chmod 644 ~/.ssh/known_hosts
           ssh-keygen -y -f ~/.ssh/deploy_key >/dev/null
 
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Write compose files
         env:
           CS16_IMAGE: ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}
         run: |
-          cat > /tmp/cs-docker-compose.yml <<EOF
-          services:
-            cs16-web-server:
-              image: ${CS16_IMAGE}
-              container_name: cs16-web-server
-              command: ["+map de_dust2", "+maxplayers 14"]
-              restart: always
-              platform: linux/amd64
-              environment:
-                IP: ${VPS_IP}
-                PORT: "${VPS_GAME_PORT}"
-                ADMIN_PASSWORD: \${ADMIN_PASSWORD:-}
-                RCON_PASSWORD: \${RCON_PASSWORD:-}
-                BOT_QUOTA: \${BOT_QUOTA:-0}
-                LEADERBOARD_BOTS: \${LEADERBOARD_BOTS:-0}
-              volumes:
-                - cs16-data:/xashds/data
-              ports:
-                - "27016:27016"
-                - "${VPS_GAME_PORT}:${VPS_GAME_PORT}/tcp"
-                - "${VPS_GAME_PORT}:${VPS_GAME_PORT}/udp"
-          volumes:
-            cs16-data:
-          EOF
+          # Start from the repo's docker-compose.yml so everything in it
+          # (networks, labels, ...) reaches the VPS, and swap in only what
+          # differs there: the GHCR image instead of a local build, the public
+          # IP/port, and the named data volume.
+          yq '
+            .services."cs16-web-server" |= (
+              del(.build)
+              | .image = strenv(CS16_IMAGE)
+              | .environment.IP = strenv(VPS_IP)
+              | .environment.PORT = strenv(VPS_GAME_PORT)
+              | .ports = [
+                  "27016:27016",
+                  strenv(VPS_GAME_PORT) + ":" + strenv(VPS_GAME_PORT) + "/tcp",
+                  strenv(VPS_GAME_PORT) + ":" + strenv(VPS_GAME_PORT) + "/udp"
+                ]
+              | .volumes = ["cs16-data:/xashds/data"]
+            )
+            | .volumes."cs16-data" = {}
+          ' docker-compose.yml > /tmp/cs-docker-compose.yml
+          cat /tmp/cs-docker-compose.yml
+
           cat > /tmp/cs.env <<EOF
           CS16_IMAGE=${CS16_IMAGE}
           IP=${VPS_IP}
@@ -242,6 +242,8 @@ jobs:
             echo "docker compose is not installed on the VPS." >&2
             exit 1
           fi
+          # The compose file joins the shared external "proxy" network.
+          docker network inspect proxy >/dev/null 2>&1 || docker network create proxy
           echo '${GHCR_TOKEN}' | docker login ghcr.io -u '${GHCR_USER}' --password-stdin
           "\${dc[@]}" pull
           "\${dc[@]}" up -d --remove-orphans
