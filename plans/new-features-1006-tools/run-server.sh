@@ -5,7 +5,10 @@
 #        IMAGE (default local/cs16-web-server:latest), ADMIN_PASSWORD,
 #        DATA_VOLUME (a docker volume for DATA_DIR, /xashds/data, so the
 #        leaderboard, claims and bans survive a new container),
-#        LEADERBOARD_BOTS (1: bots on the leaderboard and in /duel).
+#        LEADERBOARD_BOTS (1: bots on the leaderboard and in /duel),
+#        VOICE (0: no voice chat, new-features-1007 A.1), PUBLIC_DIR (a
+#        folder served as the page instead of the image's, e.g. an older
+#        client build).
 set -eu
 NAME=${NAME:-cs16-headless}
 IMAGE=${IMAGE:-local/cs16-web-server:latest}
@@ -16,6 +19,8 @@ docker run -d --name "$NAME" --platform linux/386 \
 	-p 27016:27016 -p 27018:27018/tcp -p 27018:27018/udp \
 	${DATA_VOLUME:+-v "$DATA_VOLUME:/xashds/data"} \
 	${LEADERBOARD_BOTS:+-e LEADERBOARD_BOTS="$LEADERBOARD_BOTS"} \
+	${VOICE:+-e VOICE="$VOICE"} \
+	${PUBLIC_DIR:+-v "$PUBLIC_DIR:/xashds/public:ro"} \
 	"$IMAGE" "+map ${1:-de_dust2}" +maxplayers 14 >/dev/null
 for _ in $(seq 1 60); do
 	curl -sf http://127.0.0.1:27016/status.json >/dev/null && { echo "$NAME up"; exit 0; }

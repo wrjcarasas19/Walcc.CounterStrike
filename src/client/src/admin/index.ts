@@ -189,6 +189,8 @@ renderTabs();
 renderAuth();
 
 /** Enables the admin menu (toggled with F4) for a running game. */
+export { setVoiceState } from './players';
+
 export function attachAdmin(target: Xash3D): void {
   detachAdmin();
   engine = target;

@@ -95,6 +95,8 @@ type serverStatus struct {
 	// GameMode is wc_gamemode: 1 Gun Game, 2 Deathmatch; 0 (left out) for
 	// a classic game or when unknown.
 	GameMode int `json:"gameMode,omitempty"`
+	// VoiceOff is VOICE=0: the login page hides its voice settings.
+	VoiceOff bool `json:"voiceOff,omitempty"`
 }
 
 // Values of wc_gamemode (src/amxx/wc_gamemode.sma).
@@ -453,6 +455,7 @@ func (h *statusHandler) fetch() ([]byte, error) {
 	if st.Players == nil {
 		st.Players = []statusPlayer{}
 	}
+	st.VoiceOff = !voiceEnabled
 	body, err := json.Marshal(st)
 	if err != nil {
 		return nil, err

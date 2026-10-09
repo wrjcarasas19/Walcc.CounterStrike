@@ -7,6 +7,9 @@
 
 export type CvarName =
   | 'mp_friendlyfire'
+  | 'sv_alltalk'
+  | 'sv_voiceenable'
+  | 'wc_voice_all'
   | 'mp_timelimit'
   | 'mp_roundtime'
   | 'mp_startmoney'
@@ -53,6 +56,42 @@ export const CVARS: Readonly<Record<CvarName, CvarDef>> = {
   mp_friendlyfire: {
     name: 'mp_friendlyfire',
     label: 'Friendly fire',
+    unit: '',
+    kind: 'bool',
+    min: 0,
+    max: 1,
+    decimals: 0,
+    applies: 'now',
+  },
+  // The engine's cvar: voice chat (src/server/voice_roster.go) lets
+  // everyone hear everyone, enemies and the dead included.
+  sv_alltalk: {
+    name: 'sv_alltalk',
+    label: 'All talk (voice)',
+    unit: '',
+    kind: 'bool',
+    min: 0,
+    max: 1,
+    decimals: 0,
+    applies: 'now',
+  },
+  // The engine's cvar, which the roster plugin reports: 0 turns voice chat
+  // off at once (the server forwards nothing; src/server/voice_roster.go).
+  sv_voiceenable: {
+    name: 'sv_voiceenable',
+    label: 'Voice chat',
+    unit: '',
+    kind: 'bool',
+    min: 0,
+    max: 1,
+    decimals: 0,
+    applies: 'now',
+  },
+  // Our cvar (src/amxx/wc_roster.sma, kept over map changes): 0 makes the
+  // players' talk-to-all key (L) talk to their team only.
+  wc_voice_all: {
+    name: 'wc_voice_all',
+    label: 'Talk to all key (voice)',
     unit: '',
     kind: 'bool',
     min: 0,

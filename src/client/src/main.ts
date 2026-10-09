@@ -1,7 +1,17 @@
-import { attachAdmin, detachAdmin } from './admin';
+import { attachAdmin, detachAdmin, setVoiceState } from './admin';
 import { setAnnouncerOptions, startAnnouncer } from './announcer';
 // Before ./wheel: its key listeners must run before the wheel's (chat.ts).
 import { attachChat, detachChat } from './chat';
+// After ./chat: an open chat input keeps the talk key (it types there).
+import {
+  adminMutedUserids,
+  attachVoice,
+  detachVoice,
+  initVoice,
+  onVoiceEvent,
+  voiceOffered,
+} from './voice';
+import './voice-hud';
 import { createEngine } from './engine';
 import { GameFilesError, getGameFiles } from './gamefiles';
 import {
@@ -66,6 +76,13 @@ applyAnnouncerSettings(getSettings());
 onSettingsChange((settings, changed) => {
   if (changed.some((key) => key.startsWith('announcer'))) {
     applyAnnouncerSettings(settings);
+  }
+});
+
+// The F4 Players tab's voice mute buttons (admin/players.ts).
+onVoiceEvent((event) => {
+  if (event.type === 'muted' || event.type === 'offered') {
+    setVoiceState(voiceOffered(), adminMutedUserids());
   }
 });
 
@@ -139,6 +156,8 @@ async function prepare() {
   let stage: Stage = 'download';
   try {
     engine = createEngine();
+    // Voice lanes arrive with the server's offer, before start().
+    initVoice(engine);
     // Only the wasm engine starts here; the server connection waits for
     // Connect so idle launchers don't hold server slots.
     const [gamefiles] = await Promise.all([getGameFiles(), engine.init()]);
@@ -241,6 +260,7 @@ function start(engine: Xash3DWebRTC): void {
       detachAdmin();
       detachSettings();
       detachWheel();
+      detachVoice();
       setInGame(false);
       detachChat();
       detachHud();
@@ -266,6 +286,7 @@ function start(engine: Xash3DWebRTC): void {
   // Saved settings (sensitivity, crosshair, volume) before connecting.
   attachSettings(engine, touch);
   attachWheel(engine, touch);
+  attachVoice(touch);
   engine.Cmd_ExecuteString(`name "${playerName}"`);
   setLocalPlayerName(playerName);
   // Claimed names: the server reads the name cookie when the game
