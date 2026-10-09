@@ -121,8 +121,11 @@ export class ConnectError extends Error {
 export class Xash3DWebRTC extends Xash3D {
   /** Called when an established connection to the game server is lost. */
   onDisconnect?: (error: Error) => void;
-  /** Voice: `userid` is now on `lane` (0 when the lane goes quiet). */
-  onVoiceLane?: (lane: number, userid: number) => void;
+  /**
+   * Voice: `userid` is now on `lane` (0 when the lane goes quiet); `all`:
+   * they talk to all players, not only their team (A.7).
+   */
+  onVoiceLane?: (lane: number, userid: number, all: boolean) => void;
   /** Voice: the incoming audio of `lane` (once per connection). */
   onVoiceTrack?: (
     lane: number,
@@ -134,6 +137,12 @@ export class Xash3DWebRTC extends Xash3D {
    * (`{"event":"voice","data":{"muted":[3,7]}}`, A.6).
    */
   onVoiceMuted?: (userids: number[]) => void;
+  /**
+   * Voice: whether the server has talking to all players off
+   * (`{"allOff":true}`, wc_voice_all 0: the talk-to-all key reaches the
+   * team only). Sent when it changes, and on joining when it is off.
+   */
+  onVoiceAllOff?: (off: boolean) => void;
 
   private channel?: RTCDataChannel;
   private resolve?: () => void;
@@ -359,12 +368,14 @@ export class Xash3DWebRTC extends Xash3D {
   }
 
   // A "voice" event, from the signaling socket or the voice data channel:
-  // a lane change ({lane, userid}) or the admin-muted list ({muted}).
+  // a lane change ({lane, userid, all}), the admin-muted list ({muted}) or
+  // whether talking to all is off ({allOff}).
   private voiceLane(data: any) {
-    const { lane, userid, muted } = data ?? {};
+    const { lane, userid, all, muted, allOff } = data ?? {};
     if (Number.isInteger(lane) && Number.isInteger(userid)) {
-      this.onVoiceLane?.(lane, userid);
+      this.onVoiceLane?.(lane, userid, all === true);
     }
+    if (typeof allOff === 'boolean') this.onVoiceAllOff?.(allOff);
     if (Array.isArray(muted)) {
       this.onVoiceMuted?.(
         muted.filter((id: unknown) => Number.isInteger(id) && Number(id) > 0)
@@ -458,6 +469,17 @@ export class Xash3DWebRTC extends Xash3D {
     if (listening === this.voiceListening) return;
     this.voiceListening = listening;
     this.voiceSend({ listen: listening });
+  }
+
+  /**
+   * Who what the player says next goes to: all players (the talk-to-all
+   * key) or their team (A.7). Call before attaching the microphone
+   * (setMicTrack) and when the player switches keys while talking; the
+   * server goes back to the team once they stop. Old servers ignore it
+   * (team only).
+   */
+  setVoiceTalk(all: boolean) {
+    this.voiceSend({ talk: all ? 'all' : 'team' });
   }
 
   // Sends a request to the server on the voice data channel (dropped when

@@ -710,6 +710,14 @@ canvas,
   animation: none;
 }
 
+.hud-voice-all,
+.sb-voice-all {
+  flex: none;
+  color: var(--text);
+  font-weight: 700;
+  font-size: 0.85em;
+}
+
 .hud-voice-name {
   min-width: 0;
   overflow: hidden;
@@ -1233,6 +1241,10 @@ canvas,
 .sb-voice-icon.speaking {
   fill: var(--gain);
   animation: hud-pulse 1s ease-in-out infinite;
+}
+
+.sb-voice-icon.speaking.all {
+  fill: var(--text);
 }
 
 .sb-voice-icon.admin-muted {
@@ -2422,6 +2434,21 @@ canvas,
 
 .voice-touch-button[aria-pressed='true'] svg {
   fill: var(--bg);
+}
+
+/* Hold to talk to all players (A.7): left of the team button. */
+.voice-all-touch-button {
+  left: calc(26% - 104px);
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.voice-all-touch-button[aria-pressed='true'] {
+  color: var(--bg);
 }
 
 /* Voice notices (voice.ts: microphone blocked or unavailable): under the

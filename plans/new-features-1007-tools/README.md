@@ -150,6 +150,19 @@ with the game zip. Scripts here import `../new-features-1006-tools/lib.mjs`.
   `getUserMedia` on K, no Mute button in the Players tab. Screenshots
   `a6-*.png`. Prints OK / FAIL.
 
+- `check-voice-all.mjs`: A.7, talking to all players in a 2 v 2 of real
+  game clients (T1, T2 Terrorists, C1, C2 CTs; one browser each, like
+  `check-voice-teams.mjs`), through real key presses (voice.ts), not
+  `setMicTrack` by hand. Start the server without bots (`run-server.sh
+  de_dust2 0`). T1 holds L (`voiceAllKey`): T2 and both CTs get T1's RTP
+  and an `onVoiceLane` event with `all:true`, and the "[All]" tag shows in
+  T1's own speaking entry and in C1's speaking list and scoreboard cell for
+  T1; T1 holds K: only T2 hears, with no `all:true` event, so the team key
+  stays team-only; C2 is killed (`kill`) then holds L: the living (T1, T2,
+  C1) hear nothing from it; `wc_voice_all 0` through the admin API (the
+  Match tab's `cvar` action) makes T1's L reach T2 only, `1` reopens it to
+  the CTs. Screenshots `a7-*.png`. Prints OK / FAIL.
+
 ## Notes
 
 - Chromium flags for a fake microphone: `--use-fake-ui-for-media-stream

@@ -64,13 +64,17 @@ type rosterState struct {
 	// voiceOff is sv_voiceenable 0: voice chat is off (nobody hears
 	// anybody; rosterPolicy.mayHear).
 	voiceOff bool
-	players  []rosterLine
+	// voiceAllOff is wc_voice_all 0: the talk-to-all key talks to the team
+	// only (A.7).
+	voiceAllOff bool
+	players     []rosterLine
 }
 
 var errNoRoster = errors.New("no wc_roster header in the output (is wc_roster.amxx loaded?)")
 
 // parseRoster reads the output of wc_roster: the header line
-// "alltalk <0|1> intermission <0|1> voiceenable <0|1>", then
+// "alltalk <0|1> intermission <0|1> voiceenable <0|1> wc_voice_all <0|1>",
+// then
 // "<ip:port> <userid> <T|CT|SPEC> <alive 0|1>" per player. Lines that don't
 // parse are skipped; without the header it is an error.
 func parseRoster(out string) (rosterState, error) {
@@ -83,8 +87,16 @@ func parseRoster(out string) (rosterState, error) {
 				header = true
 				st.alltalk = f[1] != "0"
 				st.intermission = f[3] != "0"
-				// Older plugin output without it: voice stays on.
-				st.voiceOff = len(f) >= 6 && f[4] == "voiceenable" && f[5] == "0"
+				// Settings older plugin output doesn't have keep their
+				// defaults (voice on, talking to all on).
+				for i := 4; i+1 < len(f); i += 2 {
+					switch f[i] {
+					case "voiceenable":
+						st.voiceOff = f[i+1] == "0"
+					case "wc_voice_all":
+						st.voiceAllOff = f[i+1] == "0"
+					}
+				}
 			}
 			continue
 		}
@@ -150,12 +162,21 @@ func canHear(listener, speaker rosterPlayer, alltalk, intermission bool) bool {
 	return !listener.alive || speaker.alive
 }
 
+// canHearAll is the rule for a speaker talking to all players (A.7, the
+// talk-to-all key): enemies hear them too, but the living still don't hear
+// the dead (so the dead can't call out enemy positions). Spectators and the
+// dead hear everyone.
+func canHearAll(listener, speaker rosterPlayer) bool {
+	return !listener.alive || speaker.alive
+}
+
 // voiceRoster is the roster the forwarder reads: the players in voice by
 // their voicePeer, and the settings. It is never changed once published.
 type voiceRoster struct {
 	alltalk      bool
 	intermission bool
 	voiceOff     bool
+	voiceAllOff  bool
 	players      map[*voicePeer]rosterPlayer
 }
 
@@ -163,7 +184,7 @@ type voiceRoster struct {
 // peerAt returns the voicePeer of the player the engine knows by ip, or nil
 // (no such player, not this slot's current player, or no voice).
 func buildVoiceRoster(st rosterState, peerAt func(ip [4]byte) *voicePeer) *voiceRoster {
-	r := &voiceRoster{alltalk: st.alltalk, intermission: st.intermission, voiceOff: st.voiceOff, players: make(map[*voicePeer]rosterPlayer, len(st.players))}
+	r := &voiceRoster{alltalk: st.alltalk, intermission: st.intermission, voiceOff: st.voiceOff, voiceAllOff: st.voiceAllOff, players: make(map[*voicePeer]rosterPlayer, len(st.players))}
 	for _, line := range st.players {
 		if p := peerAt(line.ip); p != nil {
 			r.players[p] = line.rosterPlayer
@@ -211,7 +232,18 @@ func (p *rosterPolicy) mayHear(listener, speaker *voicePeer) bool {
 		return false
 	}
 	s, ok := r.players[speaker]
-	return ok && canHear(l, s, r.alltalk, r.intermission)
+	if !ok {
+		return false
+	}
+	return canHear(l, s, r.alltalk, r.intermission) ||
+		(!r.voiceAllOff && speaker.talkAll.Load() && canHearAll(l, s))
+}
+
+// talksToAll reports whether speaker is talking to all players now: they
+// asked for it ({"talk":"all"}) and wc_voice_all allows it.
+func (p *rosterPolicy) talksToAll(speaker *voicePeer) bool {
+	r := p.roster.Load()
+	return r != nil && !r.voiceAllOff && speaker.talkAll.Load()
 }
 
 // adminMuted is the admin's mute of this connection (voice_admin.go).
@@ -318,6 +350,7 @@ func (r *rosterPoller) poll(ctx context.Context, now time.Time) {
 		}
 	}
 	r.policy.set(buildVoiceRoster(st, r.peerAt))
+	r.hub.setAllOff(st.voiceAllOff)
 	r.hub.recheck()
 	// A muted player who left, or whose userid only now became known.
 	r.hub.refreshMuted()

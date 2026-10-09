@@ -51,7 +51,7 @@ func TestVoiceAdminMute(t *testing.T) {
 	}
 	// Their lanes go at once, with quiet events, and nobody hears them.
 	for _, q := range p[1:] {
-		if e := drain(q); !eventsEqual(e, []voiceLaneEvent{{0, 0}}) {
+		if e := drain(q); !eventsEqual(e, []voiceLaneEvent{{0, 0, false}}) {
 			t.Fatalf("listener events %v, want lane 0 quiet", e)
 		}
 	}
@@ -175,7 +175,7 @@ func TestVoiceListenRequest(t *testing.T) {
 	drain(p[2])
 
 	p[1].request(h, []byte(`{"listen":false}`))
-	if e := drain(p[1]); !eventsEqual(e, []voiceLaneEvent{{0, 0}}) {
+	if e := drain(p[1]); !eventsEqual(e, []voiceLaneEvent{{0, 0, false}}) {
 		t.Fatalf("events %v, want lane 0 quiet", e)
 	}
 	if e := drain(p[2]); len(e) != 0 {
@@ -190,7 +190,7 @@ func TestVoiceListenRequest(t *testing.T) {
 		t.Fatalf("non-listener's writes %+v", out)
 	}
 	// Garbage and unknown fields change nothing.
-	for _, msg := range []string{`not json`, `{"talk":"all"}`, `{"listen":"no"}`, `[]`} {
+	for _, msg := range []string{`not json`, `{"other":1}`, `{"listen":"no"}`, `[]`} {
 		p[1].request(h, []byte(msg))
 	}
 	if !p[1].deaf.Load() {
@@ -220,7 +220,7 @@ func TestVoiceEnableOff(t *testing.T) {
 
 	console.out = strings.Replace(console.out, "voiceenable 1", "voiceenable 0", 1)
 	r.poll(context.Background(), t0.Add(250*time.Millisecond))
-	if e := drain(p[1]); !eventsEqual(e, []voiceLaneEvent{{0, 0}}) {
+	if e := drain(p[1]); !eventsEqual(e, []voiceLaneEvent{{0, 0, false}}) {
 		t.Fatalf("events %v, want lane 0 quiet", e)
 	}
 	for _, s := range p {

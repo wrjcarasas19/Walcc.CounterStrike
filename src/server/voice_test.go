@@ -179,19 +179,19 @@ func TestAnnounceLane(t *testing.T) {
 		events = append(events, data.(voiceLaneEvent))
 		return nil
 	}}
-	if err := v.announceLane(2, 7); err != nil {
+	if err := v.announceLane(voiceLaneEvent{Lane: 2, UserID: 7}); err != nil {
 		t.Fatal(err)
 	}
-	if err := v.announceLane(2, 0); err != nil {
+	if err := v.announceLane(voiceLaneEvent{Lane: 2, UserID: 0}); err != nil {
 		t.Fatal(err)
 	}
-	if err := v.announceLane(voiceLanes, 7); err != errNoSuchLane {
+	if err := v.announceLane(voiceLaneEvent{Lane: voiceLanes, UserID: 7}); err != errNoSuchLane {
 		t.Fatalf("lane %d: err = %v, want errNoSuchLane", voiceLanes, err)
 	}
-	if err := v.announceLane(-1, 7); err != errNoSuchLane {
+	if err := v.announceLane(voiceLaneEvent{Lane: -1, UserID: 7}); err != errNoSuchLane {
 		t.Fatalf("lane -1: err = %v, want errNoSuchLane", err)
 	}
-	want := []voiceLaneEvent{{2, 7}, {2, 0}}
+	want := []voiceLaneEvent{{2, 7, false}, {2, 0, false}}
 	if len(events) != len(want) || events[0] != want[0] || events[1] != want[1] {
 		t.Fatalf("events = %v, want %v", events, want)
 	}

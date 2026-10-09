@@ -7,6 +7,7 @@ import (
 	"io"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/pion/interceptor"
 	"github.com/pion/webrtc/v4"
@@ -87,39 +88,53 @@ type voicePeer struct {
 	// adminMuted: the admin muted this player (voice_admin.go); for this
 	// connection only.
 	adminMuted atomic.Bool
+	// talkAll: the player is talking to all players, enemies included
+	// ({"talk":"all"}, the page's talk-to-all key, A.7); false is the team
+	// (also for old pages, which never send it). Set by voiceHub.setTalk,
+	// back to false when they stop talking (voiceHub.sweep).
+	talkAll atomic.Bool
 	// The admin-muted list waiting to be sent (voice_admin.go): set by the
-	// hub, taken by sendEvents, which mutedNotify wakes.
-	mutedLock    sync.Mutex
-	mutedList    []int
-	mutedPending bool
-	mutedNotify  chan struct{}
+	// hub, taken by sendEvents, which mutedNotify wakes. allOff (A.7) is
+	// wc_voice_all 0 waiting to be sent the same way.
+	mutedLock     sync.Mutex
+	mutedList     []int
+	mutedPending  bool
+	allOff        bool
+	allOffPending bool
+	mutedNotify   chan struct{}
 
 	// Hub state (voice_forward.go), guarded by the hub's mu: ip is the
 	// address the engine knows the player by (peerSlot); joined while in
 	// the hub, left once leave ran; out is the forwarding state of each
-	// lane; events queues lane events for sendEvents.
+	// lane; events queues lane events for sendEvents. talkAt is when the
+	// player last chose who they talk to and spoke when their microphone
+	// last sent a packet (both for resetting talkAll).
 	ip     [4]byte
 	joined bool
 	left   bool
 	out    [voiceLanes]voiceLane
 	events chan voiceLaneEvent
+	talkAt time.Time
+	spoke  time.Time
 }
 
 // voiceLaneEvent tells the page who is on a lane: UserID 0 when it goes
-// quiet.
+// quiet. All: the speaker is talking to all players (A.7), not only their
+// team; sent again when that changes while they keep the lane.
 type voiceLaneEvent struct {
-	Lane   int `json:"lane"`
-	UserID int `json:"userid"`
+	Lane   int  `json:"lane"`
+	UserID int  `json:"userid"`
+	All    bool `json:"all,omitempty"`
 }
 
 var errNoSuchLane = errors.New("no such voice lane")
 
 // announceLane sends the "voice" event for lane.
-func (v *voicePeer) announceLane(lane, userid int) error {
-	if lane < 0 || lane >= voiceLanes {
+func (v *voicePeer) announceLane(e voiceLaneEvent) error {
+	if e.Lane < 0 || e.Lane >= voiceLanes {
 		return errNoSuchLane
 	}
-	return v.sendVoiceEvent(voiceLaneEvent{Lane: lane, UserID: userid})
+	return v.sendVoiceEvent(e)
 }
 
 // voiceMutedEvent is the whole list of admin-muted engine userids.
@@ -127,11 +142,18 @@ type voiceMutedEvent struct {
 	Muted []int `json:"muted"`
 }
 
+// voiceAllEvent says whether talking to all players is off on the server
+// (wc_voice_all 0, A.7), so the page doesn't show its own talk-to-all as
+// such: sent when it changes, and on joining when it is off.
+type voiceAllEvent struct {
+	AllOff bool `json:"allOff"`
+}
+
 // sendVoiceEvent sends a "voice" event on the voice data channel, or on
 // the signaling WebSocket before the channel is open (or if writing to it
 // fails). The data channel lasts as long as the game's connection, while
 // the WebSocket may be lost mid-game (sfu.go goes on without it).
-// e is a voiceLaneEvent or a voiceMutedEvent.
+// e is a voiceLaneEvent, a voiceMutedEvent or a voiceAllEvent.
 func (v *voicePeer) sendVoiceEvent(e any) error {
 	v.channelLock.Lock()
 	channel := v.channel
@@ -226,6 +248,11 @@ type voiceRequest struct {
 	// Listen false: the page plays no voice (its Voice chat setting is
 	// off), so the server sends it none; true again when it is turned on.
 	Listen *bool `json:"listen"`
+	// Talk "all": what the player says next goes to all players (the
+	// talk-to-all key, A.7); "team" (or anything else): to their team.
+	// Sent before the page attaches its microphone, and again when the
+	// player switches keys while talking.
+	Talk *string `json:"talk"`
 }
 
 // request handles one message from the page; anything that isn't a
@@ -238,6 +265,9 @@ func (v *voicePeer) request(hub *voiceHub, msg []byte) {
 	if r.Listen != nil && v.deaf.Swap(!*r.Listen) != !*r.Listen {
 		// Lanes this player has go at once (announced quiet).
 		hub.recheck()
+	}
+	if r.Talk != nil {
+		hub.setTalk(v, *r.Talk == "all", time.Now())
 	}
 }
 

@@ -151,3 +151,43 @@ func (p *voicePeer) takeMuted() ([]int, bool) {
 	p.mutedPending = false
 	return p.mutedList, true
 }
+
+// setAllOff records wc_voice_all from the roster (A.7: 0 means the
+// talk-to-all key talks to the team) and, if it changed, queues it for every
+// player in voice.
+func (h *voiceHub) setAllOff(off bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if off == h.allOff {
+		return
+	}
+	h.allOff = off
+	for p := range h.peers {
+		p.offerAllOff(off)
+	}
+}
+
+// offerAllOff queues wc_voice_all for sendEvents (the latest value only).
+func (p *voicePeer) offerAllOff(off bool) {
+	p.mutedLock.Lock()
+	p.allOff = off
+	p.allOffPending = true
+	p.mutedLock.Unlock()
+	if p.mutedNotify != nil {
+		select {
+		case p.mutedNotify <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// takeAllOff returns wc_voice_all 0 waiting to be sent, if any.
+func (p *voicePeer) takeAllOff() (bool, bool) {
+	p.mutedLock.Lock()
+	defer p.mutedLock.Unlock()
+	if !p.allOffPending {
+		return false, false
+	}
+	p.allOffPending = false
+	return p.allOff, true
+}

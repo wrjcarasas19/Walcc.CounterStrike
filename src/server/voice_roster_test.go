@@ -203,7 +203,7 @@ func TestRosterPoller(t *testing.T) {
 	if len(out) != 1 || out[0].listener != p[1] {
 		t.Fatalf("writes %+v, want only to the teammate", out)
 	}
-	if e := drain(p[1]); !eventsEqual(e, []voiceLaneEvent{{0, 21}}) {
+	if e := drain(p[1]); !eventsEqual(e, []voiceLaneEvent{{0, 21, false}}) {
 		t.Fatalf("teammate's events %v, want lane 0 userid 21", e)
 	}
 	if e := drain(p[2]); len(e) != 0 {
@@ -214,7 +214,7 @@ func TestRosterPoller(t *testing.T) {
 	// its quiet event, and their audio doesn't reach the living teammate.
 	console.out = rosterOutput(0, "0.1.2.3:27005 21 T 0", "1.1.2.3:27005 22 T 1", "2.1.2.3:27005 23 CT 1")
 	r.poll(context.Background(), t0.Add(250*time.Millisecond))
-	if e := drain(p[1]); !eventsEqual(e, []voiceLaneEvent{{0, 0}}) {
+	if e := drain(p[1]); !eventsEqual(e, []voiceLaneEvent{{0, 0, false}}) {
 		t.Fatalf("after the death: events %v, want lane 0 quiet", e)
 	}
 	if out := h.route(p[0], 2, 961, t0.Add(260*time.Millisecond), nil); len(out) != 0 {
@@ -246,7 +246,7 @@ func TestRosterPoller(t *testing.T) {
 	if _, ok := pol.userID(p[0]); ok {
 		t.Fatal("stale roster kept")
 	}
-	if e := drain(p[1]); !eventsEqual(e, []voiceLaneEvent{{0, 0}}) {
+	if e := drain(p[1]); !eventsEqual(e, []voiceLaneEvent{{0, 0, false}}) {
 		t.Fatalf("stale roster: events %v, want lane 0 quiet", e)
 	}
 	if out := h.route(p[0], 4, 2881, t0.Add(3*time.Second), nil); len(out) != 0 {
@@ -291,11 +291,11 @@ func TestVoiceRecheck(t *testing.T) {
 	pol.muted[p[1]] = true                     // p[1] muted for everyone
 	pol.unknown[p[2]] = true                   // p[2] left the roster
 	h.recheck()
-	if e := drain(p[3]); !eventsEqual(e, []voiceLaneEvent{{0, 0}, {1, 0}, {2, 0}}) {
+	if e := drain(p[3]); !eventsEqual(e, []voiceLaneEvent{{0, 0, false}, {1, 0, false}, {2, 0, false}}) {
 		t.Fatalf("p[3] events %v", e)
 	}
 	// p[1] still hears p[0] (lane 0); p[2]'s lane 1 goes.
-	if e := drain(p[1]); !eventsEqual(e, []voiceLaneEvent{{1, 0}}) {
+	if e := drain(p[1]); !eventsEqual(e, []voiceLaneEvent{{1, 0, false}}) {
 		t.Fatalf("p[1] events %v", e)
 	}
 	if !h.active() {

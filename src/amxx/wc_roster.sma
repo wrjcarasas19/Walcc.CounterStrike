@@ -5,7 +5,7 @@
 //
 // Output, first a line with the server's settings, then one line per
 // connected human (bots and players still connecting are left out):
-//   alltalk <0|1> intermission <0|1> voiceenable <0|1>
+//   alltalk <0|1> intermission <0|1> voiceenable <0|1> wc_voice_all <0|1>
 //   <ip:port> <userid> <T|CT|SPEC> <alive 0|1>
 //
 // - ip is the address the engine knows the player by: on this server the
@@ -15,6 +15,9 @@
 //   sv_voiceenable. intermission is 1 from the game's intermission (the
 //   scoreboard at the end of a map) until the next map loads the plugin
 //   again.
+// - wc_voice_all is this plugin's cvar (default 1): 0 makes the page's
+//   talk-to-all key talk to the team only (the server treats "all" as
+//   "team"). Plugin cvars keep their value over map changes.
 //
 // Nothing here comes from player-supplied text except through %d / %s
 // arguments, so a name can't break a line (names aren't printed at all).
@@ -23,11 +26,12 @@
 #include <cstrike>
 
 #define PLUGIN  "Web voice roster"
-#define VERSION "1.0"
+#define VERSION "1.1"
 #define AUTHOR  "Walcc"
 
 new g_pAlltalk
 new g_pVoiceEnable
+new g_pVoiceAll
 // Set by the intermission message; plugin_init runs again on the next map.
 new bool:g_intermission
 
@@ -36,6 +40,7 @@ public plugin_init()
 	register_plugin(PLUGIN, VERSION, AUTHOR)
 	g_pAlltalk = get_cvar_pointer("sv_alltalk")
 	g_pVoiceEnable = get_cvar_pointer("sv_voiceenable")
+	g_pVoiceAll = register_cvar("wc_voice_all", "1")
 	// SVC_INTERMISSION (30), sent to everyone when the map ends.
 	register_event("30", "OnIntermission", "a")
 	register_srvcmd("wc_roster", "CmdRoster")
@@ -50,7 +55,8 @@ public CmdRoster()
 {
 	new alltalk = g_pAlltalk ? get_pcvar_num(g_pAlltalk) : 0
 	new voiceEnable = g_pVoiceEnable ? get_pcvar_num(g_pVoiceEnable) : 1
-	server_print("alltalk %d intermission %d voiceenable %d", alltalk != 0, g_intermission, voiceEnable != 0)
+	new voiceAll = get_pcvar_num(g_pVoiceAll)
+	server_print("alltalk %d intermission %d voiceenable %d wc_voice_all %d", alltalk != 0, g_intermission, voiceEnable != 0, voiceAll != 0)
 
 	new players[32], count, ip[32]
 	// c: no bots, h: no HLTV. Connecting players aren't listed without i.

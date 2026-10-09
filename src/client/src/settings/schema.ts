@@ -72,6 +72,14 @@ const CROSSHAIR_COLORS = {
   cyan: '50 250 250',
 } as const;
 
+const VOICE_KEY_OPTIONS = [
+  { value: 'k', label: 'K' },
+  { value: 'j', label: 'J' },
+  { value: 'l', label: 'L' },
+  { value: 'p', label: 'P' },
+  { value: 'off', label: 'Off' },
+] as const;
+
 export const SETTINGS = {
   sensitivity: numberSetting({
     group: 'Mouse',
@@ -183,7 +191,7 @@ export const SETTINGS = {
   voiceEnabled: toggleSetting({
     group: 'Voice',
     label: 'Voice chat',
-    hint: 'Hold the push-to-talk key (Keys below) to talk to your team',
+    hint: 'Hold the push-to-talk keys (Keys below) to talk to your team or to everyone',
     default: true,
   }),
   voiceVolume: numberSetting({
@@ -218,15 +226,17 @@ export const SETTINGS = {
   // engine's own voice is off, engine.ts); J, L and P are unbound there.
   voiceKey: choiceSetting({
     group: 'Keys',
-    label: 'Push to talk (hold)',
-    options: [
-      { value: 'k', label: 'K' },
-      { value: 'j', label: 'J' },
-      { value: 'l', label: 'L' },
-      { value: 'p', label: 'P' },
-      { value: 'off', label: 'Off' },
-    ],
+    label: 'Push to talk: team (hold)',
+    options: VOICE_KEY_OPTIONS,
     default: 'k',
+  }),
+  // Hold to talk to all players, enemies included (A.7). Never the same
+  // key as voiceKey (fixKeyConflicts).
+  voiceAllKey: choiceSetting({
+    group: 'Keys',
+    label: 'Push to talk: all players (hold)',
+    options: VOICE_KEY_OPTIONS,
+    default: 'l',
   }),
 };
 
@@ -320,7 +330,26 @@ export function parseSettings(saved: string | null): Settings {
     const value = checkSetting(key, (data as Record<string, unknown>)[key]);
     if (value !== undefined) record[key] = value;
   }
-  return settings;
+  return fixKeyConflicts(settings);
+}
+
+/**
+ * The two push-to-talk keys are never the same key. When a change makes
+ * them equal, the other one takes the changed one's old key (a swap); with
+ * nothing to swap with (saved settings from before voiceAllKey, whose team
+ * key was L), the talk-to-all key is turned off.
+ */
+export function fixKeyConflicts(next: Settings, previous?: Settings): Settings {
+  if (next.voiceKey === 'off' || next.voiceKey !== next.voiceAllKey) {
+    return next;
+  }
+  if (previous && previous.voiceKey !== next.voiceKey) {
+    return { ...next, voiceAllKey: previous.voiceKey };
+  }
+  if (previous && previous.voiceAllKey !== next.voiceAllKey) {
+    return { ...next, voiceKey: previous.voiceAllKey };
+  }
+  return { ...next, voiceAllKey: 'off' };
 }
 
 export function serializeSettings(settings: Settings): string {

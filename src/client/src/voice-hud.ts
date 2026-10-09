@@ -11,9 +11,11 @@ import { getSettings, onSettingsChange } from './settings/store';
 import {
   adminMutedUserids,
   isTalking,
+  isTalkingToAll,
   laneSpeakers,
   onVoiceEvent,
   setPlayerGain,
+  talksToAll,
   usesTouchControls,
   voiceOffered,
 } from './voice';
@@ -25,7 +27,9 @@ import {
 //   sends what this player may hear) while their packets arrive, with a
 //   sound icon, plus the local player with a microphone icon while sending
 //   (a crossed-out one when the admin has muted them). Locally muted
-//   players aren't listed. Names and team colours
+//   players aren't listed. Someone talking to all players (A.7: the
+//   talk-to-all key), the local player included, has an "[All]" tag.
+//   Names and team colours
 //   come from the scoreboard snapshots (`scores`, by engine userid), which
 //   the client sends every 0.5 s while voice is on and offered
 //   (setLiveScores).
@@ -173,23 +177,40 @@ function teamClass(team: Person['team'] | undefined): string {
 
 // --- The speaking list ---------------------------------------------------
 
+function allTag(className: string): HTMLElement {
+  const tag = document.createElement('span');
+  tag.className = className;
+  tag.textContent = '[All]';
+  tag.title = 'Talking to all players';
+  return tag;
+}
+
 function entry(
   name: string,
   team: Person['team'] | undefined,
   iconName: IconName,
-  extra = ''
+  extra: string,
+  all: boolean
 ): HTMLElement {
   const row = document.createElement('div');
   row.className = `hud-voice-entry ${teamClass(team)}${extra}`;
   const label = document.createElement('span');
   label.className = 'hud-voice-name';
   label.textContent = name;
-  row.append(icon(iconName, 'hud-voice-icon'), label);
+  row.append(icon(iconName, 'hud-voice-icon'));
+  if (all) row.append(allTag('hud-voice-all'));
+  row.append(label);
   return row;
 }
 
 function renderList(): void {
-  const entries: [string, Person['team'] | undefined, IconName, string][] = [];
+  const entries: [
+    string,
+    Person['team'] | undefined,
+    IconName,
+    string,
+    boolean,
+  ][] = [];
   const self = localUserid();
   if (isTalking()) {
     const me = localPerson();
@@ -199,6 +220,7 @@ function renderList(): void {
       me?.team,
       muted ? 'micOff' : 'mic',
       muted ? ' local admin-muted' : ' local',
+      isTalkingToAll(),
     ]);
   }
   for (const userid of speaking) {
@@ -211,14 +233,15 @@ function renderList(): void {
       person?.team,
       'sound',
       '',
+      talksToAll(userid),
     ]);
   }
   const key = JSON.stringify(entries);
   if (key === lastList) return;
   lastList = key;
   list.replaceChildren(
-    ...entries.map(([name, team, iconName, extra]) =>
-      entry(name, team, iconName, extra)
+    ...entries.map(([name, team, iconName, extra, all]) =>
+      entry(name, team, iconName, extra, all)
     )
   );
   placeList();
@@ -270,7 +293,12 @@ function fillVoiceCell(player: ScorePlayer, cell: HTMLElement): void {
     player.local ? isTalking() : userid !== 0 && speaking.includes(userid)
   ) {
     if (player.local || !isMuted(player.name)) {
-      cell.append(icon('sound', 'sb-voice-icon speaking'));
+      const all = player.local ? isTalkingToAll() : talksToAll(userid);
+      if (all) {
+        cell.append(allTag('sb-voice-all'));
+        cell.title = 'Talking to all players';
+      }
+      cell.append(icon('sound', `sb-voice-icon speaking${all ? ' all' : ''}`));
     }
   }
   if (player.local) return;

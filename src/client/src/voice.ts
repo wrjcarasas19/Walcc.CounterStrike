@@ -15,7 +15,12 @@ import { VOICE_MIC_CONSTRAINTS, type Xash3DWebRTC } from './webrtc';
 // (src/server/voice_forward.go decides who hears whom).
 //
 // - Talking: hold the key from the settings (K by default) or, with touch
-//   controls, the microphone button. The microphone is asked for on the
+//   controls, the microphone button, to talk to the team; hold the
+//   talk-to-all key (L by default) or the "All" button to talk to all
+//   players (A.7). The page tells the server which before attaching the
+//   microphone (webrtc.ts setVoiceTalk) and again when the player switches
+//   while talking: the mode is that of the key or button pressed last among
+//   those still held. The microphone is asked for on the
 //   first press, never before; the track is attached to the connection's
 //   mic sender while held and detached RELEASE_TAIL_MS after letting go
 //   (webrtc.ts setMicTrack: replaceTrack, no renegotiation). The capture
@@ -63,18 +68,38 @@ export type VoiceEvent =
    * from them for LANE_SILENT_MS (they let go of the key); the same event
    * without it says their packets come again.
    */
-  | { type: 'lane'; lane: number; userid: number; active?: boolean }
-  /** The local player started or stopped sending. */
-  | { type: 'talking'; talking: boolean }
+  | {
+      type: 'lane';
+      lane: number;
+      userid: number;
+      active?: boolean;
+      /** The speaker talks to all players, not only their team (A.7). */
+      all?: boolean;
+    }
+  /**
+   * The local player started or stopped sending, or switched between
+   * their team and all players (`all`) while sending.
+   */
+  | { type: 'talking'; talking: boolean; all: boolean }
+  /** Whether the server has talking to all players off (wc_voice_all 0). */
+  | { type: 'allOff'; off: boolean }
   /** The userids the admin has muted (the whole list; A.6 sends it). */
   | { type: 'muted'; userids: number[] }
   /** Whether the current connection's server offers voice changed. */
   | { type: 'offered'; offered: boolean };
 
-type Holder = 'key' | 'touch';
+/** What holds the microphone open: a key or a touch button, for the team
+ *  or for all players. */
+type Holder = 'key' | 'allKey' | 'touch' | 'allTouch';
+
+function isAllHolder(holder: Holder): boolean {
+  return holder === 'allKey' || holder === 'allTouch';
+}
 
 type Lane = {
   userid: number;
+  /** userid talks to all players (A.7). */
+  all?: boolean;
   /** Packets from userid are arriving (see LANE_SILENT_MS). */
   active: boolean;
   receiver?: RTCRtpReceiver;
@@ -92,6 +117,9 @@ type Lane = {
 };
 
 const button = document.getElementById('voice-button') as HTMLButtonElement;
+const allButton = document.getElementById(
+  'voice-all-button'
+) as HTMLButtonElement;
 const notice = document.getElementById('hud-voice-notice')!;
 const noticeTitle = document.getElementById('hud-voice-notice-title')!;
 const noticeText = document.getElementById('hud-voice-notice-text')!;
@@ -106,11 +134,15 @@ const listeners = new Set<(event: VoiceEvent) => void>();
 let playerGain: (userid: number) => number = () => 1;
 
 // Talking.
+/** In the order they were pressed (the last one decides the mode). */
 const holders = new Set<Holder>();
-/** KeyboardEvent.code of the held talk key. */
-let heldCode: string | undefined;
-let touchPointer: number | undefined;
+/** KeyboardEvent.code of each held talk key, and what it holds. */
+const heldKeys = new Map<string, Holder>();
 let talking = false;
+/** The current (or last) sending is to all players, not only the team. */
+let talkAll = false;
+/** The server has talking to all players off (wc_voice_all 0). */
+let allOff = false;
 let releaseTimer: ReturnType<typeof setTimeout> | undefined;
 
 // The microphone.
@@ -284,6 +316,9 @@ async function startSending(): Promise<void> {
     if (generation === micGeneration) stopTalking();
     return;
   }
+  // Who it goes to, before the first packet (the server goes back to the
+  // team after each sending).
+  engine?.setVoiceTalk(talkAll);
   try {
     await engine?.setMicTrack(track);
   } catch (error) {
@@ -292,19 +327,47 @@ async function startSending(): Promise<void> {
 }
 
 function press(holder: Holder): void {
+  holders.delete(holder);
   holders.add(holder);
   clearTimeout(releaseTimer);
   releaseTimer = undefined;
-  if (talking) return;
+  const all = isAllHolder(holder);
+  if (all && allOff) {
+    showNotice(
+      'Talking to all is off',
+      'The server has it off: only your team hears you.'
+    );
+  }
+  if (talking) {
+    setTalkAll(all);
+    return;
+  }
   talking = true;
+  talkAll = all;
   renderButton();
-  emit({ type: 'talking', talking: true });
+  emit({ type: 'talking', talking: true, all });
   void startSending();
 }
 
-/** Lets go of holder; sending stops RELEASE_TAIL_MS after the last one. */
+/** Switches the current sending between the team and all players. */
+function setTalkAll(all: boolean): void {
+  if (all === talkAll) return;
+  talkAll = all;
+  engine?.setVoiceTalk(all);
+  renderButton();
+  emit({ type: 'talking', talking: true, all });
+}
+
+/**
+ * Lets go of holder; sending stops RELEASE_TAIL_MS after the last one. If
+ * another is still held, its mode goes on.
+ */
 function release(holder: Holder): void {
-  if (!holders.delete(holder) || holders.size > 0) return;
+  if (!holders.delete(holder)) return;
+  if (holders.size > 0) {
+    setTalkAll(isAllHolder([...holders].pop()!));
+    return;
+  }
   clearTimeout(releaseTimer);
   releaseTimer = setTimeout(stopTalking, RELEASE_TAIL_MS);
 }
@@ -314,33 +377,41 @@ function stopTalking(): void {
   clearTimeout(releaseTimer);
   releaseTimer = undefined;
   holders.clear();
-  heldCode = undefined;
+  heldKeys.clear();
   if (!talking) return;
   talking = false;
+  talkAll = false;
   renderButton();
-  emit({ type: 'talking', talking: false });
+  emit({ type: 'talking', talking: false, all: false });
   engine?.setMicTrack(null).catch((error) => {
     console.warn('Could not stop the microphone:', error);
   });
   scheduleMicIdle();
 }
 
-function isTalkKey(
+function keyCode(key: Settings['voiceKey']): string | undefined {
+  return key === 'off' ? undefined : `Key${key.toUpperCase()}`;
+}
+
+/** The holder event's key is (the team or the talk-to-all key), if any. */
+function talkKey(
   event: KeyboardEvent,
   settings: Readonly<Settings>
-): boolean {
-  const key = settings.voiceKey;
-  return key !== 'off' && event.code === `Key${key.toUpperCase()}`;
+): Holder | undefined {
+  if (event.code === keyCode(settings.voiceKey)) return 'key';
+  if (event.code === keyCode(settings.voiceAllKey)) return 'allKey';
+  return undefined;
 }
 
 function onKeyDown(event: KeyboardEvent): void {
-  if (event.code === heldCode) {
-    // Repeats of the held key.
+  if (heldKeys.has(event.code)) {
+    // Repeats of a held key.
     event.preventDefault();
     event.stopImmediatePropagation();
     return;
   }
-  if (!isTalkKey(event, getSettings()) || !canTalk()) return;
+  const holder = talkKey(event, getSettings());
+  if (!holder || !canTalk()) return;
   if (event.ctrlKey || event.altKey || event.metaKey || anyModalOpen()) return;
   // preventDefault also cancels the keypress, so the engine sees nothing.
   event.preventDefault();
@@ -348,16 +419,24 @@ function onKeyDown(event: KeyboardEvent): void {
   // Repeats after talking stopped by itself (e.g. the microphone was
   // refused) don't ask again; the next press does.
   if (event.repeat) return;
-  heldCode = event.code;
-  press('key');
+  heldKeys.set(event.code, holder);
+  press(holder);
 }
 
 function onKeyUp(event: KeyboardEvent): void {
-  if (event.code !== heldCode) return;
+  const holder = heldKeys.get(event.code);
+  if (!holder) return;
   // The engine never saw the keydown.
   event.stopImmediatePropagation();
-  heldCode = undefined;
-  release('key');
+  heldKeys.delete(event.code);
+  release(holder);
+}
+
+/** Lets go of every held talk key (focus lost, keys changed). */
+function releaseKeys(): void {
+  const held = [...heldKeys.values()];
+  heldKeys.clear();
+  for (const holder of held) release(holder);
 }
 
 window.addEventListener('keydown', onKey, { capture: true });
@@ -366,53 +445,57 @@ window.addEventListener('keyup', onKeyUp, { capture: true });
 
 function onKey(event: KeyboardEvent): void {
   if (event.type === 'keydown') onKeyDown(event);
-  else if (event.code === heldCode) event.stopImmediatePropagation();
+  else if (heldKeys.has(event.code)) event.stopImmediatePropagation();
 }
 
 // A key held while the page loses focus never sends its keyup.
-window.addEventListener('blur', () => {
-  if (heldCode) {
-    heldCode = undefined;
-    release('key');
-  }
-});
+window.addEventListener('blur', releaseKeys);
 
-// Touch: hold the button. It is outside the canvas, so the engine's touch
-// listeners never see it; the pointer is captured so a finger sliding off
-// the button keeps talking until it is lifted.
+// Touch: hold a button (the microphone for the team, "All" for all
+// players). They are outside the canvas, so the engine's touch listeners
+// never see them; the pointer is captured so a finger sliding off a button
+// keeps talking until it is lifted.
 function renderButton(): void {
-  button.hidden =
+  const hidden =
     !inGame ||
     !touchControls ||
     gameMenuOpen ||
     !enabled() ||
     !engine?.voiceAvailable;
-  button.setAttribute('aria-pressed', String(talking));
+  button.hidden = hidden;
+  // With talking to all off on the server it would only reach the team.
+  allButton.hidden = hidden || allOff;
+  button.setAttribute('aria-pressed', String(talking && !talkAll));
+  allButton.setAttribute('aria-pressed', String(talking && talkAll));
 }
 
-button.addEventListener('pointerdown', (event) => {
-  event.preventDefault();
-  if (touchPointer !== undefined || !canTalk()) return;
-  touchPointer = event.pointerId;
-  // Touch pointers are captured by the button anyway; this covers pens and
-  // mice. It throws if the pointer is already gone.
-  try {
-    button.setPointerCapture(event.pointerId);
-  } catch {}
-  press('touch');
-});
-
-function onPointerEnd(event: PointerEvent): void {
-  if (event.pointerId !== touchPointer) return;
-  touchPointer = undefined;
-  release('touch');
+function holdButton(target: HTMLButtonElement, holder: Holder): void {
+  let pointer: number | undefined;
+  target.addEventListener('pointerdown', (event) => {
+    event.preventDefault();
+    if (pointer !== undefined || !canTalk()) return;
+    pointer = event.pointerId;
+    // Touch pointers are captured by the button anyway; this covers pens
+    // and mice. It throws if the pointer is already gone.
+    try {
+      target.setPointerCapture(event.pointerId);
+    } catch {}
+    press(holder);
+  });
+  const end = (event: PointerEvent) => {
+    if (event.pointerId !== pointer) return;
+    pointer = undefined;
+    release(holder);
+  };
+  target.addEventListener('pointerup', end);
+  target.addEventListener('pointercancel', end);
+  target.addEventListener('lostpointercapture', end);
+  // A long press would open the context menu (Android) or select (iOS).
+  target.addEventListener('contextmenu', (event) => event.preventDefault());
 }
 
-button.addEventListener('pointerup', onPointerEnd);
-button.addEventListener('pointercancel', onPointerEnd);
-button.addEventListener('lostpointercapture', onPointerEnd);
-// A long press would open the context menu (Android) or select (iOS).
-button.addEventListener('contextmenu', (event) => event.preventDefault());
+holdButton(button, 'touch');
+holdButton(allButton, 'allTouch');
 
 // --- Playback -----------------------------------------------------------
 
@@ -463,6 +546,13 @@ function setAdminMuted(userids: number[]): void {
   emit({ type: 'muted', userids });
 }
 
+function setAllOff(off: boolean): void {
+  if (off === allOff) return;
+  allOff = off;
+  renderButton();
+  emit({ type: 'allOff', off });
+}
+
 function onVoiceTrack(
   index: number,
   track: MediaStreamTrack,
@@ -474,6 +564,7 @@ function onVoiceTrack(
   dropLane(index);
   if (index === 0) {
     setAdminMuted([]);
+    setAllOff(false);
     renderVoiceUi();
   }
   const context = audioContext();
@@ -499,15 +590,16 @@ function onVoiceTrack(
   renderButton();
 }
 
-function onVoiceLane(index: number, userid: number): void {
+function onVoiceLane(index: number, userid: number, all: boolean): void {
   const lane = (lanes[index] ??= { userid: 0, active: false });
   lane.userid = userid;
+  lane.all = userid !== 0 && all;
   // The event comes with the speaker's first packet.
   lane.active = userid !== 0;
   lane.packetTime = lastPacketTime(lane);
   lane.packetSeen = lane.since = performance.now();
   applyLaneGain(lane);
-  emit({ type: 'lane', lane: index, userid });
+  emit({ type: 'lane', lane: index, userid, all: lane.all });
   watchActivity();
 }
 
@@ -573,10 +665,16 @@ function checkActivity(): void {
       LANE_SILENT_MS;
     if (!silent && !lane.active) {
       lane.active = true;
-      emit({ type: 'lane', lane: index, userid: lane.userid });
+      emit({ type: 'lane', lane: index, userid: lane.userid, all: lane.all });
     } else if (silent && lane.active) {
       lane.active = false;
-      emit({ type: 'lane', lane: index, userid: lane.userid, active: false });
+      emit({
+        type: 'lane',
+        lane: index,
+        userid: lane.userid,
+        active: false,
+        all: lane.all,
+      });
     }
   });
   watchActivity();
@@ -677,10 +775,17 @@ function statusText(): { text: string; error: boolean } {
         error: true,
       };
   }
-  const how =
+  const keys = [
     settings.voiceKey === 'off'
-      ? 'Pick a push-to-talk key under Keys to talk (touch: hold the microphone button).'
-      : `Hold ${settings.voiceKey.toUpperCase()} to talk to your team (touch: hold the microphone button).`;
+      ? ''
+      : `Hold ${settings.voiceKey.toUpperCase()} to talk to your team.`,
+    settings.voiceAllKey === 'off'
+      ? ''
+      : `Hold ${settings.voiceAllKey.toUpperCase()} to talk to all players.`,
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const how = `${keys || 'Pick a push-to-talk key under Keys to talk.'} (Touch: hold the microphone or All button.)`;
   return devicesListed
     ? { text: how, error: false }
     : {
@@ -783,9 +888,8 @@ onSettingsChange((settings, changed) => {
     if (talking) void startSending();
     if (wasTesting) void startTest();
   }
-  if (changed.includes('voiceKey') && heldCode) {
-    heldCode = undefined;
-    release('key');
+  if (changed.includes('voiceKey') || changed.includes('voiceAllKey')) {
+    releaseKeys();
   }
   applyVolume();
   renderButton();
@@ -801,7 +905,7 @@ onHudEvent((event) => {
 // --- Without voice ------------------------------------------------------
 
 /** Key settings that only matter with voice (hidden with the Voice group). */
-const VOICE_KEY_SETTINGS: readonly SettingKey[] = ['voiceKey'];
+const VOICE_KEY_SETTINGS: readonly SettingKey[] = ['voiceKey', 'voiceAllKey'];
 
 /**
  * Shows the voice settings only where voice can be used: in game when the
@@ -844,6 +948,7 @@ export function initVoice(target: Xash3DWebRTC): void {
   target.onVoiceTrack = onVoiceTrack;
   target.onVoiceLane = onVoiceLane;
   target.onVoiceMuted = setAdminMuted;
+  target.onVoiceAllOff = setAllOff;
   // With Voice chat off the server sends no lane audio.
   target.setVoiceListening(enabled());
 }
@@ -872,6 +977,7 @@ export function detachVoice(): void {
   hideNotice();
   for (let index = 0; index < lanes.length; index++) dropLane(index);
   setAdminMuted([]);
+  setAllOff(false);
   void audio?.suspend();
   renderButton();
   renderVoiceUi();
@@ -899,6 +1005,19 @@ export function setPlayerGain(gain: (userid: number) => number): void {
 /** Whether the local player is sending (key or button held, or the tail). */
 export function isTalking(): boolean {
   return talking;
+}
+
+/**
+ * Whether the local player is sending to all players (the talk-to-all key
+ * or button, and the server allows it).
+ */
+export function isTalkingToAll(): boolean {
+  return talking && talkAll && !allOff;
+}
+
+/** Whether userid is heard talking to all players (on any lane). */
+export function talksToAll(userid: number): boolean {
+  return lanes.some((lane) => lane?.userid === userid && !!lane.all);
 }
 
 /** Whether the game is played with touch controls (attachVoice). */

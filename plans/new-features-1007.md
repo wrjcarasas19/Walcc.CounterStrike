@@ -1432,6 +1432,168 @@ one entry per lane, at most 4 + you).
 - Match tab: `sv_voiceenable` and `sv_alltalk` are the voice fields in
   `FIELDS`; put `wc_voice_all` next to them (and in `adminCvars`).
 
+### A.7 done (2026-10-09): talk to all players
+
+**What changed.**
+
+- `src/amxx/wc_roster.sma` (1.1): `wc_voice_all` (`register_cvar`, default
+  `1`, kept over map changes like the plan's other `wc_*` cvars), appended
+  to the header line: `alltalk <0|1> intermission <0|1> voiceenable <0|1>
+  wc_voice_all <0|1>`.
+- `src/server/voice_roster.go`: `rosterState`/`voiceRoster` gain
+  `voiceAllOff`; `parseRoster` now reads the header's settings fields by
+  position in a loop (`voiceenable`, `wc_voice_all`), so an older plugin's
+  shorter header still parses, defaulting both to on. `canHearAll(listener,
+  speaker)`: the living never hear the dead, same as `canHear`, but with no
+  team/alltalk check. `rosterPolicy.mayHear` now also returns true when
+  `canHear` is false but the speaker is talking to all
+  (`speaker.talkAll.Load()`), `wc_voice_all` is on, and `canHearAll` allows
+  it; new `rosterPolicy.talksToAll(speaker)`.
+- `src/server/voice.go`: `voicePeer` gains `talkAll` (atomic.Bool, read
+  under the hub lock), `talkAt`/`spoke` (timestamps for `sweep`'s reset),
+  and `allOff`/`allOffPending` next to the existing muted-list fields.
+  `voiceRequest` gains `Talk *string`; `request` calls the new
+  `voiceHub.setTalk(v, talk == "all", now)`. `voiceLaneEvent` gains `All
+  bool` (`json:"all,omitempty"`); `announceLane` now takes the whole event
+  instead of `(lane, userid)`. New `voiceAllEvent{AllOff bool}`
+  (`{"allOff":true}`), sent like the muted list.
+- `src/server/voice_forward.go`: `voicePolicy` gains `talksToAll(speaker)
+  bool`. `voiceLane.all` is what the listener was last told; `route` asks
+  `policy.talksToAll(speaker)` once per packet and re-announces a kept
+  lane when it flips. `sweep` also resets `talkAll` to false once the
+  speaker has been quiet for `laneReleaseAfter` *and* hasn't just chosen a
+  mode (`talkAt`), so `{"talk":"all"}` sent right before the first packet
+  isn't undone by a sweep that runs first. `setTalk` (new): sets the mode
+  at `now`, no-ops on a peer that isn't joined, and calls `recheck` when it
+  changed (so switching back to the team drops listeners who may no longer
+  hear at once, not after the lane's own 500 ms). `recheck` now also
+  re-announces a kept lane whose `all` changed. `queue` takes `all` too.
+- `src/server/voice_admin.go`: `voiceHub.setAllOff` / `voicePeer
+  .offerAllOff` / `takeAllOff`, mirroring the existing muted-list
+  plumbing; `sendEvents` sends `voiceAllEvent` the same way it sends the
+  muted list. `voiceHub.join` offers `allOff` to a new player when it's
+  set, like it already does for `muted`.
+- `src/server/admin_actions.go`: `wc_voice_all` added to `adminCvars`
+  (0–1, like `sv_voiceenable`).
+- Roster poller (`voice_roster.go`'s `rosterPoller.poll`): calls
+  `hub.setAllOff(st.voiceAllOff)` after publishing the roster, so
+  `wc_voice_all` changes reach the pages within one poll (≤ 250 ms) the
+  same way `sv_voiceenable` does.
+- Client: `src/client/src/voice.ts` — `Holder` is now `'key' | 'allKey' |
+  'touch' | 'allTouch'`; `holders` is tracked in press order so the last
+  one held decides the mode (`setTalkAll`), and releasing one falls back
+  to whichever is still held. `press`/`release` send `{"talk":...}`
+  (`engine.setVoiceTalk`) before the first packet and again on a mid-hold
+  switch. `onVoiceEvent`'s `lane` and `talking` variants gain `all`; new
+  `allOff` variant. New touch button `#voice-all-button` ("All"),
+  `holdButton` factored out so both buttons share the pointer-capture
+  logic. `isTalkingToAll()`, `talksToAll(userid)` exported for the HUD.
+  `VOICE_KEY_SETTINGS` gains `voiceAllKey`.
+- `src/client/src/webrtc.ts`: `onVoiceLane` gains `all`; new
+  `onVoiceAllOff`; `setVoiceTalk(all)` sends `{"talk": all ? "all" :
+  "team"}` on the voice data channel (old servers ignore it).
+- `src/client/src/voice-hud.ts`: `allTag()` builds the `[All]` element
+  (`hud-voice-all` in the speaking list, `sb-voice-all` on the scoreboard);
+  added to the local entry, other speakers' entries and the scoreboard
+  voice cell when `isTalkingToAll()` / `talksToAll(userid)`.
+- Settings (`schema.ts`): `voiceAllKey` (Keys group, default **L**, same
+  five choices as `voiceKey`). `fixKeyConflicts` (new, exported, used by
+  both `parseSettings` and `store.ts`'s `update`) keeps the two keys
+  different: on a change that would make them equal, the other setting
+  swaps to the changed one's old key; with nothing to swap against (an old
+  saved `voiceKey: 'l'` from before this setting existed) `voiceAllKey`
+  is turned off instead.
+- Admin: `wc_voice_all` added to `cvars.ts` ("Talk to all key (voice)")
+  and `match.ts`'s `FIELDS`, next to `sv_voiceenable`/`sv_alltalk`.
+- README: the voice feature bullet now describes both keys and swapping;
+  the "Who is talking" bullet mentions the `[All]` tag; a new "Talk to all
+  key (voice)" line in the admin controls section; the `wc_roster.amxx`
+  table row's header format and cvar list include `wc_voice_all`.
+- New `src/server/voice_all_test.go`: `TestRosterPolicyTalkAll` (the rules
+  table: alive/dead T and CT and a spectator, each as listener and
+  speaker, × `wc_voice_all` on/off, against an explicit "who hears
+  everyone" list, plus `sv_voiceenable 0` and the not-in-roster rule still
+  blocking it); `TestParseRosterVoiceAll`; `TestVoiceTalkAll` (an old page
+  that never sends `{"talk":...}` stays team-only; switching to `all`
+  mid-sentence reaches the enemies and the dead at once with the lane
+  re-announced as `all` to the kept teammate's lane, not duplicated;
+  switching back releases the enemies' lanes at once and re-announces the
+  team's; a bad message changes nothing, "everyone" is not "all"; the dead
+  talking to all still isn't heard by the living; admin mute and a deaf
+  listener still apply); `TestVoiceTalkAllReset` (the mode holds until
+  `laneReleaseAfter` after the last packet, not before, and not right after
+  choosing it before any packet; a non-member can't set it; a new
+  connection starts on the team); `TestVoiceAllOffPoller` (`wc_voice_all`
+  0 from the roster releases the enemies' lanes and keeps the teammate's,
+  queues `allOff` for everyone including a late joiner, and `1` reopens
+  it); `TestVoiceAllEvents` (the wire format of the lane event with `all`
+  and without it, and the `allOff` event). Existing tests updated for the
+  three-field `voiceLaneEvent` literals and `announceLane`'s new signature
+  (`voice_test.go`, `voice_forward_test.go`, `voice_roster_test.go`,
+  `voice_admin_test.go`); `admin_actions_test.go` gains `wc_voice_all`
+  accepted (0, 1) and refused (2) cases; `TestVoiceListenRequest`'s
+  "unknown fields ignored" case changed from `{"talk":"all"}` (now a real
+  message) to `{"other":1}`.
+- New `plans/new-features-1007-tools/check-voice-all.mjs`: a 2 v 2 of real
+  game clients, through real key presses (`voice.ts`), not `setMicTrack` by
+  hand (see "What was checked" below for the run).
+
+**What was checked.**
+
+- Go (`gotest.sh`: gofmt, vet, all tests, including the new ones named
+  above): all pass.
+- `npm run build`, `tsc --noEmit`: clean. Prettier (`--trailing-comma
+  es5`): every touched file clean except `webrtc.ts`, which differs from
+  Prettier at HEAD by the same three pre-existing spots (an object cast's
+  line length, a boolean expression's wrap, one `this.fail(...)` call)
+  that A.1–A.6 already noted; nothing on the lines this step touched.
+- Image rebuilt (`local/cs16-web-server:latest`; the A.6 image is tagged
+  `local/cs16-web-server:pre-a7`). `wc_roster.amxx` is in the built
+  image's `plugins.ini` (unchanged from A.3; only the plugin's own source
+  changed, not its build or load order).
+- `check-voice-all.mjs` against the rebuilt image, four real game clients
+  (T1, T2 Terrorists; C1, C2 CTs; `run-server.sh de_dust2 0`, no bots), a
+  round restart so everyone is alive, **all OK**:
+  - T1 holds L (`voiceAllKey`) 5 s: T2, C1 and C2 each received 630 RTP
+    packets with an `onVoiceLane` event carrying `all:true`; the `[All]`
+    tag showed on T1's own speaking entry and on C1's speaking list and
+    scoreboard cell for T1 (`a7-all-tag-self.png`,
+    `a7-all-tag-scoreboard.png` in `out/`).
+  - T1 holds K 3 s (right after, same session): T2 got 189 packets with
+    `all:false`; C1 and C2 got nothing, confirming K stays team-only once
+    the all key exists.
+  - C2 is killed (`kill`), then holds L 3 s: T1, T2 and C1 (the living)
+    got nothing — the dead talking to all still isn't heard by the living.
+  - `wc_voice_all 0` through the admin API's `cvar` action (the Match
+    tab's path): T1 holding L 3 s reached T2 only (187 packets), C1 and C2
+    nothing. `wc_voice_all 1`: T1 holding L 3 s reached all three again
+    (186 packets each, `all:true`).
+  - First runs had the RTP/mode checks pass but the three `[All]` tag
+    checks fail. Not a product bug: `check-voice-all.mjs`'s own
+    `recordVoice()` had set `e.onVoiceLane = (lane, userid, all) => {...}`
+    straight over the top of the handler `voice.ts`'s `initVoice()` already
+    installs to drive the real speaking list and scoreboard, so the page's
+    own UI stopped updating on every lane event while the script's packet
+    recording (built on the same hook) kept working. Fixed by chaining
+    through the previous handler instead of replacing it, and the hold
+    times were widened (`MID_DELAY_MS` 800 ms → 2200 ms, the `talk all`
+    hold 3 s → 5 s) for headroom with four real engines sharing the host.
+    After the fix the tag appeared well under the hold's slack.
+  - Capturing the run's own output was also tricky, unrelated to the above:
+    the Playwright container removes itself on exit (`pw.sh`'s `--rm`), so
+    its stdout is lost if nothing is reading it when it finishes;
+    `docker logs -f <container>` attached while a run was already in
+    progress caught the clean run quoted above start to finish.
+- **Not checked:** Firefox, Safari, phones (consistent with every other
+  A.x step); the touch "All" button (`check-voice-ptt.mjs`'s style of
+  CDP touch events, not added to `check-voice-all.mjs`); more than one
+  `wc_voice_all` toggle in a row or a map change mid-switch; the exact
+  100 ms-class indicator timing for the `[All]` tag specifically (A.5's
+  general indicator-timing checks weren't re-run here, only that the tag
+  is present once the entry/cell is).
+
+Part A (voice chat) is done; Part B (adaptive bots) hasn't been started.
+
 ## Open questions
 
 - A.0: decided, WebRTC audio (see Progress). Engine voice works too and is

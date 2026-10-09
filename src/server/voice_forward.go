@@ -22,6 +22,13 @@ import (
 // A lane whose speaker sends nothing for laneReleaseAfter (500 ms) is
 // released and the page is told it went quiet (userid 0).
 //
+// A speaker talks to their team, or to all players while the page says so
+// (A.7: {"talk":"all"}, the talk-to-all key; voicePolicy decides who hears
+// that). The lane events say which (all), and are sent again when it
+// changes while the speaker keeps a lane. Switching back to the team
+// releases the lanes of listeners who may no longer hear (recheck), and a
+// speaker who stops talking for laneReleaseAfter goes back to the team.
+//
 // Each lane rewrites sequence numbers and timestamps so they stay
 // continuous for the listener's jitter buffer when a lane changes speaker:
 // the new speaker's numbers get an offset that makes their first packet
@@ -63,6 +70,9 @@ type voicePolicy interface {
 	// adminMuted reports whether speaker was muted by the admin (heard by
 	// nobody).
 	adminMuted(speaker *voicePeer) bool
+	// talksToAll reports whether speaker is talking to all players now
+	// (asked for, and allowed by the server), for the lane events.
+	talksToAll(speaker *voicePeer) bool
 }
 
 // voiceLane is the forwarding state of one lane of a listener.
@@ -70,6 +80,8 @@ type voiceLane struct {
 	// speaker is on the lane; nil when it is free (released and announced
 	// quiet, or never used).
 	speaker *voicePeer
+	// all is what the page was last told: speaker talks to all players.
+	all bool
 	// last is when the lane last carried a packet.
 	last time.Time
 	// used: the lane has carried a packet, so seq and ts are its last
@@ -102,6 +114,8 @@ type voiceHub struct {
 	// muted is the admin-muted userids last sent to the players, sorted
 	// (voice_admin.go).
 	muted []int
+	// allOff is wc_voice_all 0 as last sent to the players (A.7).
+	allOff bool
 }
 
 // voices is the server's voice hub (sfu.go joins players to it).
@@ -127,6 +141,10 @@ func (h *voiceHub) join(p *voicePeer, ip [4]byte) {
 	if len(h.muted) > 0 {
 		p.offerMuted(h.muted)
 	}
+	// It also assumes talking to all players is on.
+	if h.allOff {
+		p.offerAllOff(true)
+	}
 }
 
 // leave removes a player: lanes they had on others are released (and
@@ -148,7 +166,7 @@ func (h *voiceHub) leave(p *voicePeer) {
 		for i := range l.out {
 			if l.out[i].speaker == p {
 				l.out[i].speaker = nil
-				l.queue(i, 0)
+				l.queue(i, 0, false)
 			}
 		}
 	}
@@ -161,13 +179,18 @@ func (h *voiceHub) leave(p *voicePeer) {
 func (h *voiceHub) route(speaker *voicePeer, seq uint16, ts uint32, now time.Time, out []laneWrite) []laneWrite {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if !speaker.joined || h.policy.adminMuted(speaker) {
+	if !speaker.joined {
+		return out
+	}
+	speaker.spoke = now
+	if h.policy.adminMuted(speaker) {
 		return out
 	}
 	userid, ok := h.policy.userID(speaker)
 	if !ok {
 		return out
 	}
+	all := h.policy.talksToAll(speaker)
 	for l := range h.peers {
 		if l == speaker || l.deaf.Load() || !h.policy.mayHear(l, speaker) {
 			continue
@@ -180,10 +203,16 @@ func (h *voiceHub) route(speaker *voicePeer, seq uint16, ts uint32, now time.Tim
 				continue
 			}
 			l.out[i].assign(speaker, seq, ts, now)
-			l.queue(i, userid)
+			l.out[i].all = all
+			l.queue(i, userid, all)
 			first = true
 		}
 		lane := &l.out[i]
+		if lane.all != all {
+			// Switched between team and all while keeping the lane.
+			lane.all = all
+			l.queue(i, userid, all)
+		}
 		w := laneWrite{listener: l, lane: i, seq: seq + lane.seqDelta, ts: ts + lane.tsDelta, first: first}
 		lane.sent(w.seq, w.ts, now)
 		out = append(out, w)
@@ -192,7 +221,8 @@ func (h *voiceHub) route(speaker *voicePeer, seq uint16, ts uint32, now time.Tim
 }
 
 // sweep releases the lanes quiet for laneReleaseAfter and queues their
-// "quiet" events.
+// "quiet" events, and puts the speakers quiet that long (who haven't just
+// chosen who they talk to either) back to talking to their team.
 func (h *voiceHub) sweep(now time.Time) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -201,17 +231,40 @@ func (h *voiceHub) sweep(now time.Time) {
 			lane := &l.out[i]
 			if lane.speaker != nil && now.Sub(lane.last) >= laneReleaseAfter {
 				lane.speaker = nil
-				l.queue(i, 0)
+				l.queue(i, 0, false)
 			}
 		}
+		// Their lanes went above: each lane's last packet is one of theirs.
+		if l.talkAll.Load() && now.Sub(l.spoke) >= laneReleaseAfter && now.Sub(l.talkAt) >= laneReleaseAfter {
+			l.talkAll.Store(false)
+		}
+	}
+}
+
+// setTalk sets who speaker talks to: all players or their team (A.7,
+// {"talk":...} from the page) at now. Going back to the team releases the
+// lanes of the listeners who may no longer hear them; the lanes they keep
+// are announced again with the new mode.
+func (h *voiceHub) setTalk(speaker *voicePeer, all bool, now time.Time) {
+	h.mu.Lock()
+	if !speaker.joined {
+		h.mu.Unlock()
+		return
+	}
+	speaker.talkAt = now
+	changed := speaker.talkAll.Swap(all) != all
+	h.mu.Unlock()
+	if changed {
+		h.recheck()
 	}
 }
 
 // recheck releases (and announces quiet) the lanes whose listener may no
 // longer hear their speaker, after the policy changed (a new roster, an
-// admin mute, sv_voiceenable 0) or the listener asked for no audio: the
-// speaker's audio already stops at the next packet, this tells the page at
-// once instead of laneReleaseAfter later.
+// admin mute, sv_voiceenable 0, a speaker back to talking to their team)
+// or the listener asked for no audio: the speaker's audio already stops at
+// the next packet, this tells the page at once instead of laneReleaseAfter
+// later. Lanes kept whose talk-to-all mode changed are announced again.
 func (h *voiceHub) recheck() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -222,11 +275,15 @@ func (h *voiceHub) recheck() {
 			if s == nil {
 				continue
 			}
-			if _, known := h.policy.userID(s); known && !deaf && !h.policy.adminMuted(s) && h.policy.mayHear(l, s) {
+			if userid, known := h.policy.userID(s); known && !deaf && !h.policy.adminMuted(s) && h.policy.mayHear(l, s) {
+				if all := h.policy.talksToAll(s); all != l.out[i].all {
+					l.out[i].all = all
+					l.queue(i, userid, all)
+				}
 				continue
 			}
 			l.out[i].speaker = nil
-			l.queue(i, 0)
+			l.queue(i, 0, false)
 		}
 	}
 }
@@ -277,16 +334,16 @@ func (p *voicePeer) freeLane(now time.Time) int {
 // queue sends a lane event to the page without blocking the forwarding;
 // it is dropped if the page has fallen that far behind. Called with the
 // hub locked, while p is joined.
-func (p *voicePeer) queue(lane, userid int) {
+func (p *voicePeer) queue(lane, userid int, all bool) {
 	select {
-	case p.events <- voiceLaneEvent{Lane: lane, UserID: userid}:
+	case p.events <- voiceLaneEvent{Lane: lane, UserID: userid, All: all}:
 	default:
 		log.Warnf("Voice: event queue full, dropped lane %d event", lane)
 	}
 }
 
-// sendEvents writes the queued lane events, and the admin-muted list when
-// it changes, until leave closes the queue.
+// sendEvents writes the queued lane events, and the admin-muted list and
+// wc_voice_all when they change, until leave closes the queue.
 func (p *voicePeer) sendEvents() {
 	for {
 		select {
@@ -294,10 +351,13 @@ func (p *voicePeer) sendEvents() {
 			if !ok {
 				return
 			}
-			_ = p.announceLane(e.Lane, e.UserID)
+			_ = p.announceLane(e)
 		case <-p.mutedNotify:
 			if list, ok := p.takeMuted(); ok {
 				_ = p.sendVoiceEvent(voiceMutedEvent{Muted: list})
+			}
+			if off, ok := p.takeAllOff(); ok {
+				_ = p.sendVoiceEvent(voiceAllEvent{AllOff: off})
 			}
 		}
 	}

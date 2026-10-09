@@ -25,6 +25,7 @@ func (p *testPolicy) userID(s *voicePeer) (int, bool) {
 }
 func (p *testPolicy) mayHear(l, s *voicePeer) bool { return !p.deaf[[2]*voicePeer{l, s}] }
 func (p *testPolicy) adminMuted(s *voicePeer) bool { return p.muted[s] }
+func (p *testPolicy) talksToAll(s *voicePeer) bool { return s.talkAll.Load() }
 
 // openVoicePolicy: every player in voice hears every other one, with the
 // slot index plus 1 as the userid.
@@ -33,6 +34,7 @@ type openVoicePolicy struct{}
 func (openVoicePolicy) userID(p *voicePeer) (int, bool) { return int(p.ip[0]) + 1, true }
 func (openVoicePolicy) mayHear(_, _ *voicePeer) bool    { return true }
 func (openVoicePolicy) adminMuted(_ *voicePeer) bool    { return false }
+func (openVoicePolicy) talksToAll(p *voicePeer) bool    { return p.talkAll.Load() }
 
 func newTestPolicy() *testPolicy {
 	return &testPolicy{deaf: map[[2]*voicePeer]bool{}, unknown: map[*voicePeer]bool{}, muted: map[*voicePeer]bool{}}
@@ -101,7 +103,7 @@ func TestVoiceLaneAssignment(t *testing.T) {
 			t.Fatalf("speaker %d: writes %+v, want lane %d first", i, got, i)
 		}
 	}
-	if e := drain(listener); !eventsEqual(e, []voiceLaneEvent{{0, 1}, {1, 2}, {2, 3}, {3, 4}}) {
+	if e := drain(listener); !eventsEqual(e, []voiceLaneEvent{{0, 1, false}, {1, 2, false}, {2, 3, false}, {3, 4, false}}) {
 		t.Fatalf("events %v", e)
 	}
 	// A speaker keeps their lane.
@@ -130,7 +132,7 @@ func TestVoiceLaneAssignment(t *testing.T) {
 	if len(got) != 1 || got[0].lane != 0 || !got[0].first {
 		t.Fatalf("after %v: %+v, want lane 0", laneFreeAfter, got)
 	}
-	if e := drain(listener); !eventsEqual(e, []voiceLaneEvent{{0, 5}}) {
+	if e := drain(listener); !eventsEqual(e, []voiceLaneEvent{{0, 5, false}}) {
 		t.Fatalf("takeover events %v", e)
 	}
 	// Speaker 0 comes back and gets another lane: 1 and 3 have been quiet
@@ -148,7 +150,7 @@ func TestVoiceLaneAssignment(t *testing.T) {
 		t.Fatalf("released before %v: %v", laneReleaseAfter, e)
 	}
 	h.sweep(t0.Add(520 * time.Millisecond))
-	if e := drain(listener); !eventsEqual(e, []voiceLaneEvent{{2, 0}, {3, 0}}) {
+	if e := drain(listener); !eventsEqual(e, []voiceLaneEvent{{2, 0, false}, {3, 0, false}}) {
 		t.Fatalf("release events %v, want lanes 2 and 3 quiet", e)
 	}
 	if listener.out[2].speaker != nil || listener.out[3].speaker != nil {
@@ -200,7 +202,7 @@ func TestVoiceLeave(t *testing.T) {
 	drain(p[2])
 
 	h.leave(p[0])
-	if e := drain(p[1]); !eventsEqual(e, []voiceLaneEvent{{0, 0}}) {
+	if e := drain(p[1]); !eventsEqual(e, []voiceLaneEvent{{0, 0, false}}) {
 		t.Fatalf("listener events after the speaker left: %v", e)
 	}
 	if _, ok := <-p[0].events; ok {
@@ -556,7 +558,7 @@ func TestVoiceForwardsBetweenClients(t *testing.T) {
 			Event string         `json:"event"`
 			Data  voiceLaneEvent `json:"data"`
 		}
-		if err := json.Unmarshal([]byte(e), &got); err != nil || got.Event != "voice" || got.Data != (voiceLaneEvent{0, 1}) {
+		if err := json.Unmarshal([]byte(e), &got); err != nil || got.Event != "voice" || got.Data != (voiceLaneEvent{0, 1, false}) {
 			t.Fatalf("lane event %q", e)
 		}
 	case <-time.After(2 * time.Second):

@@ -78,6 +78,9 @@ var adminCvars = map[string]adminCvar{
 	// Voice chat on/off at runtime (the engine's cvar, which the roster
 	// reports; voice_roster.go).
 	"sv_voiceenable": {0, 1, 0},
+	// Voice chat: 0 makes the talk-to-all key talk to the team only
+	// (src/amxx/wc_roster.sma, voice_roster.go).
+	"wc_voice_all": {0, 1, 0},
 	// 0 off, 1 knife only, 2 pistols only (src/amxx/wc_weaponmode.sma).
 	"wc_weaponmode": {0, 2, 0},
 	// 0 classic, 1 Gun Game, 2 Deathmatch (src/amxx/wc_gamemode.sma).
