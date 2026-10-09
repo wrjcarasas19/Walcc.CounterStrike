@@ -40,6 +40,9 @@ type peerSlot struct {
 	// close ends the player's PeerConnection, which frees the slot and has
 	// the engine drop the player.
 	close func()
+	// voice is the player's voice chat (voice.go), nil when VOICE=0. It is
+	// in the voice hub only if the page answered with a microphone.
+	voice *voicePeer
 }
 
 // owns reports whether ip is the address of this slot's player.
@@ -262,6 +265,11 @@ type gameSession struct {
 	ip        [4]byte
 	hasSlot   bool
 	connected chan struct{}
+	// voice is the player's voice chat (voice.go); nil when VOICE=0.
+	voice *voicePeer
+	// voiceCapable: the page's answer can send voice (voiceAnswered), so
+	// the player joins the voice hub with the slot.
+	voiceCapable bool
 }
 
 // channelOpened takes a slot for the open game channel and returns the
@@ -275,7 +283,7 @@ func (s *gameSession) channelOpened(d io.ReadWriteCloser) (ip [4]byte, err error
 		return ip, errSessionClosed
 	}
 
-	peer := &peerSlot{write: d, key: s.key, device: s.device, close: s.closePeer}
+	peer := &peerSlot{write: d, key: s.key, device: s.device, close: s.closePeer, voice: s.voice}
 	for i := range peer.addr {
 		peer.addr[i] = byte(rand.Intn(256))
 	}
@@ -288,6 +296,10 @@ func (s *gameSession) channelOpened(d io.ReadWriteCloser) (ip [4]byte, err error
 
 	ip = [4]byte{index, peer.addr[0], peer.addr[1], peer.addr[2]}
 	s.ip = ip
+	if s.voice != nil && s.voiceCapable {
+		voices.join(s.voice, ip)
+		go s.voice.sendEvents()
+	}
 	close(s.connected)
 	return ip, nil
 }
@@ -310,6 +322,11 @@ func (s *gameSession) release() {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	s.closed = true
+	if s.voice != nil {
+		// Frees this player's lanes on others and ends sendEvents; the mic
+		// reader ends with the PeerConnection.
+		voices.leave(s.voice)
+	}
 	if s.hasSlot {
 		s.hasSlot = false
 		if err := connections.Remove(s.slot, s.slotGen); err != nil {
@@ -394,6 +411,11 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) { // nolint
 
 			return
 		}
+		if session.voice != nil {
+			// The answer is set by now (DTLS needs it before any channel
+			// opens).
+			session.voiceCapable = voiceAnswered(peerConnection.RemoteDescription(), session.voice.mic.Mid())
+		}
 		ip, err := session.channelOpened(d)
 		if err != nil {
 			if !errors.Is(err, errSessionClosed) {
@@ -410,6 +432,16 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) { // nolint
 		}()
 	})
 	defer gameChannel.Close()
+
+	// Voice chat's audio transceivers are part of the same offer.
+	if voiceEnabled {
+		session.voice, err = addVoiceTransceivers(peerConnection, c.WriteJSON, voices)
+		if err != nil {
+			log.Errorf("Failed to add voice transceivers: %v", err)
+
+			return
+		}
+	}
 
 	// Trickle ICE. Emit server candidate to client
 	peerConnection.OnICECandidate(func(i *webrtc.ICECandidate) {
@@ -447,8 +479,9 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) { // nolint
 		return c.SetReadDeadline(time.Now().Add(pongWait))
 	})
 
-	// Send the single offer for this connection. The data channel is fixed
-	// up front, so there is never any renegotiation after the answer.
+	// Send the single offer for this connection. The data channel and the
+	// voice transceivers are fixed up front, so there is never any
+	// renegotiation after the answer.
 	offer, err := peerConnection.CreateOffer(nil)
 	if err != nil {
 		log.Errorf("Failed to create offer: %v", err)
@@ -674,7 +707,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // runSFU serves HTTP and WebRTC. admin is nil when the admin API is off,
-// console when both the admin API and the leaderboard are off; query (server queries for /status.json) is always on;
+// console when the admin API, the leaderboard and voice are all off; query (server queries for /status.json) is always on;
 // leaderboard, duel and names are nil when their database couldn't be
 // opened.
 func runSFU(admin http.Handler, console *engineConsole, query *engineQuery, leaderboard, duel, names http.Handler) {
@@ -714,8 +747,14 @@ func runSFU(admin http.Handler, console *engineConsole, query *engineQuery, lead
 		settingEngine.SetNAT1To1IPs([]string{ip}, webrtc.ICECandidateTypeHost)
 	}
 
-	// Data channels only: no media codecs or RTP interceptors needed.
-	api = webrtc.NewAPI(webrtc.WithSettingEngine(settingEngine))
+	var err error
+	if api, err = newWebRTCAPI(settingEngine); err != nil {
+		panic(err)
+	}
+
+	if voiceEnabled {
+		go voices.run()
+	}
 
 	receive := newPacketReceiver(packets, recvIdleWait)
 	goxash3d_fwgs.DefaultXash3D.RegisterRecvfromCallback(func() *goxash3d_fwgs.Packet {

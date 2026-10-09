@@ -155,6 +155,18 @@
         <div class="hud-toast hud-level-toast" aria-live="polite">
           <span id="hud-level-toast-text" class="hud-toast-text"></span>
         </div>
+        <div
+          id="hud-voice-notice"
+          class="hud-voice-notice"
+          role="status"
+          hidden
+        >
+          <span
+            id="hud-voice-notice-title"
+            class="hud-voice-notice-title"
+          ></span>
+          <span id="hud-voice-notice-text" class="hud-voice-notice-text"></span>
+        </div>
         <div id="hud-round" class="hud-round" aria-live="polite" hidden>
           <span id="hud-round-title" class="hud-round-title"></span>
           <span id="hud-round-reason" class="hud-round-reason"></span>
@@ -162,6 +174,7 @@
           <span id="hud-round-mvp" class="hud-round-mvp"></span>
         </div>
 
+        <div id="hud-voice" class="hud-voice" aria-label="Speaking"></div>
         <div id="hud-chat" class="hud-chat"></div>
         <form id="hud-chat-input" class="hud-chat-input" novalidate hidden>
           <label
@@ -275,8 +288,8 @@
                 <span id="sb-ct-score" class="sb-team-score"></span>
               </div>
               <div class="sb-row sb-labels">
-                <span></span><span>Name</span><span>K</span><span>D</span
-                ><span>Ping</span>
+                <span></span><span>Name</span><span></span><span>K</span
+                ><span>D</span><span>Ping</span>
               </div>
               <div id="sb-ct-rows" class="sb-rows"></div>
             </section>
@@ -287,8 +300,8 @@
                 <span id="sb-t-score" class="sb-team-score"></span>
               </div>
               <div class="sb-row sb-labels">
-                <span></span><span>Name</span><span>K</span><span>D</span
-                ><span>Ping</span>
+                <span></span><span>Name</span><span></span><span>K</span
+                ><span>D</span><span>Ping</span>
               </div>
               <div id="sb-t-rows" class="sb-rows"></div>
             </section>
@@ -302,6 +315,9 @@
             <span id="sb-session-stats" class="sb-session-stats"></span>
           </div>
           <div id="sb-chat" class="sb-chat" hidden></div>
+          <p id="sb-voice-hint" class="sb-voice-hint" hidden>
+            Right-click while holding Tab to mute players
+          </p>
         </div>
 
         <div id="hud-summary" class="hud-summary" hidden>
@@ -365,6 +381,30 @@
             d="M2 6h20v12H2zm3 3v2h2V9zm4 0v2h2V9zm4 0v2h2V9zm4 0v2h2V9zM7 13v2h10v-2z"
           />
         </svg>
+      </button>
+      <button
+        id="voice-button"
+        class="settings-touch-button voice-touch-button"
+        type="button"
+        aria-label="Hold to talk"
+        aria-pressed="false"
+        hidden
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M12 2a3.5 3.5 0 0 0-3.5 3.5v6a3.5 3.5 0 0 0 7 0v-6A3.5 3.5 0 0 0 12 2zM5 11h2a5 5 0 0 0 10 0h2a7 7 0 0 1-6 6.9V21h3v2H8v-2h3v-3.1A7 7 0 0 1 5 11z"
+          />
+        </svg>
+      </button>
+      <button
+        id="voice-all-button"
+        class="settings-touch-button voice-touch-button voice-all-touch-button"
+        type="button"
+        aria-label="Hold to talk to all players"
+        aria-pressed="false"
+        hidden
+      >
+        <span aria-hidden="true">All</span>
       </button>
       <div id="wheel-menu" class="wheel-backdrop" hidden>
         <div

@@ -53,6 +53,9 @@ type actionEnv struct {
 	// claims is the leaderboard database, for the claimed-names actions
 	// (admin_names.go); nil when it isn't open.
 	claims *statsDB
+	// voice is voice chat, for the voice mute actions (voice_admin.go);
+	// nil when VOICE=0.
+	voice *voiceControl
 }
 
 // adminCvar mirrors CVARS in src/client/src/admin/cvars.ts: the range and
@@ -70,6 +73,14 @@ var adminCvars = map[string]adminCvar{
 	"mp_freezetime":   {0, 60, 0},
 	"mp_buytime":      {0.25, 9, 2},
 	"mp_maxrounds":    {0, 100, 0},
+	// Voice chat: everyone hears everyone (voice_roster.go).
+	"sv_alltalk": {0, 1, 0},
+	// Voice chat on/off at runtime (the engine's cvar, which the roster
+	// reports; voice_roster.go).
+	"sv_voiceenable": {0, 1, 0},
+	// Voice chat: 0 makes the talk-to-all key talk to the team only
+	// (src/amxx/wc_roster.sma, voice_roster.go).
+	"wc_voice_all": {0, 1, 0},
 	// 0 off, 1 knife only, 2 pistols only (src/amxx/wc_weaponmode.sma).
 	"wc_weaponmode": {0, 2, 0},
 	// 0 classic, 1 Gun Game, 2 Deathmatch (src/amxx/wc_gamemode.sma).
@@ -195,7 +206,7 @@ var adminActions = map[string]actionSpec{
 }
 
 func init() {
-	for _, actions := range []map[string]actionSpec{banActions, mapActions, nameActions} {
+	for _, actions := range []map[string]actionSpec{banActions, mapActions, nameActions, voiceActions} {
 		for name, spec := range actions {
 			adminActions[name] = spec
 		}

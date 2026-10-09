@@ -171,6 +171,11 @@ export function sendApiAction(
           bans: Array.isArray(body.bans) ? body.bans : [],
           nextMap: typeof body.nextMap === 'string' ? body.nextMap : '',
           claims: Array.isArray(body.claims) ? body.claims : [],
+          voiceMuted: Array.isArray(body.voiceMuted)
+            ? body.voiceMuted.filter(
+                (id): id is number => Number.isInteger(id) && Number(id) > 0
+              )
+            : [],
         }
       : undefined
   );
@@ -240,6 +245,7 @@ type ApiBody = {
   bans?: BanEntry[];
   nextMap?: string;
   claims?: ClaimEntry[];
+  voiceMuted?: unknown[];
 };
 
 type ApiResponse = {
@@ -256,6 +262,11 @@ export type ApiResult = {
   nextMap: string;
   /** Claimed names, for the claims and release_claim actions. */
   claims: ClaimEntry[];
+  /**
+   * Admin-muted userids, for voice_mute and voice_unmute (the server
+   * leaves the field out when nobody is muted).
+   */
+  voiceMuted: number[];
 };
 
 /** Undefined when the server couldn't be reached. */
