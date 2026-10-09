@@ -24,6 +24,14 @@ services:
       - "27016:27016"
       - "27018:27018/tcp"
       - "27018:27018/udp"
+    networks:
+      proxy:
+        aliases: [cs]
     labels:
       project: cs
       app: server
+
+networks:
+  proxy:
+    name: proxy
+    external: true
