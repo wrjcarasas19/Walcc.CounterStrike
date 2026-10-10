@@ -166,57 +166,8 @@ function toggleControl(
   };
 }
 
-// Options of device settings, filled in by their owner (setDeviceOptions).
-const deviceOptions = new Map<SettingKey, DeviceOption[]>();
-
-export type DeviceOption = { value: string; label: string };
-
-function deviceControl(
-  key: SettingKey,
-  def: Extract<SettingDef, { kind: 'device' }>
-): { element: HTMLElement; control: Control } {
-  const field = document.createElement('div');
-  field.className = 'field settings-field';
-  const label = document.createElement('label');
-  label.className = 'field-label';
-  label.htmlFor = controlId(key);
-  label.textContent = def.label;
-  const select = document.createElement('select');
-  select.id = controlId(key);
-  select.className = 'field-input';
-  select.addEventListener('change', () => {
-    setSetting(key, select.value as Settings[SettingKey]);
-  });
-  field.append(label, select);
-
-  return {
-    element: field,
-    control: {
-      focus: select,
-      render(settings) {
-        const value = settings[key] as string;
-        const options = [
-          { value: '', label: def.defaultLabel },
-          ...(deviceOptions.get(key) ?? []),
-        ];
-        // A saved device that isn't listed (not plugged in, or the list
-        // isn't known yet) stays selected.
-        if (!options.some((option) => option.value === value)) {
-          options.push({ value, label: 'Saved device (not found)' });
-        }
-        select.replaceChildren(
-          ...options.map((option) => new Option(option.label, option.value))
-        );
-        select.value = value;
-      },
-    },
-  };
-}
-
-// The fields of each group, for sections added by other modules.
-const groups = new Map<SettingGroup, HTMLElement>();
-
 function buildPanel(): void {
+  const groups = new Map<SettingGroup, HTMLElement>();
   for (const key of SETTING_KEYS) {
     const def: SettingDef = SETTINGS[key];
     let group = groups.get(def.group);
@@ -239,9 +190,7 @@ function buildPanel(): void {
         ? numberControl(key, def)
         : def.kind === 'choice'
           ? choiceControl(key, def)
-          : def.kind === 'device'
-            ? deviceControl(key, def)
-            : toggleControl(key, def);
+          : toggleControl(key, def);
     group.append(element);
     controls.set(key, control);
   }
@@ -266,8 +215,6 @@ function refreshTouchButton(): void {
   touchButton.hidden = !engine || !touchControls || gameMenuOpen;
 }
 
-const panelListeners = new Set<(open: boolean) => void>();
-
 const modal: Modal = createModal({
   backdrop: menu,
   panel,
@@ -278,14 +225,12 @@ const modal: Modal = createModal({
     render(getSettings());
     refreshNameSection();
     controls.get(SETTING_KEYS[0])?.focus.focus();
-    for (const listener of panelListeners) listener(true);
   },
   onClose() {
     // On the login page focus goes back to where it was; in game it stays
     // off the page so keys reach the engine.
     if (!engine && opener?.isConnected) opener.focus();
     opener = null;
-    for (const listener of panelListeners) listener(false);
   },
 });
 
@@ -319,34 +264,6 @@ resetButton.addEventListener('click', () => {
 closeButton.addEventListener('click', () => modal.close(!touchControls));
 launcherButton?.addEventListener('click', () => modal.open());
 touchButton.addEventListener('click', () => modal.open());
-
-/**
- * Sets the choices of a device setting (the default device is always
- * listed first) and shows them at once.
- */
-export function setDeviceOptions(
-  key: SettingKey,
-  options: readonly DeviceOption[]
-): void {
-  deviceOptions.set(key, [...options]);
-  controls.get(key)?.render(getSettings());
-}
-
-/**
- * The fields of a settings group, so a module can add its own controls
- * after the ones built from SETTINGS (e.g. the microphone test).
- */
-export function settingsGroupFields(
-  group: SettingGroup
-): HTMLElement | undefined {
-  return groups.get(group);
-}
-
-/** Calls listener when the panel opens (true) and closes (false). */
-export function onSettingsPanel(listener: (open: boolean) => void): () => void {
-  panelListeners.add(listener);
-  return () => panelListeners.delete(listener);
-}
 
 /**
  * Applies the saved settings to a running engine (call after engine.main()

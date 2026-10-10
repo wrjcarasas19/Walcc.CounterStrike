@@ -49,9 +49,6 @@ type actionResult struct {
 	// Claims is the claimed names, for the claims and release_claim
 	// actions (admin_names.go).
 	Claims []claimEntry `json:"claims,omitempty"`
-	// VoiceMuted is the admin-muted userids, for voice_mute and
-	// voice_unmute (voice_admin.go); left out when nobody is muted.
-	VoiceMuted []int `json:"voiceMuted,omitempty"`
 }
 
 // actionError is a refusal with its HTTP status. Any other error from a

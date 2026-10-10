@@ -1,7 +1,6 @@
 import {
   checkSetting,
   defaultSettings,
-  fixKeyConflicts,
   parseSettings,
   serializeSettings,
   SETTING_KEYS,
@@ -35,8 +34,7 @@ function save(): void {
   }
 }
 
-function update(requested: Settings): void {
-  const next = fixKeyConflicts(requested, current);
+function update(next: Settings): void {
   const changed = SETTING_KEYS.filter((key) => next[key] !== current[key]);
   if (changed.length === 0) return;
   current = next;

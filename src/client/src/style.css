@@ -657,73 +657,6 @@ canvas,
   fill: var(--danger);
 }
 
-/* Speaking list (voice-hud.ts): left, just above the chat feed; the
-   script sets `bottom` from where the feed's top is. Newest at the bottom. */
-.hud-voice {
-  position: absolute;
-  bottom: 7.4em;
-  left: 1.2em;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.3em;
-  max-width: 40%;
-  margin-bottom: 0.3em;
-}
-
-.hud-voice-entry {
-  display: flex;
-  align-items: center;
-  gap: 0.45em;
-  max-width: 100%;
-  padding: 0.2em 0.7em 0.2em 0.5em;
-  background: var(--hud-panel);
-  border: 1px solid var(--divider);
-  border-left: 2px solid currentColor;
-  font-weight: 700;
-  font-size: 1.05em;
-  white-space: nowrap;
-}
-
-.hud-voice-entry.ct {
-  color: var(--team-ct);
-}
-
-.hud-voice-entry.t {
-  color: var(--team-t);
-}
-
-.hud-voice-entry.spec {
-  color: var(--label);
-}
-
-.hud-voice-icon {
-  flex: none;
-  width: 1.1em;
-  height: 1.1em;
-  fill: currentColor;
-  animation: hud-pulse 1s ease-in-out infinite;
-}
-
-.hud-voice-entry.admin-muted .hud-voice-icon {
-  fill: var(--danger);
-  animation: none;
-}
-
-.hud-voice-all,
-.sb-voice-all {
-  flex: none;
-  color: var(--text);
-  font-weight: 700;
-  font-size: 0.85em;
-}
-
-.hud-voice-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 /* Chat feed: bottom left, above the health and armor panels (fixed, so lines
    don't jump when the vitals hide on death). Newest line at the bottom. */
 .hud-chat {
@@ -1104,7 +1037,7 @@ canvas,
 
 .sb-row {
   display: grid;
-  grid-template-columns: 1.4em minmax(0, 1fr) 2.6em 2em 2em 2.6em;
+  grid-template-columns: 1.4em minmax(0, 1fr) 2em 2em 2.6em;
   align-items: center;
   column-gap: 0.6em;
   padding: 0.18em 0.4em;
@@ -1207,91 +1140,9 @@ canvas,
 }
 
 .sb-spectator {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3em;
-  min-width: 0;
-  white-space: nowrap;
-}
-
-.sb-spectator-name {
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-/* Voice (voice-hud.ts): who is talking, the admin's mute, and this
-   player's own mute buttons. The buttons only take the pointer while the
-   game doesn't have it locked (#hud.sb-pointer); until then only a muted
-   player's button shows, as an icon. */
-.sb-voice {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.2em;
-  height: 1.4em;
-}
-
-.sb-voice-icon {
-  flex: none;
-  width: 1.15em;
-  height: 1.15em;
-  fill: var(--label);
-}
-
-.sb-voice-icon.speaking {
-  fill: var(--gain);
-  animation: hud-pulse 1s ease-in-out infinite;
-}
-
-.sb-voice-icon.speaking.all {
-  fill: var(--text);
-}
-
-.sb-voice-icon.admin-muted {
-  fill: var(--danger);
-}
-
-.sb-mute {
-  display: flex;
-  margin: -0.15em;
-  padding: 0.15em;
-  border: none;
-  background: none;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-
-.sb-mute .sb-voice-icon {
-  fill: var(--muted);
-}
-
-.sb-mute.muted .sb-voice-icon {
-  fill: var(--danger);
-}
-
-#hud:not(.sb-pointer) .sb-mute:not(.muted) {
-  display: none;
-}
-
-#hud.sb-pointer .sb-mute {
-  pointer-events: auto;
-}
-
-@media (hover: hover) {
-  #hud.sb-pointer .sb-mute:hover .sb-voice-icon {
-    fill: var(--text);
-  }
-}
-
-.sb-voice-hint {
-  margin: 0;
-  padding: 0.45em 1.1em;
-  border-top: 1px solid var(--divider);
-  font-size: 0.8em;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  color: var(--muted);
+  white-space: nowrap;
 }
 
 .sb-spectator.local {
@@ -1683,10 +1534,6 @@ canvas,
   display: flex;
   flex-direction: column;
   gap: 12px;
-}
-
-.settings-group[hidden] {
-  display: none;
 }
 
 .settings-group + .settings-group {
@@ -2415,120 +2262,6 @@ canvas,
   top: 64px;
   left: calc(26% - 52px);
   touch-action: manipulation;
-}
-
-/* Hold-to-talk button (voice.ts): left of the settings button, above the
-   chat button. touch-action none: the finger may slide while holding. */
-.voice-touch-button {
-  left: calc(26% - 52px);
-  touch-action: none;
-  user-select: none;
-  -webkit-user-select: none;
-  -webkit-touch-callout: none;
-}
-
-.voice-touch-button[aria-pressed='true'] {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-
-.voice-touch-button[aria-pressed='true'] svg {
-  fill: var(--bg);
-}
-
-/* Hold to talk to all players (A.7): left of the team button. */
-.voice-all-touch-button {
-  left: calc(26% - 104px);
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  color: var(--accent);
-  font-weight: 700;
-  font-size: 15px;
-}
-
-.voice-all-touch-button[aria-pressed='true'] {
-  color: var(--bg);
-}
-
-/* Voice notices (voice.ts: microphone blocked or unavailable): under the
-   multi-kill toast, gone after a few seconds, never takes input. */
-.hud-voice-notice {
-  position: absolute;
-  top: 32%;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.2em;
-  max-width: min(90%, 30em);
-  padding: 0.6em 1em;
-  background: var(--hud-panel);
-  border: 1px solid var(--danger);
-  text-align: center;
-  pointer-events: none;
-}
-
-.hud-voice-notice[hidden] {
-  display: none;
-}
-
-.hud-voice-notice-title {
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 1.1em;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--danger);
-}
-
-.hud-voice-notice-text {
-  font-size: 0.9em;
-  font-weight: 600;
-  color: var(--text);
-}
-
-/* Microphone test and help in the settings' Voice group (voice.ts). */
-.settings-voice-test {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
-}
-
-.settings-voice-test .action-button {
-  margin-top: 0;
-  padding: 10px 14px;
-}
-
-.settings-voice-meter {
-  flex: 1 1 140px;
-  height: 10px;
-  background: var(--well);
-  border: 1px solid var(--border);
-  overflow: hidden;
-}
-
-.settings-voice-level {
-  height: 100%;
-  width: 100%;
-  background: var(--gain);
-  transform: scaleX(0);
-  transform-origin: left;
-}
-
-.settings-voice-status {
-  flex-basis: 100%;
-  margin: 0;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--muted);
-}
-
-.settings-voice-status.error {
-  color: var(--danger);
 }
 
 /* Lobby status on the login page (lobby.ts). */

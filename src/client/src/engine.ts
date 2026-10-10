@@ -7,16 +7,15 @@ import gles3URL from 'xash3d-fwgs/libref_gles3compat.wasm?url';
 import { Xash3DWebRTC } from './webrtc';
 
 export function createEngine(): Xash3DWebRTC {
+  blockMicrophone();
   const canvas = document.getElementById('canvas') as HTMLCanvasElement;
   redirectFullscreen(canvas, document.getElementById('game')!);
   return new Xash3DWebRTC({
     canvas,
     module: {
-      // The engine's own voice chat stays off (the game's config.cfg turns it
-      // on and binds K to +voicerecord): with it on, the engine opens the
-      // microphone as it starts and sends voice over the game connection.
-      // Voice goes over WebRTC instead (voice.ts). Set here, before the
-      // engine starts, so it never calls getUserMedia.
+      // No voice chat: the game's config.cfg turns the engine's voice on and
+      // binds K to +voicerecord, which opens the microphone as the engine
+      // starts. Set here, before the engine starts, so it never asks for it.
       arguments: ['-windowed', '-game', 'cstrike', '+voice_enable', '0'],
     },
     libraries: {
@@ -39,6 +38,15 @@ export function createEngine(): Xash3DWebRTC {
 // SDL's fullscreen toggle calls requestFullscreen on the canvas itself
 // (emscripten_request_fullscreen_strategy("#canvas")), which would leave the
 // HTML HUD outside the fullscreen element. Fullscreen the wrapper instead.
+// No voice chat: even if a player turns voice_enable back on in the console,
+// the engine can't open the microphone. Nothing else on the page uses it.
+function blockMicrophone() {
+  const devices = navigator.mediaDevices;
+  if (!devices?.getUserMedia) return;
+  devices.getUserMedia = () =>
+    Promise.reject(new DOMException('Voice chat is disabled', 'NotAllowedError'));
+}
+
 function redirectFullscreen(canvas: HTMLCanvasElement, game: HTMLElement) {
   if (!game.requestFullscreen) return;
   canvas.requestFullscreen = (options) => game.requestFullscreen(options);

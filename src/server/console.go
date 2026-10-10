@@ -33,16 +33,11 @@ import (
 //     buffer) still need the HUD to confirm them.
 //
 // The engine prints "Rcon from <addr>: <packet>" (password included) to its
-// console and log for every rcon packet, as it does for browser rcon, and
-// what the command prints goes to its console too. Not for consoleAddr:
-// patches/engine/rcon-quiet-console.patch keeps those commands and their
-// output quiet (the voice roster runs one 4 times a second, voice_roster.go;
-// the admin API and the log follower log what they run themselves).
+// console for every rcon packet, as it does for browser rcon.
 
 // consoleAddr is the fake address the admin API's rcon packets come from.
 // Player addresses start with their slot index (0-127, see peerSlot), so
-// this one never matches a player. The engine patch
-// (patches/engine/rcon-quiet-console.patch) knows it as "254.0.0.1:".
+// this one never matches a player.
 var consoleAddr = [4]byte{254, 0, 0, 1}
 
 var errConsoleTimeout = errors.New("the engine didn't answer")

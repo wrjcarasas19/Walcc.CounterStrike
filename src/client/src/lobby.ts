@@ -26,8 +26,6 @@ export interface LobbyStatus {
   nextMap: string;
   /** wc_gamemode: 0 classic (or unknown), 1 Gun Game, 2 Deathmatch. */
   gameMode: number;
-  /** The server has voice chat turned off (VOICE=0). */
-  voiceOff: boolean;
 }
 
 /** The name of each wc_gamemode value (src/amxx/wc_gamemode.sma). */
@@ -95,7 +93,6 @@ export function parseLobbyStatus(json: unknown): LobbyStatus | undefined {
       isCount(data.gameMode) && gameModeName(data.gameMode) !== ''
         ? data.gameMode
         : 0,
-    voiceOff: data.voiceOff === true,
   };
 }
 
@@ -127,16 +124,6 @@ export function sortPlayers(players: readonly LobbyPlayer[]): LobbyPlayer[] {
   );
 }
 
-const statusListeners = new Set<(status: LobbyStatus) => void>();
-
-/** Calls listener with every status fetched (the login page's, the HUD's). */
-export function onLobbyStatus(
-  listener: (status: LobbyStatus) => void
-): () => void {
-  statusListeners.add(listener);
-  return () => statusListeners.delete(listener);
-}
-
 /** Fetches the status once; undefined if the server doesn't answer. */
 export async function fetchLobbyStatus(): Promise<LobbyStatus | undefined> {
   const controller = new AbortController();
@@ -147,9 +134,7 @@ export async function fetchLobbyStatus(): Promise<LobbyStatus | undefined> {
       signal: controller.signal,
     });
     if (!response.ok) return undefined;
-    const status = parseLobbyStatus(await response.json());
-    if (status) for (const listener of statusListeners) listener(status);
-    return status;
+    return parseLobbyStatus(await response.json());
   } catch {
     return undefined;
   } finally {

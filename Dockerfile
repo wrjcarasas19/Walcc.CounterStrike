@@ -22,9 +22,7 @@ RUN git init -q . \
     && git submodule update --init --recursive
 
 # Fixes the fork's NET_SendLong freeing split-packet fragments twice, which
-# aborted the server whenever it sent a packet larger than the split size;
-# and keeps the Go side's own rcon commands (src/server/console.go, 4 a
-# second for voice chat) and their output off the server's console and log.
+# aborted the server whenever it sent a packet larger than the split size.
 COPY patches/engine/ /patches/engine/
 RUN git apply /patches/engine/*.patch
 
@@ -194,7 +192,7 @@ RUN mkdir /tmp/addons && cd /tmp/addons \
     # Slot reservation reads a cvar Xash3D doesn't have and errors on every join.
     && sed -i 's|^adminslots.amxx|;adminslots.amxx|' addons/amxmodx/configs/plugins.ini \
     # Our own plugins, compiled in the amxx-plugins stage from src/amxx.
-    && printf '\n; Web server plugins (src/amxx)\nwc_weaponmode.amxx\nwc_gamemode.amxx\nwc_statslog.amxx\nwc_killinfo.amxx\nwc_roster.amxx\n' >> addons/amxmodx/configs/plugins.ini \
+    && printf '\n; Web server plugins (src/amxx)\nwc_weaponmode.amxx\nwc_gamemode.amxx\nwc_statslog.amxx\nwc_killinfo.amxx\n' >> addons/amxmodx/configs/plugins.ini \
     # The players' end-of-map vote and amx_mapmenu pick from maps.ini (stock
     # maps only); add the community maps from the maps stage.
     && printf '%s\n' fy_iceworld aim_map awp_india fy_pool_day >> addons/amxmodx/configs/maps.ini \

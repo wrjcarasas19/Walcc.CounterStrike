@@ -83,7 +83,7 @@ import (
 // current file is read again from the start up to the stored offset, without
 // counting, to get it back. Only the newest keep files are kept; older ones
 // are deleted once fully read (logs also hold the rcon password: the engine
-// logs every rcon command, except the ones Go's own console sends).
+// logs every rcon command).
 
 const (
 	statsScanInterval = 2 * time.Second

@@ -68,37 +68,6 @@ class LiveHeapNet extends Net {
   }
 }
 
-/** Opus bitrate cap for the microphone, in bit/s. */
-export const VOICE_MAX_BITRATE = 32_000;
-
-/** getUserMedia audio constraints for voice chat (mono, browser cleanup on). */
-export const VOICE_MIC_CONSTRAINTS: MediaTrackConstraints = {
-  channelCount: 1,
-  echoCancellation: true,
-  noiseSuppression: true,
-  autoGainControl: true,
-};
-
-/**
- * The voice m-lines of the server's offer (src/server/voice.go): the mic is
- * the audio m-line the server only receives on, the lanes the ones it only
- * sends on, lane 0 first. Empty when the server has voice off.
- */
-export function voiceMids(sdp: string): { mic?: string; lanes: string[] } {
-  const result: { mic?: string; lanes: string[] } = { lanes: [] };
-  for (const section of sdp.split(/\r?\nm=/).slice(1)) {
-    if (!section.startsWith('audio ')) continue;
-    const mid = /\na=mid:(\S+)/.exec(section)?.[1];
-    if (mid === undefined) continue;
-    if (/\na=recvonly\b/.test(section)) {
-      result.mic ??= mid;
-    } else if (/\na=sendonly\b/.test(section)) {
-      result.lanes.push(mid);
-    }
-  }
-  return result;
-}
-
 export type ConnectErrorKind =
   // The signaling WebSocket never opened (server down, refused or rate limited).
   | 'unreachable'
@@ -121,28 +90,6 @@ export class ConnectError extends Error {
 export class Xash3DWebRTC extends Xash3D {
   /** Called when an established connection to the game server is lost. */
   onDisconnect?: (error: Error) => void;
-  /**
-   * Voice: `userid` is now on `lane` (0 when the lane goes quiet); `all`:
-   * they talk to all players, not only their team (A.7).
-   */
-  onVoiceLane?: (lane: number, userid: number, all: boolean) => void;
-  /** Voice: the incoming audio of `lane` (once per connection). */
-  onVoiceTrack?: (
-    lane: number,
-    track: MediaStreamTrack,
-    receiver: RTCRtpReceiver
-  ) => void;
-  /**
-   * Voice: the userids the admin has muted, the whole list each time
-   * (`{"event":"voice","data":{"muted":[3,7]}}`, A.6).
-   */
-  onVoiceMuted?: (userids: number[]) => void;
-  /**
-   * Voice: whether the server has talking to all players off
-   * (`{"allOff":true}`, wc_voice_all 0: the talk-to-all key reaches the
-   * team only). Sent when it changes, and on joining when it is off.
-   */
-  onVoiceAllOff?: (off: boolean) => void;
 
   private channel?: RTCDataChannel;
   private resolve?: () => void;
@@ -154,13 +101,6 @@ export class Xash3DWebRTC extends Xash3D {
   private timeout?: ReturnType<typeof setTimeout>;
   private connected = false;
   private signaling: Promise<void> = Promise.resolve();
-  // Voice transceivers of the current connection (none without voice).
-  private mic?: RTCRtpTransceiver;
-  private laneMids: string[] = [];
-  // The "voice" data channel of the current connection, and whether this
-  // page wants lane audio (kept across connections; setVoiceListening).
-  private voiceChannel?: RTCDataChannel;
-  private voiceListening = true;
 
   constructor(opts?: Xash3DOptions) {
     const memory = new WebAssembly.Memory({
@@ -194,35 +134,8 @@ export class Xash3DWebRTC extends Xash3D {
         );
       }
     };
-    peer.ontrack = (e) => {
-      if (this.peer !== peer) return;
-      const lane = this.laneMids.indexOf(e.transceiver.mid ?? '');
-      if (lane >= 0) this.onVoiceTrack?.(lane, e.track, e.receiver);
-    };
     peer.ondatachannel = (e) => {
       const channel = e.channel;
-      if (channel.label === 'voice') {
-        // Lane events, once this channel is open (the signaling socket
-        // may be gone by then).
-        channel.onmessage = (ee: MessageEvent<string>) => {
-          if (this.peer !== peer) return;
-          try {
-            const parsed = JSON.parse(ee.data);
-            if (parsed?.event === 'voice') this.voiceLane(parsed.data);
-          } catch {}
-        };
-        // The page's requests go back on it; the server assumes a page
-        // listens until told otherwise.
-        this.voiceChannel = channel;
-        const opened = () => {
-          if (this.peer === peer && !this.voiceListening) {
-            this.voiceSend({ listen: false });
-          }
-        };
-        if (channel.readyState === 'open') opened();
-        else channel.onopen = opened;
-        return;
-      }
       if (channel.label !== 'game') return;
       channel.binaryType = 'arraybuffer';
       channel.onmessage = (ee: MessageEvent<ArrayBuffer>) => {
@@ -273,9 +186,6 @@ export class Xash3DWebRTC extends Xash3D {
     this.ws = undefined;
     this.peer = undefined;
     this.channel = undefined;
-    this.voiceChannel = undefined;
-    this.mic = undefined;
-    this.laneMids = [];
     if (ws) {
       ws.onopen = ws.onerror = ws.onclose = ws.onmessage = null;
       ws.close();
@@ -284,7 +194,6 @@ export class Xash3DWebRTC extends Xash3D {
       peer.onicecandidate = null;
       peer.onconnectionstatechange = null;
       peer.ondatachannel = null;
-      peer.ontrack = null;
       peer.close();
     }
   }
@@ -331,20 +240,10 @@ export class Xash3DWebRTC extends Xash3D {
     if (this.peer !== peer) return;
     switch (parsed.event) {
       case 'offer': {
-        // Known before setRemoteDescription, which fires ontrack.
-        const voice = voiceMids(parsed.data.sdp ?? '');
-        this.laneMids = voice.lanes;
         await peer.setRemoteDescription(parsed.data);
-        // The mic is answered as sendonly so a track can be attached later
-        // with replaceTrack, without renegotiating; with no track nothing
-        // is sent.
-        const mic = peer.getTransceivers().find((t) => t.mid === voice.mic);
-        if (mic) mic.direction = 'sendonly';
-        this.mic = mic;
         const answer = await peer.createAnswer();
         await peer.setLocalDescription(answer);
         this.wsSend('answer', answer);
-        if (mic) await this.limitMicSender();
         if (!this.wasRemote) {
           this.wasRemote = true;
           for (const c of this.candidates) {
@@ -354,9 +253,6 @@ export class Xash3DWebRTC extends Xash3D {
         }
         break;
       }
-      case 'voice':
-        this.voiceLane(parsed.data);
-        break;
       case 'candidate':
         if (this.wasRemote) {
           await peer.addIceCandidate(parsed.data);
@@ -364,22 +260,6 @@ export class Xash3DWebRTC extends Xash3D {
           this.candidates.push(parsed.data);
         }
         break;
-    }
-  }
-
-  // A "voice" event, from the signaling socket or the voice data channel:
-  // a lane change ({lane, userid, all}), the admin-muted list ({muted}) or
-  // whether talking to all is off ({allOff}).
-  private voiceLane(data: any) {
-    const { lane, userid, all, muted, allOff } = data ?? {};
-    if (Number.isInteger(lane) && Number.isInteger(userid)) {
-      this.onVoiceLane?.(lane, userid, all === true);
-    }
-    if (typeof allOff === 'boolean') this.onVoiceAllOff?.(allOff);
-    if (Array.isArray(muted)) {
-      this.onVoiceMuted?.(
-        muted.filter((id: unknown) => Number.isInteger(id) && Number(id) > 0)
-      );
     }
   }
 
@@ -453,76 +333,6 @@ export class Xash3DWebRTC extends Xash3D {
           });
       };
     });
-  }
-
-  /** Whether the server offered voice on the current connection. */
-  get voiceAvailable(): boolean {
-    return !!this.mic;
-  }
-
-  /**
-   * Whether the server should send this page lane audio: false while the
-   * Voice chat setting is off, so no bandwidth goes on voice nobody plays.
-   * Kept for later connections (sent when their voice channel opens).
-   */
-  setVoiceListening(listening: boolean) {
-    if (listening === this.voiceListening) return;
-    this.voiceListening = listening;
-    this.voiceSend({ listen: listening });
-  }
-
-  /**
-   * Who what the player says next goes to: all players (the talk-to-all
-   * key) or their team (A.7). Call before attaching the microphone
-   * (setMicTrack) and when the player switches keys while talking; the
-   * server goes back to the team once they stop. Old servers ignore it
-   * (team only).
-   */
-  setVoiceTalk(all: boolean) {
-    this.voiceSend({ talk: all ? 'all' : 'team' });
-  }
-
-  // Sends a request to the server on the voice data channel (dropped when
-  // it isn't open; old servers ignore it).
-  private voiceSend(message: Record<string, unknown>) {
-    const channel = this.voiceChannel;
-    if (channel?.readyState !== 'open') return;
-    try {
-      channel.send(JSON.stringify(message));
-    } catch {}
-  }
-
-  /**
-   * Sends `track` (from getUserMedia with VOICE_MIC_CONSTRAINTS) as the
-   * microphone, or stops sending with null. No renegotiation. Resolves
-   * false when the connection has no voice.
-   */
-  async setMicTrack(track: MediaStreamTrack | null): Promise<boolean> {
-    const mic = this.mic;
-    if (!mic) return false;
-    await mic.sender.replaceTrack(track);
-    if (track) await this.limitMicSender();
-    return true;
-  }
-
-  // Caps the mic's bitrate. Some browsers have no encodings until a track
-  // is attached, so this runs again then.
-  private async limitMicSender() {
-    const sender = this.mic?.sender;
-    if (!sender) return;
-    try {
-      const params = sender.getParameters();
-      if (!params.encodings?.length) return;
-      if (params.encodings.every((e) => e.maxBitrate === VOICE_MAX_BITRATE)) {
-        return;
-      }
-      for (const encoding of params.encodings) {
-        encoding.maxBitrate = VOICE_MAX_BITRATE;
-      }
-      await sender.setParameters(params);
-    } catch (error) {
-      console.warn('Could not cap the voice bitrate:', error);
-    }
   }
 
   sendto(packet: Packet) {

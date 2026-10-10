@@ -33,14 +33,6 @@ import {
 // Also with the admin API: the claimed names (plan E.5), with Release. A
 // release deletes the claim and signs out every browser that has it; the
 // leaderboard row stays and goes to whoever claims the name next.
-//
-// And Mute / Unmute for voice chat (new-features-1007 A.6) when the server
-// offers voice chat: the Go server stops forwarding the player's voice
-// until they are unmuted or reconnect (src/server/voice_admin.go). Who is
-// muted comes from the server's list, which every page in voice gets
-// (voice.ts adminMutedUserids, passed in by main.ts through setVoiceState:
-// importing voice.ts here would load it before chat.ts and break the
-// order of their key listeners), and from each mute's answer.
 
 // The server drops the player on its next frame; the rest covers the 0.5 s
 // snapshot interval and the round trip.
@@ -69,7 +61,6 @@ type Row = {
   actions: HTMLElement;
   kick: HTMLButtonElement;
   ban: HTMLButtonElement;
-  voice: HTMLButtonElement;
   confirm: HTMLElement;
   confirmText: HTMLElement;
   confirmButton: HTMLButtonElement;
@@ -158,27 +149,8 @@ let claimsError = '';
 // its way.
 let confirmingClaim: string | undefined;
 let releasing = false;
-// Whether the server offers voice chat, the admin-muted userids, and a
-// mute or unmute on its way.
-let voiceOn = false;
-let voiceMuted: readonly number[] = [];
-let voiceMuting = false;
 
 onHudEvent(trackEvent);
-
-/**
- * Voice chat as the page knows it: offered by the server, and the userids
- * the admin has muted (the server's list).
- */
-export function setVoiceState(offered: boolean, muted: readonly number[]) {
-  if (offered === voiceOn && muted.join() === voiceMuted.join()) return;
-  voiceOn = offered;
-  voiceMuted = muted;
-  if (shown) {
-    lastRendered = '';
-    render();
-  }
-}
 
 function trackEvent(event: HudEvent): void {
   if (event.type !== 'scores') return;
@@ -238,11 +210,9 @@ function createRow(player: ScorePlayer): Row {
 
   const kick = smallButton('Kick', 'admin-player-kick');
   const ban = smallButton('Ban', 'admin-player-ban');
-  const voice = smallButton('Mute', 'admin-player-voice');
-  voice.hidden = true;
   const actions = document.createElement('span');
   actions.className = 'admin-player-actions';
-  actions.append(voice, kick, ban);
+  actions.append(kick, ban);
 
   const confirm = document.createElement('div');
   confirm.className = 'admin-player-confirm';
@@ -264,7 +234,6 @@ function createRow(player: ScorePlayer): Row {
     actions,
     kick,
     ban,
-    voice,
     confirm,
     confirmText,
     confirmButton,
@@ -273,7 +242,6 @@ function createRow(player: ScorePlayer): Row {
   };
   kick.addEventListener('click', () => openConfirm(row, 'kick'));
   ban.addEventListener('click', () => openConfirm(row, 'ban'));
-  voice.addEventListener('click', () => void toggleVoiceMute(row.player));
   cancel.addEventListener('click', () =>
     closeConfirm(confirming?.kind === 'ban' ? row.ban : row.kick)
   );
@@ -343,41 +311,6 @@ function banBlocker(player: ScorePlayer): string | undefined {
     return 'Banning needs the admin API (ADMIN_PASSWORD on the server)';
   }
   return undefined;
-}
-
-/** Why this player's voice can't be muted, or undefined if it can. */
-function voiceBlocker(player: ScorePlayer): string | undefined {
-  if (player.local) return "You can't mute yourself";
-  if (!validUserid(player)) return "This game client doesn't send player ids";
-  return undefined;
-}
-
-function isVoiceMuted(player: ScorePlayer): boolean {
-  return validUserid(player) && voiceMuted.includes(player.userid!);
-}
-
-function renderVoiceButton(row: Row): void {
-  const { player, voice } = row;
-  voice.hidden = !usesApi() || !voiceOn || player.bot;
-  if (voice.hidden) return;
-  const muted = isVoiceMuted(player);
-  setText(voice, muted ? 'Unmute' : 'Mute');
-  voice.classList.toggle('muted', muted);
-  voice.setAttribute('aria-pressed', String(muted));
-  voice.setAttribute(
-    'aria-label',
-    `${muted ? 'Unmute' : 'Mute'} ${player.name} in voice chat`
-  );
-  voice.title =
-    voiceBlocker(player) ??
-    (muted
-      ? `Let everyone hear ${player.name} again`
-      : `Nobody hears ${player.name} in voice chat until unmuted or they reconnect`);
-  voice.disabled =
-    voiceBlocker(player) !== undefined ||
-    voiceMuting ||
-    isBusy() ||
-    !hasPassword();
 }
 
 function render(): void {
@@ -450,10 +383,6 @@ function renderNote(scores: Scores | undefined, players: ScorePlayer[]): void {
   if (!usesApi()) {
     text +=
       ' Banning needs the admin API: set ADMIN_PASSWORD on the server (rcon only sees fake addresses).';
-    if (voiceOn) text += ' So does muting voice chat.';
-  } else if (voiceOn) {
-    text +=
-      ' Mute silences a player in voice chat until you unmute them or they reconnect; everyone sees a crossed-out microphone.';
   }
   setText(note, text);
 }
@@ -534,7 +463,6 @@ function refresh(): void {
       banBlocker(row.player) !== undefined || isBusy() || !hasPassword();
     row.confirmButton.disabled =
       confirming?.kind === 'ban' ? row.ban.disabled : row.kick.disabled;
-    renderVoiceButton(row);
   }
   // Load the list once logged in (also after logging in with the tab open).
   const loggedIn = isLoggedIn();
@@ -791,31 +719,6 @@ async function banPlayer(player: ScorePlayer): Promise<void> {
       `${player.name} was banned, but the player list hasn't updated yet.`
     );
   }
-}
-
-async function toggleVoiceMute(player: ScorePlayer): Promise<void> {
-  if (voiceMuting || isBusy() || voiceBlocker(player) !== undefined) return;
-  const userid = player.userid!;
-  const mute = !isVoiceMuted(player);
-  const request = sendApiAction({
-    action: mute ? 'voice_mute' : 'voice_unmute',
-    userid,
-  });
-  if (!request) return;
-  voiceMuting = true;
-  refresh();
-  setStatus(`${mute ? 'Muting' : 'Unmuting'} ${player.name}...`);
-  const result = await request;
-  voiceMuting = false;
-  if (result) {
-    voiceMuted = result.voiceMuted;
-    setStatus(
-      mute
-        ? `Done. Nobody hears ${player.name} in voice chat.`
-        : `Done. ${player.name} can be heard again.`
-    );
-  }
-  refresh();
 }
 
 async function unbanAddress(ban: BanEntry): Promise<void> {

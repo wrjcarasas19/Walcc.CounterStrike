@@ -70,9 +70,6 @@ func main() {
 	if !ok {
 		fmt.Fprintf(os.Stderr, "WARNING: BOT_QUOTA must be a whole number from 0 to %d: using 0 (no bots)\n", botQuotaMax)
 	}
-	if voiceEnabled, ok = parseVoice(os.Getenv("VOICE")); !ok {
-		fmt.Fprintln(os.Stderr, "WARNING: VOICE must be 0 or 1: voice chat is on")
-	}
 	baseDir := os.Getenv("XASH3D_BASEDIR")
 	if baseDir == "" {
 		baseDir = "."
@@ -88,28 +85,22 @@ func main() {
 	if !ok {
 		fmt.Fprintln(os.Stderr, "WARNING: LEADERBOARD_BOTS must be 0 or 1: bots are left out of the leaderboard")
 	}
-	// ensureConsole makes the engine console for Go's own commands when the
-	// admin API didn't. Without the admin API, keep RCON_PASSWORD if there
-	// is one; otherwise use a password nobody knows and keep players off
-	// rcon.
-	ensureConsole := func() {
-		if console != nil {
-			return
-		}
-		if rcon != rconEnabled {
-			rconPassword = randomToken()
-			args, _ = engineArgs(os.Args, rconPassword)
-			blockPlayerRcon = true
-		}
-		console = newEngineConsole(rconPassword, queueEnginePacket)
-	}
 	var leaderboard, duel, names http.Handler
 	if db, err := openStatsDB(filepath.Join(dataDir, leaderboardFile)); err != nil {
 		fmt.Fprintf(os.Stderr, "WARNING: can't open the leaderboard database: %v; /leaderboard, /duel and /names/ are off\n", err)
 	} else {
-		// The log follower renames players under a claimed name they don't
-		// own through the console (statsfollow.go).
-		ensureConsole()
+		if console == nil {
+			// The log follower renames players under a claimed name they
+			// don't own through the console (statsfollow.go). Without the
+			// admin API, keep RCON_PASSWORD if there is one; otherwise use
+			// a password nobody knows and keep players off rcon.
+			if rcon != rconEnabled {
+				rconPassword = randomToken()
+				args, _ = engineArgs(os.Args, rconPassword)
+				blockPlayerRcon = true
+			}
+			console = newEngineConsole(rconPassword, queueEnginePacket)
+		}
 		args = withGameLogging(args)
 		go newLogFollower(filepath.Join("cstrike", "logs"), db, includeBots, gamePeers{}, console).run(context.Background(), statsScanInterval)
 		leaderboard = newLeaderboardHandler(db, includeBots)
@@ -118,17 +109,6 @@ func main() {
 		if adminCommands != nil {
 			// Set before runSFU serves the admin API.
 			adminCommands.env.claims = db
-		}
-	}
-
-	// Voice chat reads who is on which team and alive through the console
-	// (voice_roster.go).
-	if voiceEnabled {
-		ensureConsole()
-		go newRosterPoller(console, voices, voicePolicyNow, gameVoicePeer).run(context.Background())
-		if adminCommands != nil {
-			// Set before runSFU serves the admin API.
-			adminCommands.env.voice = &voiceControl{hub: voices, policy: voicePolicyNow}
 		}
 	}
 
