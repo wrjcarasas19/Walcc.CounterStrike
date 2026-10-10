@@ -187,6 +187,8 @@ RUN mkdir /tmp/addons && cd /tmp/addons \
     && sed -i 's|^yb_quota .*|yb_quota "0"|' addons/yapb/conf/yapb.cfg \
     # yapb.cfg runs again on every map change; keep what the admin menu set.
     && sed -i 's|^yb_ignore_cvars_on_changelevel .*|yb_ignore_cvars_on_changelevel "yb_quota,yb_quota_mode,yb_difficulty,yb_autovacate"|' addons/yapb/conf/yapb.cfg \
+    # Bot AI is CPU-heavy; run it at YaPB's minimum rate (default 26).
+    && sed -i 's|^yb_think_fps .*|yb_think_fps "24.0"|' addons/yapb/conf/yapb.cfg \
     # Players get fake addresses from the SFU, so drop the address-based admin.
     && sed -i 's|^"loopback"|; "loopback"|' addons/amxmodx/configs/users.ini \
     # Slot reservation reads a cvar Xash3D doesn't have and errors on every join.
