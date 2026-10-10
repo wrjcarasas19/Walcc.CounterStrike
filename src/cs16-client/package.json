@@ -1,0 +1,12 @@
+{
+  "name": "cs16-client",
+  "version": "0.0.10",
+  "private": true,
+  "description": "cs16-client (game client, menu and ReGameDLL) built for the browser; see README.md",
+  "exports": {
+    "./cl_dll/menu_emscripten_wasm32.wasm": "./dist/cl_dll/menu_emscripten_wasm32.wasm",
+    "./cl_dll/client_emscripten_wasm32.wasm": "./dist/cl_dll/client_emscripten_wasm32.wasm",
+    "./dlls/cs_emscripten_wasm32.so": "./dist/dlls/cs_emscripten_wasm32.so"
+  },
+  "license": "MIT"
+}

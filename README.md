@@ -358,8 +358,13 @@ docker build --platform=linux/386 -t cs16-web-server .
 
 ### Install client dependencies, build and serve client:
 
+The game client the page loads is built from `src/cs16-client` (C++ compiled
+to wasm in Docker; see its README). The Docker image builds it on its own;
+outside Docker, build it once first:
+
 ```shell
 nvm install
+npm run build:cs16-client
 npm install
 npm run build
 npm run serve

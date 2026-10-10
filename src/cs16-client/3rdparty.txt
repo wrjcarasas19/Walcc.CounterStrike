@@ -1,0 +1,12 @@
+# The client source's dependencies (upstream's git submodules), pinned.
+# The Dockerfile's cs16-client stage fetches each commit into
+# source/<path>, parents before the folders nested in them.
+# Upstream's 3rdparty/yapb and 3rdparty/cs16client-extras are left out:
+# the web build only uses them for extras.pk3, which the page doesn't load.
+#
+# path                                         url                                    commit
+3rdparty/ReGameDLL_CS                          https://github.com/Velaron/ReGameDLL_CS f4603c01507b07ed56ebd790d2435dc665ae3081
+3rdparty/ReGameDLL_CS/regamedll/extra/cssdk    https://github.com/s1lentq/CSSDK       a09ee092843489fa95a8c002a44860427812094c
+3rdparty/mainui_cpp                            https://github.com/Velaron/mainui_cpp  be2c2b297598cfaf523eb30fbf7f6a503771fcc2
+3rdparty/mainui_cpp/miniutl                    https://github.com/FWGS/MiniUTL        66bb8ce932649907a33007b89c09deb30cebd49e
+3rdparty/miniutl                               https://github.com/FWGS/MiniUTL        fd715cd93c8de3c32f2ecfd3101b8169430382af

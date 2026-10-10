@@ -269,13 +269,47 @@ RUN mkdir /out \
         ./amxxpc "$sma" -o"$out" && test -s "$out" || exit 1; \
     done
 
+# The browser's game client, menu and server DLL (src/cs16-client), built
+# with Emscripten. The emsdk image is amd64-only; the output is wasm, the
+# same on every platform. Dependencies first: they change less than the
+# source.
+FROM --platform=linux/amd64 emscripten/emsdk:4.0.11 AS cs16-client
+
+WORKDIR /cs
+COPY src/cs16-client/3rdparty.txt /3rdparty.txt
+COPY src/cs16-client/patches/ /patches/
+RUN grep -v '^#' /3rdparty.txt | while read -r path url commit; do \
+        [ -n "$path" ] || continue; \
+        mkdir -p "$path" \
+        && git -C "$path" init -q \
+        && git -C "$path" fetch -q --depth=1 "$url" "$commit" \
+        && git -C "$path" checkout -q FETCH_HEAD \
+        || exit 1; \
+    done \
+    && git -C 3rdparty/mainui_cpp apply /patches/mainui_cpp.patch
+COPY src/cs16-client/source/ .
+# Only the three libraries the page loads (not pack_extras, which needs
+# the folders 3rdparty.txt leaves out).
+RUN emcmake cmake -S . -B build \
+    && cmake --build build --config Release --target client menu regamedll \
+    && mkdir -p /out/cl_dll /out/dlls \
+    && mv build/cl_dll/client_emscripten_javascript.wasm /out/cl_dll/client_emscripten_wasm32.wasm \
+    && mv build/3rdparty/mainui_cpp/menu_emscripten_javascript.wasm /out/cl_dll/menu_emscripten_wasm32.wasm \
+    && mv build/3rdparty/ReGameDLL_CS/regamedll/cs_emscripten_javascript.wasm /out/dlls/cs_emscripten_wasm32.so
+
+# Just the built files, for src/cs16-client/dist on a development machine:
+# docker build --target cs16-client-dist --output src/cs16-client/dist .
+FROM scratch AS cs16-client-dist
+COPY --from=cs16-client /out/ /
+
 FROM --platform=$BUILDPLATFORM node:24-alpine AS client
 
 WORKDIR /client
 
 COPY package.json package.json
 COPY package-lock.json package-lock.json
-COPY vendor/cs16-client-0.0.10.tgz vendor/cs16-client-0.0.10.tgz
+COPY src/cs16-client/package.json src/cs16-client/package.json
+COPY --from=cs16-client-dist / src/cs16-client/dist/
 COPY vendor/xash3d-fwgs-1.0.0.tgz vendor/xash3d-fwgs-1.0.0.tgz
 RUN npm ci
 COPY vite.config.ts vite.config.ts

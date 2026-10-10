@@ -5,3 +5,4 @@ dist
 plans
 src/client/dist
 .env
+src/cs16-client/dist
