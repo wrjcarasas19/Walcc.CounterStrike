@@ -1,8 +1,8 @@
-node_modules
+**/node_modules
 .git
 dist
 *.zip
 plans
-src/client/dist
+apps/client/dist
 .env
-src/cs16-client/dist
+apps/cs16-client/dist

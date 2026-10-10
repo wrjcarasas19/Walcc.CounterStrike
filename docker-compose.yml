@@ -1,6 +1,9 @@
 services:
   cs16-web-server:
-    build: .
+    # The build context is the repository: the image takes every app in apps/.
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
     container_name: cs16-web-server
     command: ["+map de_dust2", "+maxplayers 14"]
     restart: always

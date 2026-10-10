@@ -1,0 +1,22 @@
+{
+  "name": "cs16-web-server",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "serve": "vite preview",
+    "build:cs16-client": "docker build -f ../server/Dockerfile --target cs16-client-dist --output ../cs16-client/dist ../.."
+  },
+  "dependencies": {
+    "cs16-client": "file:../cs16-client",
+    "idb-keyval": "^6.2.2",
+    "jszip": "^3.10.1",
+    "xash3d-fwgs": "file:vendor/xash3d-fwgs-1.0.0.tgz"
+  },
+  "devDependencies": {
+    "@types/node": "^24.1.0",
+    "typescript": "^5.8.3",
+    "vite": "^7.0.6"
+  }
+}

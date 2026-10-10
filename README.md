@@ -1,4 +1,4 @@
-# Counter-Strike 1.6 Web Server <img alt="Counter-Strike 1.6 icon" align="right" width="128" height="128" src="./src/client/public/apple-touch-icon.png" />
+# Counter-Strike 1.6 Web Server <img alt="Counter-Strike 1.6 icon" align="right" width="128" height="128" src="./apps/client/public/apple-touch-icon.png" />
 
 This repository provides a **plug-and-play Docker image** for running a fully functional **Counter-Strike 1.6** client and dedicated server via the web. Powered by **Xash3D FWGS**, **WebRTC**, and modern web tooling, this setup allows for in-browser gameplay and remote multiplayer support.
 
@@ -10,7 +10,7 @@ This repository provides a **plug-and-play Docker image** for running a fully fu
 - ✅ ReGameDLL_CS, Metamod-R, AMX Mod X and YaPB bots included
 - ✅ Game modes from the F4 Match tab: Gun Game and Deathmatch (respawns, endless rounds, spawn protection; Gun Game has a 24-weapon ladder with knife steals and a winner that ends the map; Deathmatch has a guns menu), plus knife only and pistols only
 - ✅ Community maps on top of the stock ones: `fy_iceworld`, `aim_map`, `awp_india`, `fy_pool_day`, `cs_mansion`, `ttt_mario_b1` (browsers download them, and the models, sounds and skies they need, from the server before joining)
-- ✅ Announcer sounds on top of the HUD's toasts: First Blood (everyone hears it, with a "<name> drew first blood" toast; once a round, once a map in Gun Game and Deathmatch), Headshot, Double / Triple / Quad kill and Rampage, streaks of 5 / 10 / 15 / 20 (Killing spree, Dominating, Unstoppable, Godlike), also for other players' multi-kills and streaks (with a "Walter: Double kill" toast), Humiliation for a knife kill and a short sound when you are knifed, Last man standing; Gun Game level up, last level and winner once the game client sends the `mode` event (cs16-client 0.0.10). Our own sounds (`src/client/public/sounds`, credits in its README), loaded only after joining; one at a time, by priority. Settings (F3, Sound): Announcer volume (0 turns it off, and then the sounds aren't even downloaded), Announce headshots, Hear other players' first blood, Other players' kill streaks
+- ✅ Announcer sounds on top of the HUD's toasts: First Blood (everyone hears it, with a "<name> drew first blood" toast; once a round, once a map in Gun Game and Deathmatch), Headshot, Double / Triple / Quad kill and Rampage, streaks of 5 / 10 / 15 / 20 (Killing spree, Dominating, Unstoppable, Godlike), also for other players' multi-kills and streaks (with a "Walter: Double kill" toast), Humiliation for a knife kill and a short sound when you are knifed, Last man standing; Gun Game level up, last level and winner once the game client sends the `mode` event (cs16-client 0.0.10). Our own sounds (`apps/client/public/sounds`, credits in its README), loaded only after joining; one at a time, by priority. Settings (F3, Sound): Announcer volume (0 turns it off, and then the sounds aren't even downloaded), Announce headshots, Hear other players' first blood, Other players' kill streaks
 - ✅ "Killed by" card when you die (lower centre, 15 s, also after you respawn or the next round starts; gone at the end of the map): the killer in team colour, weapon, headshot, this map's record against them ("This map: you 2 – 5 Walter"), the all-time record from `/duel` once the pair has history, and their streak from 3 kills; short cards for falls, the bomb, your own grenade or `kill`, and "Killed by teammate". The killer's HP, armour and distance need cs16-client 0.0.10 (`killinfo` event). Setting (F3, HUD): Killer card
 - ✅ Invite links: Settings (F3, or the Settings button on the login page) → "Copy invite link"; opening `/?join=1` loads the game and joins with the saved nickname (or asks for one first)
 - ✅ Claimed names: Settings (F3) → "Your name" claims your nickname on this server, with a recovery code to sign in other browsers; nobody else can play or score under it, the leaderboard marks it with ✓, and the admin can release it (F4 → Players)
@@ -271,14 +271,14 @@ off every `/names/` path is 404.
 
 Client UI/UX:
 
-- Modify files in src/client
+- Modify files in apps/client
 
 Plugins included in the image (pinned versions with checksums in the
 `Dockerfile`):
 
 | Plugin    | Version        | Notes                                                                                                                                                                                                                                                                            |
 | --------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Metamod-R | 1.3.0.149      | Loaded through `liblist.gam`; plugin list in `configs/cstrike/addons/metamod/plugins.ini`                                                                                                                                                                                        |
+| Metamod-R | 1.3.0.149      | Loaded through `liblist.gam`; plugin list in `apps/server/configs/cstrike/addons/metamod/plugins.ini`                                                                                                                                                                                        |
 | AMX Mod X | 1.10.0-git5486 | Base + cstrike packages; `adminslots.amxx` is off (it errors on Xash3D)                                                                                                                                                                                                          |
 | YaPB      | 4.4.957        | Bots; `yb_quota` defaults to 0, so add them with `yb add` / `yb_quota <n>`                                                                                                                                                                                                       |
 | ReGameDLL | 5.30.0.814     | Replaces the stock game DLL (`cstrike/dlls/cs.so`); adds cvars such as `mp_forcerespawn`, `mp_round_infinite`, `mp_respawn_immunitytime`, `mp_item_staytime`, `mp_buy_anywhere`. Only `cs.so` is used: no `game.cfg` (it would run on every map change), HLDS's `delta.lst` kept |
@@ -288,11 +288,11 @@ Xash3D, cvars that AMX Mod X marks as single-player-only (like
 `amx_nextmap`) can't be set from the console; use
 `amx_cvar amx_nextmap <map>`.
 
-Our own AMX Mod X plugins are in `src/amxx/`. The Docker build compiles
+Our own AMX Mod X plugins are in `apps/amxx/`. The Docker build compiles
 every `.sma` there with the AMX Mod X compiler (`amxx-plugins` stage); add
 each new one to the `plugins.ini` line in the `hlds` stage. Weapon code they
 share (stripping, giving with full ammo, the buy commands) is in
-`src/amxx/wc_weapons.inc`:
+`apps/amxx/wc_weapons.inc`:
 
 | Plugin               | Cvar                                                                                                                                                                                                                                                                                                  | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -311,7 +311,7 @@ Custom plugins:
 
 Maps:
 
-- The map cycle (`configs/cstrike/mapcycle.txt`) is `de_dust2`,
+- The map cycle (`apps/server/configs/cstrike/mapcycle.txt`) is `de_dust2`,
   `fy_iceworld`, `cs_assault`, `aim_map`, `de_inferno`, `awp_india`,
   `fy_pool_day`, `de_nuke`, `cs_mansion`, `ttt_mario_b1`. The players'
   end-of-map vote and `amx_mapmenu` offer the stock maps plus the six
@@ -332,15 +332,15 @@ Maps:
   mounted volume works the same way: put its `.res` next to the `.bsp` and
   the files under `cstrike/`.
 - `fy_`, `aim_` and `awp_` maps load their own settings when they start
-  (`configs/cstrike/addons/amxmodx/configs/maps/prefix_*.cfg`, run by AMX
+  (`apps/server/configs/cstrike/addons/amxmodx/configs/maps/prefix_*.cfg`, run by AMX
   Mod X a few seconds in): `mp_startmoney 16000`, `mp_freezetime 0`,
   `mp_roundtime 2`, `mp_buytime 0.25`, then a round restart. They override
   what the F4 Match tab set. The map after one of them gets the stock values
-  back (`configs/cstrike/leave_funmap.cfg`, run through the engine's
+  back (`apps/server/configs/cstrike/leave_funmap.cfg`, run through the engine's
   `mapchangecfgfile`), so a classic map doesn't keep $16000 and 2-minute
   rounds.
 - YaPB graphs (bot waypoints) for the community maps are in
-  `configs/cstrike/addons/yapb/data/graph` (from YaPB's graph database,
+  `apps/server/configs/cstrike/addons/yapb/data/graph` (from YaPB's graph database,
   except `fy_iceworld`'s, made by YaPB's own analysis because the database
   has the graph for the original version of that map). The database has
   none for `cs_mansion` or `ttt_mario_b1`, so YaPB analyses those itself.
@@ -350,19 +350,25 @@ Maps:
 
 ## 🛠️ Development
 
+The repository is split into apps: `apps/server` (Go server, `Dockerfile`,
+game configs, engine patches), `apps/client` (the page), `apps/cs16-client`
+(the game client) and `apps/amxx` (AMX Mod X plugins). They build into one
+image.
+
 ### Build Docker image:
 
 ```shell
-docker build --platform=linux/386 -t cs16-web-server .
+docker build --platform=linux/386 -f apps/server/Dockerfile -t cs16-web-server .
 ```
 
 ### Install client dependencies, build and serve client:
 
-The game client the page loads is built from `src/cs16-client` (C++ compiled
+The game client the page loads is built from `apps/cs16-client` (C++ compiled
 to wasm in Docker; see its README). The Docker image builds it on its own;
 outside Docker, build it once first:
 
 ```shell
+cd apps/client
 nvm install
 npm run build:cs16-client
 npm install
@@ -373,6 +379,7 @@ npm run serve
 ### Install server dependencies:
 
 ```shell
+cd apps/server
 goenv install
 go mod download
 ```
