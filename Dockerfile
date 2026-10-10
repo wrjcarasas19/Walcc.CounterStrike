@@ -62,11 +62,18 @@ ENV CGO_CFLAGS="-fopenmp -m32"
 ENV CGO_LDFLAGS="-fopenmp -m32"
 RUN go build -o ./xash ./src/server
 
-# Community maps added to cstrike/maps (sources, authors and sizes in
-# plans/new-features-1006.md, Progress B.1). Each *_url may point at a bare
-# .bsp (a mirror you own) or at an archive (zip, 7z, rar) holding
-# <map>.bsp; either way the .bsp must match *_sha256. The defaults are the
-# GameBanana uploads; point them at your own mirror to stop depending on it.
+# Community maps added to cstrike/maps. Each *_url may point at a bare .bsp
+# (a mirror you own) or at an archive (zip, 7z, rar) holding <map>.bsp;
+# either way the .bsp must match *_sha256. A map that needs other files
+# (models, sounds, a sky) names them after its sha256; they come from the
+# archive's game folder (the one holding maps/<map>.bsp), are checked below
+# and listed in maps/<map>.res, which the web server reads to send them to
+# browsers (src/server/maps.go). The defaults are the GameBanana uploads;
+# point them at your own mirror to stop depending on it.
+#   cs_mansion: gamebanana.com/mods/92163 (Anushapopli)
+#   ttt_mario_b1: gamebanana.com/mods/486483 (Lisa Hayes); its .res also
+#   lists sound/btfunny/cart_bgm.wav, which the upload doesn't include, so
+#   that ambient sound stays silent.
 FROM --platform=$BUILDPLATFORM debian:bookworm-slim AS maps
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -83,33 +90,67 @@ ARG awp_india_url=https://files.gamebanana.com/mods/awp_india.7z
 ARG awp_india_sha256=c3d2311d633ab68aaf3708c49778e923f5a43e2dc2631abf5d602c56f2f2156f
 ARG fy_pool_day_url=https://files.gamebanana.com/mods/fy_pool_day_60bca.rar
 ARG fy_pool_day_sha256=fb22ba78a20d762a7114bdd56d62ec01794695ac48c6777f1bbd676ab769d208
+ARG cs_mansion_url=https://files.gamebanana.com/mods/cs_mansion.7z
+ARG cs_mansion_sha256=cd65250fdfd78950e8ea0146629613cb9d86566e3a663ce178e52457b6e1cd54
+ARG ttt_mario_b1_url=https://files.gamebanana.com/mods/ttt_mario_b1_bea72.rar
+ARG ttt_mario_b1_sha256=fb1af7498adea6d8db58387daeb0f4316b6d08de8a985f43abb9b4105fa1978a
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-RUN mkdir /maps \
+# /game is copied over cstrike in the hlds stage.
+RUN mkdir -p /game/maps \
     # set -e doesn't apply inside a function called from an && list, so every
     # step is chained.
     && fetch() { \
-        local name=$1 url=$2 sha=$3 dir found; \
+        local name=$1 url=$2 sha=$3 dir found root path; \
+        shift 3; \
         dir=$(mktemp -d) \
         && curl -fsSLo "$dir/download" "$url" \
         # A BSP (version 30) starts with 1e 00 00 00; anything else is an archive.
         && if [ "$(od -An -tx1 -N4 "$dir/download" | tr -d ' ')" = 1e000000 ]; then \
-            mv "$dir/download" "/maps/$name.bsp"; \
+            { [ $# = 0 ] || { echo "$name needs its other files: $url must be an archive" >&2; false; }; } \
+            && mv "$dir/download" "/game/maps/$name.bsp"; \
         else \
             mkdir "$dir/x" \
             && bsdtar -xf "$dir/download" -C "$dir/x" \
             && found=$(find "$dir/x" -type f -iname "$name.bsp") \
             && { [ -n "$found" ] && [ "$(printf '%s\n' "$found" | wc -l)" = 1 ] \
                 || { echo "expected one $name.bsp in $url, found: $found" >&2; false; }; } \
-            && mv "$found" "/maps/$name.bsp"; \
+            && root=$(dirname "$(dirname "$found")") \
+            && mv "$found" "/game/maps/$name.bsp" \
+            && for path in "$@"; do \
+                install -D -m 644 "$root/$path" "/game/$path" || return 1; \
+            done; \
         fi \
         && rm -rf "$dir" \
-        && echo "$sha  /maps/$name.bsp" | sha256sum -c -; \
+        && { [ $# = 0 ] || printf '%s\n' "$@" > "/game/maps/$name.res"; } \
+        && echo "$sha  /game/maps/$name.bsp" | sha256sum -c -; \
     } \
     && fetch fy_iceworld "$fy_iceworld_url" "$fy_iceworld_sha256" \
     && fetch aim_map "$aim_map_url" "$aim_map_sha256" \
     && fetch awp_india "$awp_india_url" "$awp_india_sha256" \
     && fetch fy_pool_day "$fy_pool_day_url" "$fy_pool_day_sha256" \
-    && chmod 644 /maps/*.bsp
+    && fetch cs_mansion "$cs_mansion_url" "$cs_mansion_sha256" \
+    && fetch ttt_mario_b1 "$ttt_mario_b1_url" "$ttt_mario_b1_sha256" \
+        models/ttt_syko/goomba_mario.mdl \
+        models/ttt_syko/mariobros.mdl \
+        sound/ttt_mario/rugido_koopa.wav \
+        gfx/env/kart_sky01bk.tga \
+        gfx/env/kart_sky01dn.tga \
+        gfx/env/kart_sky01ft.tga \
+        gfx/env/kart_sky01lf.tga \
+        gfx/env/kart_sky01rt.tga \
+        gfx/env/kart_sky01up.tga \
+    && printf '%s  /game/%s\n' \
+        a9be967991cac5cec8ad1ed101eab5fd67ac0cc010cf2d9ca8576e8edca13948 models/ttt_syko/goomba_mario.mdl \
+        d0a9015479ed532fb1c8b56df4cc8f39a82107508fb21c7efccd7d248468c811 models/ttt_syko/mariobros.mdl \
+        a9735304d6b16fee00288e4fd5824a1b42582e9e1e2e7a54595ce4a07e46f6f8 sound/ttt_mario/rugido_koopa.wav \
+        55b846355d286e6237228b045f663448a556105325c41358ef25e3acab6e6098 gfx/env/kart_sky01bk.tga \
+        e177916fb9588087853f1bf1fbac2e1adaa205bad0555b16b2274f728ab6ac4d gfx/env/kart_sky01dn.tga \
+        55b846355d286e6237228b045f663448a556105325c41358ef25e3acab6e6098 gfx/env/kart_sky01ft.tga \
+        55b846355d286e6237228b045f663448a556105325c41358ef25e3acab6e6098 gfx/env/kart_sky01lf.tga \
+        55b846355d286e6237228b045f663448a556105325c41358ef25e3acab6e6098 gfx/env/kart_sky01rt.tga \
+        e177916fb9588087853f1bf1fbac2e1adaa205bad0555b16b2274f728ab6ac4d gfx/env/kart_sky01up.tga \
+        | sha256sum -c - \
+    && chmod 644 /game/maps/*
 
 FROM debian:bookworm-slim AS hlds
 
@@ -197,7 +238,7 @@ RUN mkdir /tmp/addons && cd /tmp/addons \
     && printf '\n; Web server plugins (src/amxx)\nwc_weaponmode.amxx\nwc_gamemode.amxx\nwc_statslog.amxx\nwc_killinfo.amxx\n' >> addons/amxmodx/configs/plugins.ini \
     # The players' end-of-map vote and amx_mapmenu pick from maps.ini (stock
     # maps only); add the community maps from the maps stage.
-    && printf '%s\n' fy_iceworld aim_map awp_india fy_pool_day >> addons/amxmodx/configs/maps.ini \
+    && printf '%s\n' fy_iceworld aim_map awp_india fy_pool_day cs_mansion ttt_mario_b1 >> addons/amxmodx/configs/maps.ini \
     # Metamod looks for the ReHLDS API in engine_i486.so; loading the GoldSrc
     # engine shipped with HLDS into the Xash3D process crashes it. Xash3D
     # doesn't use that file.
@@ -206,7 +247,7 @@ RUN mkdir /tmp/addons && cd /tmp/addons \
 # Copy default config
 COPY configs/valve valve
 COPY configs/cstrike cstrike
-COPY --from=maps /maps/ cstrike/maps/
+COPY --from=maps /game/ cstrike/
 
 # Compiles the server's own AMX Mod X plugins (src/amxx/*.sma) with the
 # compiler and includes from the same pinned AMXX archive. amxxpc is a 32-bit

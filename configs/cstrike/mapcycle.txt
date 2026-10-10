@@ -6,3 +6,5 @@ de_inferno
 awp_india
 fy_pool_day
 de_nuke
+cs_mansion
+ttt_mario_b1

@@ -9,7 +9,7 @@ This repository provides a **plug-and-play Docker image** for running a fully fu
 - ✅ WebRTC support for browser-to-server networking
 - ✅ ReGameDLL_CS, Metamod-R, AMX Mod X and YaPB bots included
 - ✅ Game modes from the F4 Match tab: Gun Game and Deathmatch (respawns, endless rounds, spawn protection; Gun Game has a 24-weapon ladder with knife steals and a winner that ends the map; Deathmatch has a guns menu), plus knife only and pistols only
-- ✅ Fun maps on top of the stock ones: `fy_iceworld`, `aim_map`, `awp_india`, `fy_pool_day` (browsers download them from the server before joining)
+- ✅ Community maps on top of the stock ones: `fy_iceworld`, `aim_map`, `awp_india`, `fy_pool_day`, `cs_mansion`, `ttt_mario_b1` (browsers download them, and the models, sounds and skies they need, from the server before joining)
 - ✅ Announcer sounds on top of the HUD's toasts: First Blood (everyone hears it, with a "<name> drew first blood" toast; once a round, once a map in Gun Game and Deathmatch), Headshot, Double / Triple / Quad kill and Rampage, streaks of 5 / 10 / 15 / 20 (Killing spree, Dominating, Unstoppable, Godlike), also for other players' multi-kills and streaks (with a "Walter: Double kill" toast), Humiliation for a knife kill and a short sound when you are knifed, Last man standing; Gun Game level up, last level and winner once the game client sends the `mode` event (cs16-client 0.0.10). Our own sounds (`src/client/public/sounds`, credits in its README), loaded only after joining; one at a time, by priority. Settings (F3, Sound): Announcer volume (0 turns it off, and then the sounds aren't even downloaded), Announce headshots, Hear other players' first blood, Other players' kill streaks
 - ✅ "Killed by" card when you die (lower centre, 15 s, also after you respawn or the next round starts; gone at the end of the map): the killer in team colour, weapon, headshot, this map's record against them ("This map: you 2 – 5 Walter"), the all-time record from `/duel` once the pair has history, and their streak from 3 kills; short cards for falls, the bomb, your own grenade or `kill`, and "Killed by teammate". The killer's HP, armour and distance need cs16-client 0.0.10 (`killinfo` event). Setting (F3, HUD): Killer card
 - ✅ Invite links: Settings (F3, or the Settings button on the login page) → "Copy invite link"; opening `/?join=1` loads the game and joins with the saved nickname (or asks for one first)
@@ -313,16 +313,24 @@ Maps:
 
 - The map cycle (`configs/cstrike/mapcycle.txt`) is `de_dust2`,
   `fy_iceworld`, `cs_assault`, `aim_map`, `de_inferno`, `awp_india`,
-  `fy_pool_day`, `de_nuke`. The players' end-of-map vote and `amx_mapmenu`
-  offer the stock maps plus the four community maps (`maps.ini`).
+  `fy_pool_day`, `de_nuke`, `cs_mansion`, `ttt_mario_b1`. The players'
+  end-of-map vote and `amx_mapmenu` offer the stock maps plus the six
+  community maps (`maps.ini`).
 - The community maps are downloaded in the Dockerfile `maps` stage and
   checked against a pinned sha256 of the `.bsp`. Each one has a
   `<map>_url` / `<map>_sha256` build argument (for example
   `--build-arg fy_iceworld_url=https://example.com/maps/fy_iceworld.bsp`).
   The defaults are the GameBanana archives; **point the URLs at your own
   mirror** (a bare `.bsp` or an archive with it inside both work) so the
-  build doesn't depend on GameBanana. Sources, authors and sizes are in
-  `plans/new-features-1006.md` (Progress, B.1).
+  build doesn't depend on GameBanana. Sources and authors are in the
+  Dockerfile, above the `maps` stage.
+- A map that needs more than its `.bsp` (`ttt_mario_b1`: two models, a
+  sound and a sky) lists those files in `cstrike/maps/<map>.res`. Browsers
+  get them from `/maps/files/<path>`, which serves only files some `.res`
+  lists, and only models, sprites, sounds, images and WADs; `/maps/index.json`
+  lists them under each map with their size and sha256. A map you add to a
+  mounted volume works the same way: put its `.res` next to the `.bsp` and
+  the files under `cstrike/`.
 - `fy_`, `aim_` and `awp_` maps load their own settings when they start
   (`configs/cstrike/addons/amxmodx/configs/maps/prefix_*.cfg`, run by AMX
   Mod X a few seconds in): `mp_startmoney 16000`, `mp_freezetime 0`,
@@ -334,7 +342,8 @@ Maps:
 - YaPB graphs (bot waypoints) for the community maps are in
   `configs/cstrike/addons/yapb/data/graph` (from YaPB's graph database,
   except `fy_iceworld`'s, made by YaPB's own analysis because the database
-  has the graph for the original version of that map).
+  has the graph for the original version of that map). The database has
+  none for `cs_mansion` or `ttt_mario_b1`, so YaPB analyses those itself.
   For any other map YaPB downloads one from that database, or analyses the
   map itself (a few seconds to a minute), and saves it in
   `cstrike/addons/yapb/data/graph`.

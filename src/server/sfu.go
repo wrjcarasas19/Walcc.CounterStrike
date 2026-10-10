@@ -15,7 +15,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -750,7 +749,7 @@ func runSFU(admin http.Handler, console *engineConsole, query *engineQuery, lead
 	// start HTTP server
 	if err := http.ListenAndServe(addr, &Server{
 		static:      newStaticHandler("public"),
-		maps:        newMapsHandler(filepath.Join("cstrike", "maps")),
+		maps:        newMapsHandler("cstrike"),
 		admin:       admin,
 		status:      newStatusHandler(query),
 		leaderboard: leaderboard,
