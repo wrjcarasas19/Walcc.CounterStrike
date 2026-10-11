@@ -1,0 +1,11 @@
+{
+  "name": "hlsdk-portable",
+  "version": "0.0.1",
+  "private": true,
+  "description": "FWGS hlsdk-portable (Half-Life game client and server library) built for the browser; see AGENTS.md",
+  "exports": {
+    "./cl_dll/client_emscripten_wasm32.wasm": "./dist/cl_dll/client_emscripten_wasm32.wasm",
+    "./dlls/hl_emscripten_wasm32.so": "./dist/dlls/hl_emscripten_wasm32.so"
+  },
+  "license": "SEE LICENSE IN https://github.com/FWGS/hlsdk-portable/blob/master/LICENSE"
+}

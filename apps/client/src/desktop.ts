@@ -17,6 +17,9 @@ const nicknameInput = document.getElementById(
 const actionButton = document.getElementById(
   'action-button'
 ) as HTMLButtonElement;
+const halfLifeButton = document.getElementById(
+  'halflife-button'
+) as HTMLButtonElement;
 
 const connectStatus = document.getElementById('connect-status')!;
 const connectionLost = document.getElementById('connection-lost')!;
@@ -72,6 +75,7 @@ export function setPhase(next: Phase): void {
   phase = next;
   desktop.dataset.phase = next;
   nicknameInput.disabled = next !== 'idle';
+  halfLifeButton.disabled = next !== 'idle';
   refreshActionButton();
 }
 
@@ -83,6 +87,13 @@ export function onAction(handler: () => void): void {
   form.addEventListener('submit', (e) => {
     e.preventDefault();
     if (!actionButton.disabled) handler();
+  });
+}
+
+/** "Play Half-Life": single player, offered only before a download starts. */
+export function onHalfLife(handler: () => void): void {
+  halfLifeButton.addEventListener('click', () => {
+    if (phase === 'idle') handler();
   });
 }
 

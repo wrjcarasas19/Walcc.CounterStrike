@@ -302,6 +302,33 @@ RUN emcmake cmake -S . -B build \
 FROM scratch AS cs16-client-dist
 COPY --from=cs16-client /out/ /
 
+# The browser's Half-Life game client and server library (single player,
+# apps/hlsdk-portable), built from FWGS/hlsdk-portable with the same emsdk.
+# Pinned to August 2025, near the vendored browser engine: from August 2026
+# the client links freevgui, which calls engine VGUI functions the vendored
+# engine (apps/client/vendor/xash3d-fwgs-1.0.0.tgz) doesn't have. VGUI is off
+# here, so no submodule is needed.
+FROM --platform=linux/amd64 emscripten/emsdk:4.0.11 AS hlsdk-portable
+ARG HLSDK_REPO=https://github.com/FWGS/hlsdk-portable
+ARG HLSDK_COMMIT=d0b128ec9dfc577b1069df9e4ffda5d891f83966
+WORKDIR /hlsdk
+COPY apps/hlsdk-portable/patches/ /patches/
+RUN git init -q . \
+    && git remote add origin "$HLSDK_REPO" \
+    && git fetch -q --depth=1 origin "$HLSDK_COMMIT" \
+    && git checkout -q FETCH_HEAD \
+    && git apply /patches/*.patch
+RUN emcmake cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+    && cmake --build build --target client server \
+    && mkdir -p /out/cl_dll /out/dlls \
+    && mv build/cl_dll/client_emscripten_wasm32.wasm /out/cl_dll/ \
+    && mv build/dlls/hl_emscripten_wasm32.wasm /out/dlls/hl_emscripten_wasm32.so
+
+# For apps/hlsdk-portable/dist on a development machine:
+# docker build -f apps/server/Dockerfile --target hlsdk-portable-dist --output apps/hlsdk-portable/dist .
+FROM scratch AS hlsdk-portable-dist
+COPY --from=hlsdk-portable /out/ /
+
 FROM --platform=$BUILDPLATFORM node:24-alpine AS client
 
 # Same layout as the repository: package.json links ../cs16-client.
@@ -311,6 +338,8 @@ COPY apps/client/package.json package.json
 COPY apps/client/package-lock.json package-lock.json
 COPY apps/cs16-client/package.json ../cs16-client/package.json
 COPY --from=cs16-client-dist / ../cs16-client/dist/
+COPY apps/hlsdk-portable/package.json ../hlsdk-portable/package.json
+COPY --from=hlsdk-portable-dist / ../hlsdk-portable/dist/
 COPY apps/client/vendor/xash3d-fwgs-1.0.0.tgz vendor/xash3d-fwgs-1.0.0.tgz
 RUN npm ci
 COPY apps/client/vite.config.ts vite.config.ts

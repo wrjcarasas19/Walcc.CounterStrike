@@ -8,7 +8,7 @@ The browser side: TypeScript built by Vite, no framework. `index.html` holds the
 |---|---|
 | `main.ts` | Phases (idle, loading, connecting, in game) and the lifecycle: game files, engine, connect, reconnect, detach |
 | `desktop.ts`, `modal.ts`, `lobby.ts`, `name-status.ts` | Login page, lobby from `/status.json`, modal windows, claimed-name status |
-| `engine.ts`, `webrtc.ts`, `gamefiles.ts`, `maps.ts` | Creates `Xash3DWebRTC` from `xash3d-fwgs`, `/websocket` signalling on the page's own host, the game-files zip cached in IndexedDB, maps and their files from `/maps/` |
+| `engine.ts`, `webrtc.ts`, `gamefiles.ts`, `maps.ts` | Creates `Xash3DWebRTC` from `xash3d-fwgs` for `cstrike` or `valve` (Half-Life, libraries from `hlsdk-portable`), `/websocket` signalling on the page's own host, the game-files zip cached in IndexedDB, maps and their files from `/maps/` |
 | `hud.ts`, `rounds.ts`, `stats.ts`, `chat.ts`, `killcard.ts`, `killinfo.ts`, `gamemode.ts` | The HTML HUD, fed by `Module.hudEvent(type, payload)` from the game client |
 | `announcer.ts`, `announcer-rules.ts` | Announcer sounds from `public/sounds` |
 | `settings/` | `schema.ts` defines every setting (the panel is built from it); `store.ts` keeps them in `localStorage` under `player-settings` |
@@ -21,6 +21,7 @@ The browser side: TypeScript built by Vite, no framework. `index.html` holds the
 
 ```sh
 npm run build:cs16-client   # once, and after changing apps/cs16-client (Docker)
+npm run build:hlsdk-portable # once, and after changing apps/hlsdk-portable (Docker)
 npm install
 npm run dev                 # page only: no server behind it
 npx tsc -p tsconfig.json    # strict type check; vite build does not run it
@@ -40,6 +41,10 @@ npm run build               # dist/
 - Logging stays off: nothing is sent to the server, and `console` is used only for failures. There is no debug flag to document.
 - Voice chat is removed on purpose (`engine.ts` blocks the microphone and starts the engine with `+voice_enable 0`); do not reintroduce it without being asked.
 - Prettier, single quotes.
+
+## Half-Life
+
+"Play Half-Life" (`playHalfLife` in `main.ts`) is single player: the engine runs the game's server itself from the same game-files zip (its `valve/` folder only), with the engine's generic main menu and HUD. None of the Counter-Strike parts run: no connection, nickname, lobby polling after start, HTML HUD, F3 settings, F4 admin or announcer. Saves live in the engine's in-memory filesystem and are lost when the page closes. Map changes that carry entities, and saves, are broken by the browser engine itself; see `apps/hlsdk-portable/AGENTS.md`.
 
 ## Browser check
 

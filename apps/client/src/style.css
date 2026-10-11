@@ -218,6 +218,11 @@ canvas,
   opacity: 0.35;
 }
 
+/* "Play Half-Life" only starts from the idle launcher (desktop.ts). */
+#desktop:not([data-phase='idle']) #halflife-button {
+  display: none;
+}
+
 .progress-heading {
   display: flex;
   justify-content: space-between;

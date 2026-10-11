@@ -14,6 +14,7 @@ This repository provides a **plug-and-play Docker image** for running a fully fu
 - ✅ "Killed by" card when you die (lower centre, 15 s, also after you respawn or the next round starts; gone at the end of the map): the killer in team colour, weapon, headshot, this map's record against them ("This map: you 2 – 5 Walter"), the all-time record from `/duel` once the pair has history, and their streak from 3 kills; short cards for falls, the bomb, your own grenade or `kill`, and "Killed by teammate". The killer's HP, armour and distance need cs16-client 0.0.10 (`killinfo` event). Setting (F3, HUD): Killer card
 - ✅ Invite links: Settings (F3, or the Settings button on the login page) → "Copy invite link"; opening `/?join=1` loads the game and joins with the saved nickname (or asks for one first)
 - ✅ Claimed names: Settings (F3) → "Your name" claims your nickname on this server, with a recovery code to sign in other browsers; nobody else can play or score under it, the leaderboard marks it with ✓, and the admin can release it (F4 → Players)
+- ✅ Half-Life single player (proof of concept): "Play Half-Life" on the login page runs the campaign in your browser from the same game files, with no nickname and no server connection. It uses the engine's own menu and HUD (none of the Counter-Strike extras). Not playable through the campaign yet: the browser engine breaks entities that cross a level change (the opening tram ride stalls after its third map change) and saves, and saves would only last until the page is closed anyway
 - ✅ Dockerized & easy to deploy
 - ✅ i386 (32-bit) architecture support
 
@@ -352,8 +353,8 @@ Maps:
 
 The repository is split into apps: `apps/server` (Go server, `Dockerfile`,
 game configs, engine patches), `apps/client` (the page), `apps/cs16-client`
-(the game client) and `apps/amxx` (AMX Mod X plugins). They build into one
-image.
+(the game client), `apps/hlsdk-portable` (the Half-Life game code) and
+`apps/amxx` (AMX Mod X plugins). They build into one image.
 
 ### Build Docker image:
 
@@ -364,13 +365,14 @@ docker build --platform=linux/386 -f apps/server/Dockerfile -t cs16-web-server .
 ### Install client dependencies, build and serve client:
 
 The game client the page loads is built from `apps/cs16-client` (C++ compiled
-to wasm in Docker; see its README). The Docker image builds it on its own;
-outside Docker, build it once first:
+to wasm in Docker; see its README), and Half-Life's from `apps/hlsdk-portable`.
+The Docker image builds them on its own; outside Docker, build them once first:
 
 ```shell
 cd apps/client
 nvm install
 npm run build:cs16-client
+npm run build:hlsdk-portable
 npm install
 npm run build
 npm run serve
@@ -389,4 +391,4 @@ go mod download
 This project is licensed under the MIT License.
 See the [LICENSE](./LICENSE) file for more information.
 
-Counter-Strike and all related trademarks, logos, and intellectual property are the property of Valve Corporation. This project is not affiliated with or endorsed by Valve Corporation.
+Counter-Strike, Half-Life and all related trademarks, logos, and intellectual property are the property of Valve Corporation. This project is not affiliated with or endorsed by Valve Corporation.

@@ -1,0 +1,64 @@
+diff --git a/cl_dll/CMakeLists.txt b/cl_dll/CMakeLists.txt
+index 811c333..f40a37a 100644
+--- a/cl_dll/CMakeLists.txt
++++ b/cl_dll/CMakeLists.txt
+@@ -197,7 +197,17 @@ if(USE_VOICEMGR)
+ 	#	../game_shared/voice_status.cpp)
+ endif()
+ 
+-add_library (${CLDLL_LIBRARY} SHARED ${CLDLL_SOURCES})
++if(EMSCRIPTEN)
++	# The browser engine loads game libraries as Emscripten side modules.
++	add_executable (${CLDLL_LIBRARY} ${CLDLL_SOURCES})
++	set_target_properties (${CLDLL_LIBRARY} PROPERTIES SUFFIX ".wasm")
++	target_link_options (${CLDLL_LIBRARY} PRIVATE
++		"-sSIDE_MODULE=1"
++		"-Oz"
++		"--minify-wasm-imports")
++else()
++	add_library (${CLDLL_LIBRARY} SHARED ${CLDLL_SOURCES})
++endif()
+ target_link_libraries(${CLDLL_LIBRARY} vcs_info)
+ 
+ if (GOLDSOURCE_SUPPORT)
+@@ -242,7 +252,7 @@ install(TARGETS ${CLDLL_LIBRARY}
+ 		GROUP_READ GROUP_EXECUTE
+ 		WORLD_READ WORLD_EXECUTE)
+ 
+-if(CMAKE_BUILD_TYPE MATCHES "Release" AND NOT WIN32)
++if(CMAKE_BUILD_TYPE MATCHES "Release" AND NOT WIN32 AND NOT EMSCRIPTEN)
+ 	add_custom_command(TARGET ${CLDLL_LIBRARY}
+ 			POST_BUILD DEPENDS ${CLDLL_LIBRARY}
+ 			COMMAND ${CMAKE_STRIP} -s $<TARGET_FILE:${CLDLL_LIBRARY}>)
+diff --git a/dlls/CMakeLists.txt b/dlls/CMakeLists.txt
+index f18c488..48e80cf 100644
+--- a/dlls/CMakeLists.txt
++++ b/dlls/CMakeLists.txt
+@@ -181,7 +181,17 @@ else()
+ 	add_definitions(-DNO_VOICEGAMEMGR)
+ endif()
+ 
+-add_library (${SVDLL_LIBRARY} SHARED ${SVDLL_SOURCES})
++if(EMSCRIPTEN)
++	# The browser engine loads game libraries as Emscripten side modules.
++	add_executable (${SVDLL_LIBRARY} ${SVDLL_SOURCES})
++	set_target_properties (${SVDLL_LIBRARY} PROPERTIES SUFFIX ".wasm")
++	target_link_options (${SVDLL_LIBRARY} PRIVATE
++		"-sSIDE_MODULE=1"
++		"-Oz"
++		"--minify-wasm-imports")
++else()
++	add_library (${SVDLL_LIBRARY} SHARED ${SVDLL_SOURCES})
++endif()
+ target_link_libraries(${SVDLL_LIBRARY} vcs_info)
+ 
+ set_target_properties (${SVDLL_LIBRARY} PROPERTIES POSITION_INDEPENDENT_CODE 1)
+@@ -212,7 +222,7 @@ install(TARGETS ${SVDLL_LIBRARY}
+ 		GROUP_READ GROUP_EXECUTE
+ 		WORLD_READ WORLD_EXECUTE)
+ 
+-if(CMAKE_BUILD_TYPE MATCHES "Release" AND NOT WIN32)
++if(CMAKE_BUILD_TYPE MATCHES "Release" AND NOT WIN32 AND NOT EMSCRIPTEN)
+ 	add_custom_command(TARGET ${SVDLL_LIBRARY}
+ 			POST_BUILD DEPENDS ${SVDLL_LIBRARY}
+ 			COMMAND ${CMAKE_STRIP} -s $<TARGET_FILE:${SVDLL_LIBRARY}>)

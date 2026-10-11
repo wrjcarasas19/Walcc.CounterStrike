@@ -8,6 +8,7 @@ import {
   getPhase,
   hideConnectionLost,
   onAction,
+  onHalfLife,
   removeDesktop,
   setConnectStatus,
   setPhase,
@@ -99,6 +100,8 @@ onAction(() => {
   }
 });
 
+onHalfLife(() => void playHalfLife());
+
 setPhase('idle');
 startLobby();
 startLeaderboard();
@@ -157,6 +160,40 @@ async function prepare() {
   }
 }
 
+/**
+ * Half-Life single player (proof of concept): the same game-files zip
+ * carries valve/, and the engine runs the game's server itself, so there is
+ * no connection, nickname, HTML HUD or admin menu. Saves are kept in memory
+ * only and are lost when the page closes. Level changes that carry entities
+ * don't work in this engine build (apps/hlsdk-portable/AGENTS.md).
+ */
+async function playHalfLife() {
+  setPhase('downloading');
+  let stage: Stage = 'download';
+  try {
+    engine = createEngine('valve');
+    const [gamefiles] = await Promise.all([getGameFiles(), engine.init()]);
+    stage = 'load';
+    setPhase('loading');
+    await loadGameFiles(engine, gamefiles.files, 'valve/');
+  } catch (error) {
+    fail(stage, error);
+    return;
+  }
+  stopLobby();
+  stopLeaderboard();
+  removeDesktop();
+  engine.main();
+  if (!window.matchMedia('(hover: hover)').matches) {
+    engine.Cmd_ExecuteString('touch_enable 1');
+  }
+  // Leaving loses the game in progress.
+  window.addEventListener('beforeunload', (event) => {
+    event.preventDefault();
+    event.returnValue = '';
+  });
+}
+
 async function connect(engine: Xash3DWebRTC) {
   setPhase('connecting');
   setConnectStatus('Connecting to the game server...');
@@ -197,9 +234,14 @@ function describeError(error: unknown): string {
 
 async function loadGameFiles(
   engine: Xash3DWebRTC,
-  files: Awaited<ReturnType<typeof getGameFiles>>['files']
+  files: Awaited<ReturnType<typeof getGameFiles>>['files'],
+  // Only files under this folder (e.g. 'valve/' for Half-Life), to save
+  // memory; Counter-Strike needs everything.
+  prefix = ''
 ): Promise<void> {
-  const fileEntries = Object.entries(files).filter(([, file]) => !file.dir);
+  const fileEntries = Object.entries(files).filter(
+    ([filename, file]) => !file.dir && filename.startsWith(prefix)
+  );
   const totalFiles = fileEntries.length;
   let filesLoaded = 0;
   updateProgress('load', 0, 'Initializing engine...');

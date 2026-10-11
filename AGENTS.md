@@ -1,6 +1,6 @@
 # Counter-Strike 1.6 web server
 
-One Docker image runs a Counter-Strike 1.6 dedicated server (Xash3D FWGS, 32-bit) and serves the browser page that plays on it over WebRTC. The global engineering defaults apply everywhere; this file adds repository facts and the few places this repository differs. Each part lives in its own folder under `apps/` with its own guide; read the guide of every app you change before changing it.
+One Docker image runs a Counter-Strike 1.6 dedicated server (Xash3D FWGS, 32-bit) and serves the browser page that plays on it over WebRTC. The page can also run Half-Life single player entirely in the browser (proof of concept, no server involved). The global engineering defaults apply everywhere; this file adds repository facts and the few places this repository differs. Each part lives in its own folder under `apps/` with its own guide; read the guide of every app you change before changing it.
 
 ## Apps
 
@@ -9,9 +9,10 @@ One Docker image runs a Counter-Strike 1.6 dedicated server (Xash3D FWGS, 32-bit
 | `apps/server/` | [apps/server/AGENTS.md](apps/server/AGENTS.md) | Go program that links the engine (cgo) and serves HTTP on 27016: the page, `/websocket` signalling, the WebRTC SFU, admin API, leaderboard, claimed names, map files. Also holds the image: `Dockerfile`, `configs/` (copied into the image's `cstrike/` and `valve/`) and `patches/engine/` |
 | `apps/client/` | [apps/client/AGENTS.md](apps/client/AGENTS.md) | The page (TypeScript + Vite, no framework): login and lobby, HTML HUD, F3 settings, F4 admin menu, announcer, "Killed by" card. Holds `package.json` and `vendor/xash3d-fwgs-1.0.0.tgz`, the engine's browser package |
 | `apps/cs16-client/` | [apps/cs16-client/AGENTS.md](apps/cs16-client/AGENTS.md) | The game client, main menu and ReGameDLL compiled to wasm with Emscripten: upstream Velaron/cs16-client plus our HTML HUD bridge |
+| `apps/hlsdk-portable/` | [apps/hlsdk-portable/AGENTS.md](apps/hlsdk-portable/AGENTS.md) | The Half-Life game client and server library compiled to wasm for "Play Half-Life": upstream FWGS/hlsdk-portable fetched at a pinned commit, plus a build patch |
 | `apps/amxx/` | [apps/amxx/AGENTS.md](apps/amxx/AGENTS.md) | Our AMX Mod X plugins (`wc_*.sma`): game modes, weapon modes, extra log lines, kill info |
 
-The four apps build into one image and run as one container: `apps/server/Dockerfile` is built with the repository root as context, and the root `docker-compose.yml` is its only service. There is no `deploy/bundles.yml` and no app registry beyond this table. `README.md` is the user manual (features, environment variables, plugin and map tables, customization); update it in the same change when behaviour it describes changes.
+The five apps build into one image and run as one container: `apps/server/Dockerfile` is built with the repository root as context, and the root `docker-compose.yml` is its only service. There is no `deploy/bundles.yml` and no app registry beyond this table. `README.md` is the user manual (features, environment variables, plugin and map tables, customization); update it in the same change when behaviour it describes changes.
 
 ## Build and run
 
@@ -20,7 +21,7 @@ The four apps build into one image and run as one container: `apps/server/Docker
 - `make run` is `docker compose up -d`: container `cs16-web-server`, labels `project: cs` and `app: server`, host path `/var/data/cs` mounted on `/xashds/data`, and the external network `proxy`. Create the network once with `docker network create proxy`. Then open http://127.0.0.1:27016.
 - Passwords and bot settings come from `.env` next to the compose file (`.env.example`); never write them into `apps/server/configs/` or the Dockerfile.
 - Ports: 27016 TCP carries the page, `/websocket` and every HTTP route; `PORT` (27018) TCP and UDP carries WebRTC, advertised at the address in `IP`; 27015/udp is the engine inside the container only.
-- Every upstream (engine commit, goxash3d-fwgs, HLDS build, Metamod, AMX Mod X, YaPB, ReGameDLL, community maps) is a Dockerfile `ARG` with a pinned commit or sha256. Change the version and its checksum together, and keep the comment that says where it comes from.
+- Every upstream (engine commit, goxash3d-fwgs, hlsdk-portable, HLDS build, Metamod, AMX Mod X, YaPB, ReGameDLL, community maps) is a Dockerfile `ARG` with a pinned commit or sha256. Change the version and its checksum together, and keep the comment that says where it comes from.
 - The image runs as user `xashds`, with no health check and no image labels; the compose file supplies the labels. Keep it that way unless the task is about the container itself.
 
 ## Verify
@@ -28,8 +29,8 @@ The four apps build into one image and run as one container: `apps/server/Docker
 | Changed | Check |
 |---|---|
 | `apps/server` (Go files) | `docker build --platform=linux/amd64 -f apps/server/Dockerfile --target go -t local/cs16-go-test . && docker run --rm local/cs16-go-test go test ./` |
-| `apps/client` | In `apps/client`: `npx tsc -p tsconfig.json`, then `npm run build` (needs `apps/cs16-client/dist`; see that guide) |
-| `apps/cs16-client`, `apps/amxx`, `apps/server/configs`, `apps/server/patches`, `apps/server/Dockerfile` | `make build-local-image`, `make run`, join a game in a browser, read `docker compose logs cs16-web-server` |
+| `apps/client` | In `apps/client`: `npx tsc -p tsconfig.json`, then `npm run build` (needs `apps/cs16-client/dist` and `apps/hlsdk-portable/dist`; see those guides) |
+| `apps/cs16-client`, `apps/hlsdk-portable`, `apps/amxx`, `apps/server/configs`, `apps/server/patches`, `apps/server/Dockerfile` | `make build-local-image`, `make run`, join a game in a browser, read `docker compose logs cs16-web-server` |
 | `.github/workflows/deploy.yml` | Validate the YAML. There is no dry run: a push to `main` deploys |
 
 A browser check needs the full image. `npm run dev` serves the page alone, with nothing behind `/websocket`, `/status.json`, `/leaderboard` or `/admin/`, so only pure page behaviour can be checked there. There is no Playwright setup; add it only when a task needs it.
