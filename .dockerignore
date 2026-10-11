@@ -7,3 +7,4 @@ apps/client/dist
 .env
 apps/cs16-client/dist
 apps/hlsdk-portable/dist
+apps/xash3d-fwgs/dist

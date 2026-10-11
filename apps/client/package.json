@@ -7,14 +7,15 @@
     "build": "vite build",
     "serve": "vite preview",
     "build:cs16-client": "docker build -f ../server/Dockerfile --target cs16-client-dist --output ../cs16-client/dist ../..",
-    "build:hlsdk-portable": "docker build -f ../server/Dockerfile --target hlsdk-portable-dist --output ../hlsdk-portable/dist ../.."
+    "build:hlsdk-portable": "docker build -f ../server/Dockerfile --target hlsdk-portable-dist --output ../hlsdk-portable/dist ../..",
+    "build:xash3d-fwgs": "docker build --platform=linux/amd64 -f ../server/Dockerfile --target xash3d-fwgs-dist --output ../xash3d-fwgs/dist ../.."
   },
   "dependencies": {
     "cs16-client": "file:../cs16-client",
     "hlsdk-portable": "file:../hlsdk-portable",
     "idb-keyval": "^6.2.2",
     "jszip": "^3.10.1",
-    "xash3d-fwgs": "file:vendor/xash3d-fwgs-1.0.0.tgz"
+    "xash3d-fwgs": "file:../xash3d-fwgs"
   },
   "devDependencies": {
     "@types/node": "^24.1.0",

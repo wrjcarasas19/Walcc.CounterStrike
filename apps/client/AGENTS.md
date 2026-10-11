@@ -1,6 +1,6 @@
 # Web page (`apps/client`)
 
-The browser side: TypeScript built by Vite, no framework. `index.html` holds the whole DOM, `src/style.css` the styles, and `src/*.ts` the behaviour. Vite's root is this folder, which also holds its config, `tsconfig.json`, `package.json`, `.nvmrc` and `vendor/xash3d-fwgs-1.0.0.tgz` (the engine's browser package); run `npm` here. The build lands in `dist/` and `apps/server/Dockerfile` copies it to `/xashds/public`, where `apps/server/static.go` serves it. Read the root guide first.
+The browser side: TypeScript built by Vite, no framework. `index.html` holds the whole DOM, `src/style.css` the styles, and `src/*.ts` the behaviour. Vite's root is this folder, which also holds its config, `tsconfig.json`, `package.json` and `.nvmrc`; run `npm` here. The engine's browser package `xash3d-fwgs` is linked from `apps/xash3d-fwgs`, like the game code from `apps/cs16-client` and `apps/hlsdk-portable`. The build lands in `dist/` and `apps/server/Dockerfile` copies it to `/xashds/public`, where `apps/server/static.go` serves it. Read the root guide first.
 
 ## Modules
 
@@ -8,7 +8,7 @@ The browser side: TypeScript built by Vite, no framework. `index.html` holds the
 |---|---|
 | `main.ts` | Phases (idle, loading, connecting, in game) and the lifecycle: game files, engine, connect, reconnect, detach |
 | `desktop.ts`, `modal.ts`, `lobby.ts`, `name-status.ts` | Login page, lobby from `/status.json`, modal windows, claimed-name status |
-| `engine.ts`, `webrtc.ts`, `gamefiles.ts`, `maps.ts` | Creates `Xash3DWebRTC` from `xash3d-fwgs` for `cstrike` or `valve` (Half-Life, libraries from `hlsdk-portable`), `/websocket` signalling on the page's own host, the game-files zip cached in IndexedDB, maps and their files from `/maps/` |
+| `engine.ts`, `webrtc.ts`, `gamefiles.ts`, `maps.ts` | Creates `Xash3DWebRTC` from `xash3d-fwgs` (`apps/xash3d-fwgs`) for `cstrike` or `valve` (Half-Life, libraries from `hlsdk-portable`), `/websocket` signalling on the page's own host, the game-files zip cached in IndexedDB, maps and their files from `/maps/` |
 | `hud.ts`, `rounds.ts`, `stats.ts`, `chat.ts`, `killcard.ts`, `killinfo.ts`, `gamemode.ts` | The HTML HUD, fed by `Module.hudEvent(type, payload)` from the game client |
 | `announcer.ts`, `announcer-rules.ts` | Announcer sounds from `public/sounds` |
 | `settings/` | `schema.ts` defines every setting (the panel is built from it); `store.ts` keeps them in `localStorage` under `player-settings` |
@@ -22,6 +22,7 @@ The browser side: TypeScript built by Vite, no framework. `index.html` holds the
 ```sh
 npm run build:cs16-client   # once, and after changing apps/cs16-client (Docker)
 npm run build:hlsdk-portable # once, and after changing apps/hlsdk-portable (Docker)
+npm run build:xash3d-fwgs   # once, and after changing apps/xash3d-fwgs (Docker)
 npm install
 npm run dev                 # page only: no server behind it
 npx tsc -p tsconfig.json    # strict type check; vite build does not run it

@@ -304,9 +304,9 @@ COPY --from=cs16-client /out/ /
 
 # The browser's Half-Life game client and server library (single player,
 # apps/hlsdk-portable), built from FWGS/hlsdk-portable with the same emsdk.
-# Pinned to August 2025, near the vendored browser engine: from August 2026
-# the client links freevgui, which calls engine VGUI functions the vendored
-# engine (apps/client/vendor/xash3d-fwgs-1.0.0.tgz) doesn't have. VGUI is off
+# Pinned to August 2025, near the browser engine: from August 2026 the
+# client links freevgui, which calls engine VGUI functions the browser engine
+# (the xash3d-fwgs stage below, apps/xash3d-fwgs) doesn't have. VGUI is off
 # here, so no submodule is needed.
 FROM --platform=linux/amd64 emscripten/emsdk:4.0.11 AS hlsdk-portable
 ARG HLSDK_REPO=https://github.com/FWGS/hlsdk-portable
@@ -329,6 +329,57 @@ RUN emcmake cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
 FROM scratch AS hlsdk-portable-dist
 COPY --from=hlsdk-portable /out/ /
 
+# The browser engine (apps/xash3d-fwgs): Xash3D FWGS compiled to wasm with
+# the same emsdk, as yohimik/webxash3d-fwgs builds its npm package
+# xash3d-fwgs (packages/xash3d-fwgs/Dockerfile there). Pinned to the engine
+# commit that package's 1.0.0 (npm gitHead fedcda8, the build the page shipped
+# vendored until now) has as its submodule: yohimik/xash3d-fwgs 4cbc288,
+# whose merge base with FWGS master is eeca965, hence its version
+# 1.0.0+commit.eeca965. yohimik's repositories went private; FWGS serves the
+# commit through GitHub's fork network and the full hash guarantees the same
+# tree. Point XASH3D_WEB_REPO at a mirror you own to stop depending on that.
+FROM --platform=linux/amd64 emscripten/emsdk:4.0.11 AS xash3d-fwgs-wasm
+ARG XASH3D_WEB_REPO=https://github.com/FWGS/xash3d-fwgs
+ARG XASH3D_WEB_COMMIT=4cbc288a28a6ae63fb70d8aba09319265bdcb085
+WORKDIR /xash3d-fwgs
+COPY apps/xash3d-fwgs/patches/ /patches/
+RUN git init -q . \
+    && git remote add origin "$XASH3D_WEB_REPO" \
+    && git fetch -q --depth=1 origin "$XASH3D_WEB_COMMIT" \
+    && git checkout -q FETCH_HEAD \
+    && git submodule update --init --recursive \
+    && for patch in /patches/*.patch; do \
+        [ -e "$patch" ] || continue; \
+        git apply "$patch" || exit 1; \
+    done
+ENV EMCC_CFLAGS="-s USE_SDL=2"
+RUN emconfigure ./waf configure --emscripten \
+    && emmake ./waf build \
+    && mkdir -p /out/cl_dll \
+    && mv build/3rdparty/mainui/libmenu.wasm /out/cl_dll/menu_emscripten_wasm32.wasm \
+    && mv build/engine/xash.js /out/raw.js \
+    && mv build/engine/xash.wasm /out/xash.wasm \
+    && mv build/filesystem/filesystem_stdio.wasm /out/filesystem_stdio.wasm \
+    && mv build/ref/gl/libref_gles3compat.wasm /out/libref_gles3compat.wasm \
+    && mv build/ref/soft/libref_soft.wasm /out/libref_soft.wasm
+
+# The package's TypeScript wrapper (apps/xash3d-fwgs/lib), compiled together
+# with the engine's Emscripten glue patched into an ES module.
+FROM --platform=$BUILDPLATFORM node:24-alpine AS xash3d-fwgs
+WORKDIR /xash3d-fwgs
+COPY apps/xash3d-fwgs/package.json apps/xash3d-fwgs/package-lock.json ./
+RUN npm ci
+COPY apps/xash3d-fwgs/tsconfig.json apps/xash3d-fwgs/tsconfig.build.json ./
+COPY apps/xash3d-fwgs/scripts scripts
+COPY apps/xash3d-fwgs/lib lib
+COPY --from=xash3d-fwgs-wasm /out/ dist/
+RUN npm run build:ts
+
+# For apps/xash3d-fwgs/dist on a development machine:
+# docker build -f apps/server/Dockerfile --target xash3d-fwgs-dist --output apps/xash3d-fwgs/dist .
+FROM scratch AS xash3d-fwgs-dist
+COPY --from=xash3d-fwgs /xash3d-fwgs/dist/ /
+
 FROM --platform=$BUILDPLATFORM node:24-alpine AS client
 
 # Same layout as the repository: package.json links ../cs16-client.
@@ -340,7 +391,8 @@ COPY apps/cs16-client/package.json ../cs16-client/package.json
 COPY --from=cs16-client-dist / ../cs16-client/dist/
 COPY apps/hlsdk-portable/package.json ../hlsdk-portable/package.json
 COPY --from=hlsdk-portable-dist / ../hlsdk-portable/dist/
-COPY apps/client/vendor/xash3d-fwgs-1.0.0.tgz vendor/xash3d-fwgs-1.0.0.tgz
+COPY apps/xash3d-fwgs/package.json ../xash3d-fwgs/package.json
+COPY --from=xash3d-fwgs-dist / ../xash3d-fwgs/dist/
 RUN npm ci
 COPY apps/client/vite.config.ts vite.config.ts
 COPY apps/client/tsconfig.json tsconfig.json
