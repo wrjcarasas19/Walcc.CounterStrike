@@ -6,12 +6,16 @@ The `xash3d-fwgs` package the page imports (`apps/client/src/engine.ts`, `webrtc
 |---|---|---|
 | `lib/` | yes | The TypeScript wrapper, upstream's `packages/xash3d-fwgs/lib` at npm 1.0.0's commit (`fedcda8`), unchanged; `lib/generated/xash.d.ts` types the engine glue |
 | `scripts/patch-emscripten-js.mjs` | yes | Turns Emscripten's glue (`dist/raw.js`) into the ES module `lib/generated/xash.js`: ES export, start on demand, the `sendto`/`recvfrom` hooks `lib/net.ts` fills, and the object the wrapper reads (`Module`, `FS`, heaps, `addFunction`). Upstream's `.mts` as plain JavaScript; it fails if a replacement no longer matches |
-| `patches/` | yes | Our changes to the engine source, applied in name order with `git apply` at the engine's root; empty for now (`.gitkeep`) |
+| `patches/` | yes | Our changes to the engine source, applied in name order with `git apply` at the engine's root. `0001-emscripten-name-for-function.patch`: save/restore names for the game library's functions (see below) |
 | `package.json`, `package-lock.json`, `tsconfig*.json` | yes | Package exports (same paths and file names as npm 1.0.0) and the pinned TypeScript that compiles `lib/` |
 | `LICENSE.md` | yes | Upstream's MIT licence for the wrapper; the engine itself is GPL-3.0-or-later |
 | `dist/` | no | `xash.wasm`, `raw.js`, `filesystem_stdio.wasm`, `libref_gles3compat.wasm`, `libref_soft.wasm`, `cl_dll/menu_emscripten_wasm32.wasm` and the compiled wrapper from the last build |
 
 `XASH3D_WEB_COMMIT` is `4cbc288` of yohimik's engine fork, the submodule webxash3d-fwgs pinned for npm 1.0.0; its version suffix `commit.eeca965` is that fork's merge base with FWGS master. The fork went private; FWGS serves the commit through GitHub's fork network. It is a different branch from the server's engine (`XASH3D_COMMIT`, the fork's `go` branch): the two talk the same network protocol but are built separately.
+
+## Function names for save/restore
+
+Level changes and saved games store each entity's think/touch/use/blocked function by name: the game library (`apps/hlsdk-portable`, `dlls/util.cpp` `CSave::WriteFunction`) calls the engine's `pfnNameForFunction`/`pfnFunctionFromName` (`engine/server/sv_game.c`), which end in `COM_NameForFunction`/`COM_FunctionFromName` (`engine/platform/posix/lib_posix.c`). Upstream names a function with `dladdr`, which returns no symbol under Emscripten, so every carried entity lost its functions (`Error: Invalid function pointer in entity!`). The patch adds an `EM_JS` lookup for Emscripten: a function pointer is an index into the shared `wasmTable`, whose entry is the same JS function object as the side module's export, so it maps `wasmTable.get(ptr)` to an export name of the library `dlopen` returned (`LDSO.loadedLibsByHandle`, a Map built once per loaded library). The reverse needs no change: `dlsym` returns the table index the game library already uses (`getFunctionAddress`), so `m_pfnThink == &CBaseEntity::SUB_Remove` still holds after a restore. It depends on Emscripten's `libdylink.js` internals (`LDSO`, `wasmTable`); check it when moving emsdk. Only functions the game library exports can be named, as on Linux: hlsdk marks them `EXPORT`.
 
 ## Build
 

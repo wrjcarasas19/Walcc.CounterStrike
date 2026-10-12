@@ -35,7 +35,7 @@ Assumptions:
 
 ## Wave 2 (1 agent: one shared contract between engine and game library)
 
-### S3 — Function name lookup for Emscripten builds
+### S3 — Function name lookup for Emscripten builds — PAUSED (patch written, uncommitted; see plans/half_life_hand-off.md)
 - Goal: make `COM_NameForFunction` / `COM_FunctionFromName` work in the browser so save/restore and level transitions keep entity think/touch/use functions.
 - Read first: S1's `apps/xash3d-fwgs/AGENTS.md`, engine `platform/posix/lib_posix.c`, `engine/common/lib_common.c`, how Emscripten `dlopen` side modules expose exports and table indices, `apps/hlsdk-portable/patches/emscripten-side-modules.patch`.
 - Owned files: `apps/xash3d-fwgs/patches/*`, `apps/hlsdk-portable/patches/*` (e.g. exporting all game functions), the two apps' `AGENTS.md`, `apps/hlsdk-portable/package.json` version if bumped, Dockerfile lines for those two stages.

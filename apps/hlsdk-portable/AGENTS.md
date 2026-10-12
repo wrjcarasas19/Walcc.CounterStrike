@@ -12,9 +12,9 @@ The npm package of the same name that the engine's README points to was unpublis
 
 `HLSDK_COMMIT` is from August 2025, close to the engine the page ships (`xash3d-fwgs 1.0.0+commit.eeca965`, build 3773; the server's engine commit from the same fork is from July 2025). Don't move it past August 2026 without a newer engine: from then on the client links freevgui, whose `XashSurface` calls VGUI API entries (`SetPaintOffset`) this engine doesn't provide, and the game stops with `RuntimeError: null function` as soon as a map starts. At the pinned commit VGUI is off by default (`USE_VGUI`), so the client uses the engine's own HUD and menus.
 
-## Known limitation: map changes that carry entities, and saves
+## Map changes that carry entities, and saves
 
-The browser engine can't name the game library's functions: `COM_NameForFunction` (engine `platform/posix/lib_posix.c`) relies on `dladdr`, which returns no symbol name in an Emscripten build, and the offset fallback (`XASH_ALLOW_SAVERESTORE_OFFSETS`) is only enabled for static builds. When a level change carries entities whose think/touch/use functions are set, the engine logs `Error: Invalid function pointer in entity!` and those entities stop working on the next map. In a browser test the opening tram ride crossed `c0a0 → c0a0a → c0a0b` fine and stalled after `c0a0b → c0a0c`. Saving the game goes through the same code. Fixing it means patching the browser engine (built from source in `apps/xash3d-fwgs`) with a name lookup for Emscripten or with that fallback enabled; nothing in this folder can work around it.
+Level changes and saved games store entity functions (think/touch/use/blocked) by name through the engine's `pfnNameForFunction`/`pfnFunctionFromName`. Upstream's engine names them with `dladdr`, which names nothing in an Emscripten build; the browser engine carries a patch that looks the function up among this library's wasm exports instead (`apps/xash3d-fwgs/AGENTS.md`, "Function names for save/restore"). It needs nothing from this folder: as on Linux, every function the save tables reference is marked `EXPORT` (default visibility), and a side module exports those under their mangled names (`_ZN11CBaseEntity10SUB_RemoveEv`). Binaryen merges identical functions, so a few exports share one function; any of their names restores the same function. Saves live in the page's in-memory filesystem and last only for the session.
 
 ## Build
 
@@ -35,6 +35,6 @@ The Docker image builds this stage itself. The emsdk image is amd64-only. No hos
 
 ## Verify
 
-1. `npm run build:hlsdk-portable` (in `apps/client`), then check the exports the engine looks up: the client's `Initialize`, `HUD_Redraw`, `CL_CreateMove`; the server's `GiveFnptrsToDll`, `GetEntityAPI2` and entity names such as `worldspawn` and `monster_scientist` (`WebAssembly.Module.exports` in Node lists them).
+1. `npm run build:hlsdk-portable` (in `apps/client`), then check the exports the engine looks up: the client's `Initialize`, `HUD_Redraw`, `CL_CreateMove`; the server's `GiveFnptrsToDll`, `GetEntityAPI2`, entity names such as `worldspawn` and `monster_scientist`, and entity functions such as `_ZN11CBaseEntity10SUB_RemoveEv` (save/restore names them) (`WebAssembly.Module.exports` in Node lists them).
 2. `make build-local-image`, `make run`, press "Play Half-Life" on the login page, start a New Game and watch the tram ride. To read the engine's own log (map changes, errors), start the engine with `-dev 2` added to its arguments in `apps/client/src/engine.ts` for the test only; it prints to the browser console. Report what was seen.
 3. The game-files zip's storage sends no CORS headers for a local origin, so a browser on `127.0.0.1` can't download it; serve the same file from a local server with `Access-Control-Allow-Origin` (for example through a Playwright route) when testing locally. This affects Counter-Strike the same way.

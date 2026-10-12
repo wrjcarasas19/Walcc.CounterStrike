@@ -1,0 +1,83 @@
+Name the game library's functions in the browser build, for save/restore.
+
+COM_NameForFunction relies on dladdr(), which names no symbol under
+Emscripten, so every level change and saved game dropped the entities'
+think/touch/use/blocked functions ("Invalid function pointer in entity!").
+Look the function table entry up among the side module's exports instead.
+See apps/hlsdk-portable/AGENTS.md and apps/xash3d-fwgs/AGENTS.md.
+
+diff --git a/engine/platform/posix/lib_posix.c b/engine/platform/posix/lib_posix.c
+index 23d1c3b..fdbdd1c 100644
+--- a/engine/platform/posix/lib_posix.c
++++ b/engine/platform/posix/lib_posix.c
+@@ -26,6 +26,9 @@ GNU General Public License for more details.
+ #include "server.h"
+ #include "platform/android/lib_android.h"
+ #include "platform/apple/lib_ios.h"
++#if XASH_EMSCRIPTEN
++#include <emscripten.h>
++#endif
+ 
+ #ifdef XASH_DLL_LOADER // wine-based dll loader
+ void * Loader_LoadLibrary (const char *name);
+@@ -199,8 +202,60 @@ void *COM_FunctionFromName( void *hInstance, const char *pName )
+ 	return COM_GetProcAddress( hInstance, pName );
+ }
+ 
++#if XASH_EMSCRIPTEN
++// Emscripten's dladdr() names no symbol, so save/restore (sv_save.c through
++// the game's pfnNameForFunction) lost every think/touch/use/blocked function
++// of the game library. In wasm a function pointer is an index into the
++// shared function table, and the table holds the same JS function object as
++// the side module's exports (libdylink.js puts each export in the table via
++// addFunction), so look the table entry up among the exports of the library
++// dlopen() returned as hInstance. The reverse needs no change: dlsym() finds
++// that same table index again (getFunctionAddress), and FunctionFromName_SR
++// turns the platform-neutral name back into the mangled ones.
++// Binaryen merges identical functions, so one function may have several
++// export names; any of them maps back to it, but prefer a member function
++// with one of the signatures COM_ConvertToLocalPlatform rebuilds.
++EM_JS( int, COM_EmscriptenNameForFunction, ( void *hInstance, void *func, char *buf, int size ), {
++	var lib = LDSO.loadedLibsByHandle[hInstance];
++	if( !lib || !func || func >= wasmTable.length )
++		return 0;
++	var names = lib.xashNamesForFunctions;
++	if( !names )
++	{
++		var rank = ( name ) => {
++			if( !name.startsWith( "_ZN" ))
++				return 2;
++			if( name.endsWith( "Ev" ) || name.endsWith( "EP11CBaseEntity" ) || name.endsWith( "EP11CBaseEntityS1_8USE_TYPEf" ))
++				return 0;
++			return 1;
++		};
++		names = lib.xashNamesForFunctions = new Map();
++		for( var name in lib.exports )
++		{
++			var f = lib.exports[name];
++			if( typeof f != "function" )
++				continue;
++			var prev = names.get( f );
++			if( prev === undefined || rank( name ) < rank( prev ))
++				names.set( f, name );
++		}
++	}
++	var found = names.get( wasmTable.get( func ));
++	if( !found )
++		return 0;
++	stringToUTF8( found, buf, size );
++	return 1;
++});
++#endif // XASH_EMSCRIPTEN
++
+ const char *COM_NameForFunction( void *hInstance, void *function )
+ {
++#if XASH_EMSCRIPTEN
++	static string sname;
++
++	if( COM_EmscriptenNameForFunction( hInstance, function, sname, sizeof( sname )))
++		return COM_GetPlatformNeutralName( sname );
++#endif
+ #ifdef XASH_DLL_LOADER
+ 	void *wm;
+ 	if( host.enabledll && (wm = Loader_GetDllHandle( hInstance )) )
