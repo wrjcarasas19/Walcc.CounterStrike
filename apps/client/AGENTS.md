@@ -45,7 +45,7 @@ npm run build               # dist/
 
 ## Half-Life
 
-"Play Half-Life" (`playHalfLife` in `main.ts`) is single player: the engine runs the game's server itself from the same game-files zip (its `valve/` folder only), with the engine's generic main menu and HUD. None of the Counter-Strike parts run: no connection, nickname, lobby polling after start, HTML HUD, F3 settings, F4 admin or announcer. Saves live in the engine's in-memory filesystem and are lost when the page closes. Map changes that carry entities, and saves, are broken by the browser engine itself; see `apps/hlsdk-portable/AGENTS.md`.
+"Play Half-Life" (`playHalfLife` in `main.ts`) is single player: the engine runs the game's server itself from the same game-files zip (its `valve/` folder only), with the engine's generic main menu and HUD. None of the Counter-Strike parts run: no connection, nickname, lobby polling after start, HTML HUD, F3 settings, F4 admin or announcer. Saves live in the engine's in-memory filesystem and are lost when the page closes. Level changes and saves keep entity functions through a browser engine patch; see `apps/hlsdk-portable/AGENTS.md`.
 
 ## Browser check
 

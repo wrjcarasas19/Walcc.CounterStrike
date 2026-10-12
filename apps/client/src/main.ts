@@ -164,8 +164,7 @@ async function prepare() {
  * Half-Life single player (proof of concept): the same game-files zip
  * carries valve/, and the engine runs the game's server itself, so there is
  * no connection, nickname, HTML HUD or admin menu. Saves are kept in memory
- * only and are lost when the page closes. Level changes that carry entities
- * don't work in this engine build (apps/hlsdk-portable/AGENTS.md).
+ * only and are lost when the page closes.
  */
 async function playHalfLife() {
   setPhase('downloading');
