@@ -35,7 +35,8 @@ Assumptions:
 
 ## Wave 2 (1 agent: one shared contract between engine and game library)
 
-### S3 — Function name lookup for Emscripten builds — PAUSED (patch written, uncommitted; see plans/half_life_hand-off.md)
+### S3 — Function name lookup for Emscripten builds — DONE
+- Result: `apps/xash3d-fwgs/patches/0001-emscripten-name-for-function.patch` names a function table entry by the side module's export of the same function. On the rebuilt amd64 image, at `sys_timescale` 1: tram c0a0 → c0a0e, `changelevel2 c1a0d c1a0toc1a0d`, and `save s1`/`load s1` all PASS with no `Invalid function pointer`; the hlsdk exports in its guide are present; Counter-Strike joins de_dust2.
 - Goal: make `COM_NameForFunction` / `COM_FunctionFromName` work in the browser so save/restore and level transitions keep entity think/touch/use functions.
 - Read first: S1's `apps/xash3d-fwgs/AGENTS.md`, engine `platform/posix/lib_posix.c`, `engine/common/lib_common.c`, how Emscripten `dlopen` side modules expose exports and table indices, `apps/hlsdk-portable/patches/emscripten-side-modules.patch`.
 - Owned files: `apps/xash3d-fwgs/patches/*`, `apps/hlsdk-portable/patches/*` (e.g. exporting all game functions), the two apps' `AGENTS.md`, `apps/hlsdk-portable/package.json` version if bumped, Dockerfile lines for those two stages.
@@ -45,7 +46,8 @@ Assumptions:
 
 ## Wave 3 (1 agent: docs, small)
 
-### S4 — Docs and leftover playability fixes
+### S4 — Docs and leftover playability fixes — DONE
+- Result: README, `apps/client/AGENTS.md` and the `playHalfLife` comment describe level changes and session saves as working. The harness surfaced no page-side issue.
 - Goal: README and guides describe Half-Life as playable (session-only saves), remove the "Known limitation" text, and fix any small page-side issue the harness surfaced (e.g. touch, pointer lock).
 - Owned files: `README.md`, `apps/client/AGENTS.md` (Half-Life section), `apps/hlsdk-portable/AGENTS.md`, `apps/client/src/main.ts` / `engine.ts` only for harness-found issues.
 - Depends on: S3.
@@ -59,3 +61,7 @@ Assumptions:
 ## Summary
 - Wave 1: 2 agents (engine build from source; test harness). Wave 2: 1 agent (the fix). Wave 3: 1 agent (docs and small fixes).
 - Risks: reproducing the exact webxash3d-fwgs build (flags, JS patch script) may take iteration; Emscripten may not expose side-module function names without exporting every function from `hl`, which grows the wasm; other browser-only issues may appear once the tram passes (they'd be fixed in S3/S4 or reported).
+
+## Found, not in scope
+- The game-files cache never works in Chromium: IndexedDB rejects the 407 MB zip as one value (`The serialized keys and/or value are too large (size=406846421, max=133169152)`), so every visit downloads it again, for Counter-Strike too (`apps/client/src/gamefiles.ts`). Storing it in chunks or in the Cache API would fix it; ask the user first.
+- The source-built engine differs from npm's by about 32 bytes, because the git commit and date are embedded in `host_ver`. The build number is still 3773.
