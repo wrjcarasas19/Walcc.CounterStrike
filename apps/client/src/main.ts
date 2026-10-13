@@ -2,7 +2,7 @@ import { attachAdmin, detachAdmin } from './admin';
 import { setAnnouncerOptions, startAnnouncer } from './announcer';
 // Before ./wheel: its key listeners must run before the wheel's (chat.ts).
 import { attachChat, detachChat } from './chat';
-import { createEngine } from './engine';
+import { createEngine, type Game } from './engine';
 import { GameFilesError, getGameFiles } from './gamefiles';
 import {
   getPhase,
@@ -13,6 +13,7 @@ import {
   setConnectStatus,
   setPhase,
   showConnectionLost,
+  showHalfLifeServer,
   showError,
   showReconnecting,
   type Stage,
@@ -34,6 +35,7 @@ import {
   savePlayerName,
 } from './player';
 import { attachSettings, detachSettings } from './settings';
+import { serverGame } from './servergame';
 import { getSettings, onSettingsChange } from './settings/store';
 import type { Settings } from './settings/schema';
 import { attachWheel, detachWheel } from './wheel';
@@ -71,6 +73,9 @@ onSettingsChange((settings, changed) => {
 });
 
 let engine: Xash3DWebRTC | undefined;
+// The server's game, read again in prepare(): "valve" on the Half-Life
+// deathmatch server (servergame.ts).
+let game: Game = 'cstrike';
 let failedStage: Stage | undefined;
 // Opened from an invite link (?join=1): connect as soon as the game files
 // are loaded, without waiting for a click on Connect.
@@ -101,6 +106,9 @@ onAction(() => {
 });
 
 onHalfLife(() => void playHalfLife());
+void serverGame().then((answer) => {
+  if (answer === 'valve') showHalfLifeServer();
+});
 
 setPhase('idle');
 startLobby();
@@ -141,14 +149,19 @@ async function prepare() {
   setPhase('downloading');
   let stage: Stage = 'download';
   try {
-    engine = createEngine();
+    game = await serverGame();
+    engine = createEngine(game);
     // Only the wasm engine starts here; the server connection waits for
     // Connect so idle launchers don't hold server slots.
     const [gamefiles] = await Promise.all([getGameFiles(), engine.init()]);
     stage = 'load';
     setPhase('loading');
-    await loadGameFiles(engine, gamefiles.files);
-    await syncServerMaps(engine);
+    if (game === 'valve') {
+      await loadGameFiles(engine, gamefiles.files, 'valve/');
+    } else {
+      await loadGameFiles(engine, gamefiles.files);
+      await syncServerMaps(engine);
+    }
     setPhase('ready');
   } catch (error) {
     fail(stage, error);
@@ -202,7 +215,11 @@ async function connect(engine: Xash3DWebRTC) {
     fail('connect', error);
     return;
   }
-  start(engine);
+  if (game === 'valve') {
+    startDeathmatch(engine);
+  } else {
+    start(engine);
+  }
 }
 
 function fail(stage: Stage, error: unknown): void {
@@ -320,6 +337,51 @@ function start(engine: Xash3DWebRTC): void {
     engine.Cmd_ExecuteString(`name "${joinAs}"`);
     setLocalPlayerName(joinAs);
   });
+  joinServer(engine);
+  startMapResync(engine);
+
+  window.addEventListener('beforeunload', confirmLeave);
+}
+
+/**
+ * Half-Life deathmatch (the hl-web-server compose service): the same
+ * connection, nickname and reconnects as Counter-Strike, with the engine's
+ * own HUD, chat and scoreboard. The HTML HUD, announcer, kill card, chat,
+ * wheel, F3/F4 menus and map sync are written for cs16-client, so they
+ * don't run.
+ */
+function startDeathmatch(engine: Xash3DWebRTC): void {
+  stopLobby();
+  stopLeaderboard();
+  removeDesktop();
+
+  const confirmLeave = (event: BeforeUnloadEvent) => {
+    event.preventDefault();
+    event.returnValue = '';
+    return '';
+  };
+  engine.onDisconnect = () => {
+    void reconnect(engine).then((reconnected) => {
+      if (reconnected) return;
+      showConnectionLost(() => {
+        window.removeEventListener('beforeunload', confirmLeave);
+        window.location.reload();
+      });
+    });
+  };
+
+  engine.main();
+  if (!window.matchMedia('(hover: hover)').matches) {
+    engine.Cmd_ExecuteString('touch_enable 1');
+  }
+  engine.Cmd_ExecuteString(`name "${getPlayerName()}"`);
+  joinServer(engine);
+
+  window.addEventListener('beforeunload', confirmLeave);
+}
+
+/** Network settings both games need, then the connection. */
+function joinServer(engine: Xash3DWebRTC): void {
   // Large cl_dlmax makes this dedicated server crash in Netchan_TransmitBits.
   engine.Cmd_ExecuteString('cl_dlmax 1400');
   engine.Cmd_ExecuteString('rate 25000');
@@ -328,9 +390,6 @@ function start(engine: Xash3DWebRTC): void {
   engine.Cmd_ExecuteString('cl_allowdownload 0');
   engine.Cmd_ExecuteString('cl_allowupload 0');
   engine.Cmd_ExecuteString(`connect ${SERVER_ADDRESS}`);
-  startMapResync(engine);
-
-  window.addEventListener('beforeunload', confirmLeave);
 }
 
 /**
@@ -349,8 +408,9 @@ async function reconnect(engine: Xash3DWebRTC): Promise<boolean> {
       continue;
     }
     hideConnectionLost();
-    // Maps added while the player was away (e.g. after a server restart).
-    await syncServerMaps(engine);
+    // Maps added while the player was away (e.g. after a server restart);
+    // the Half-Life server has only the stock maps.
+    if (game === 'cstrike') await syncServerMaps(engine);
     engine.Cmd_ExecuteString(`connect ${SERVER_ADDRESS}`);
     return true;
   }

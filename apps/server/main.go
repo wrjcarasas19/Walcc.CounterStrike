@@ -25,12 +25,21 @@ func main() {
 		adminOn = false
 	}
 
+	// Anything but Counter-Strike (the Half-Life LAN server) runs without
+	// the parts written for it: admin API, leaderboard, bots (game.go).
+	game := gameDir(os.Args)
+	cs := game == counterStrike
+	if adminOn && !cs {
+		fmt.Fprintf(os.Stderr, "The admin API is off: it is written for Counter-Strike and this server runs %s\n", game)
+		adminOn = false
+	}
+
 	rconPassword := os.Getenv("RCON_PASSWORD")
 	args, rcon := engineArgs(os.Args, rconPassword)
 	switch {
 	case rcon == rconInvalid:
 		fmt.Fprintln(os.Stderr, "WARNING: RCON_PASSWORD is not a plain token (letters, digits and _.~!@#%^*=+,:?-, up to 64, starting with a letter or digit): rcon is disabled")
-	case rcon == rconUnset && !adminOn:
+	case rcon == rconUnset && !adminOn && cs:
 		fmt.Fprintln(os.Stderr, "WARNING: neither ADMIN_PASSWORD nor RCON_PASSWORD is set: the admin menu is disabled")
 	}
 	if adminOn && rcon != rconEnabled {
@@ -62,21 +71,13 @@ func main() {
 		})
 		admin = adminCommands
 		blockPlayerRcon = true
-	} else if rcon == rconEnabled {
+	} else if rcon == rconEnabled && cs {
 		fmt.Fprintln(os.Stderr, "The admin API is off (no valid ADMIN_PASSWORD): the F4 menu uses rcon")
 	}
 
-	quota, ok := parseBotQuota(os.Getenv("BOT_QUOTA"))
-	if !ok {
-		fmt.Fprintf(os.Stderr, "WARNING: BOT_QUOTA must be a whole number from 0 to %d: using 0 (no bots)\n", botQuotaMax)
-	}
-	baseDir := os.Getenv("XASH3D_BASEDIR")
-	if baseDir == "" {
-		baseDir = "."
-	}
-	// No yapb.cfg (a build without YaPB) only matters when bots were asked for.
-	if err := writeBotQuota(baseDir, quota); err != nil && (quota > 0 || !errors.Is(err, fs.ErrNotExist)) {
-		fmt.Fprintf(os.Stderr, "WARNING: can't set BOT_QUOTA in %s: %v\n", yapbConfPath, err)
+	// YaPB is installed for Counter-Strike only.
+	if cs {
+		applyBotQuota()
 	}
 
 	// The leaderboard reads the game's log files into DATA_DIR (statsdb.go).
@@ -86,7 +87,10 @@ func main() {
 		fmt.Fprintln(os.Stderr, "WARNING: LEADERBOARD_BOTS must be 0 or 1: bots are left out of the leaderboard")
 	}
 	var leaderboard, duel, names http.Handler
-	if db, err := openStatsDB(filepath.Join(dataDir, leaderboardFile)); err != nil {
+	if !cs {
+		// The leaderboard reads Counter-Strike's log lines; /leaderboard,
+		// /duel and /names/ are off as when the database can't be opened.
+	} else if db, err := openStatsDB(filepath.Join(dataDir, leaderboardFile)); err != nil {
 		fmt.Fprintf(os.Stderr, "WARNING: can't open the leaderboard database: %v; /leaderboard, /duel and /names/ are off\n", err)
 	} else {
 		if console == nil {
@@ -114,10 +118,26 @@ func main() {
 
 	// Server queries for /status.json work without the admin API: they
 	// don't use rcon (status.go).
-	go runSFU(admin, console, newEngineQuery(queueQueryPacket), leaderboard, duel, names)
+	go runSFU(game, admin, console, newEngineQuery(queueQueryPacket), leaderboard, duel, names)
 
 	// SysStart, but with our arguments instead of os.Args.
 	goxash3d_fwgs.DefaultXash3D.HostMain(args, goxash3d_fwgs.GameDir, 0)
+}
+
+// applyBotQuota writes BOT_QUOTA into YaPB's config (bots.go).
+func applyBotQuota() {
+	quota, ok := parseBotQuota(os.Getenv("BOT_QUOTA"))
+	if !ok {
+		fmt.Fprintf(os.Stderr, "WARNING: BOT_QUOTA must be a whole number from 0 to %d: using 0 (no bots)\n", botQuotaMax)
+	}
+	baseDir := os.Getenv("XASH3D_BASEDIR")
+	if baseDir == "" {
+		baseDir = "."
+	}
+	// No yapb.cfg (a build without YaPB) only matters when bots were asked for.
+	if err := writeBotQuota(baseDir, quota); err != nil && (quota > 0 || !errors.Is(err, fs.ErrNotExist)) {
+		fmt.Fprintf(os.Stderr, "WARNING: can't set BOT_QUOTA in %s: %v\n", yapbConfPath, err)
+	}
 }
 
 // randomToken is a random rcon password (hex, so it passes

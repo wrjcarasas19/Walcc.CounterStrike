@@ -79,7 +79,10 @@ var errBadReply = errors.New("malformed reply")
 
 // serverStatus is the /status.json body.
 type serverStatus struct {
-	Map string `json:"map"`
+	// Game is the engine's game folder, "cstrike" or "valve" (Half-Life
+	// deathmatch); the page joins as that game (apps/client/src/main.ts).
+	Game string `json:"game"`
+	Map  string `json:"map"`
 	// PlayerCount counts everyone connected, bots included, like the
 	// scoreboard.
 	PlayerCount int            `json:"playerCount"`
@@ -351,6 +354,7 @@ func applyRules(st *serverStatus, rules map[string]string) {
 // statusHandler serves /status.json from a cache.
 type statusHandler struct {
 	source  statusSource
+	game    string // serverStatus.Game
 	ttl     time.Duration
 	limiter *rateLimiter
 	now     func() time.Time
@@ -362,9 +366,10 @@ type statusHandler struct {
 	logf      func(format string, args ...any)
 }
 
-func newStatusHandler(source statusSource) *statusHandler {
+func newStatusHandler(source statusSource, game string) *statusHandler {
 	return &statusHandler{
 		source:  source,
+		game:    game,
 		ttl:     statusCacheTTL,
 		limiter: newRateLimiter(statusRate, statusBurst),
 		now:     time.Now,
@@ -450,6 +455,7 @@ func (h *statusHandler) fetch() ([]byte, error) {
 		h.logf("%v", err)
 		return nil, err
 	}
+	st.Game = h.game
 	if st.Players == nil {
 		st.Players = []statusPlayer{}
 	}

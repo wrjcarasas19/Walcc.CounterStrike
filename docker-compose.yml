@@ -34,6 +34,38 @@ services:
       project: cs
       app: server
 
+  # Half-Life deathmatch for players on this network, from the same image.
+  # Started only with `docker compose --profile hl up -d`; the deploy
+  # workflow drops it. Players open http://<LAN_IP>:27026.
+  hl-web-server:
+    profiles: [hl]
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    container_name: hl-web-server
+    entrypoint: ["./xash", "+ip", "0.0.0.0", "-port", "27015", "-game", "valve"]
+    command: ["+map crossfire", "+maxplayers 16"]
+    restart: always
+    platform: linux/amd64
+    environment:
+      # The address other machines reach this one at (set in .env); WebRTC
+      # is advertised there.
+      IP: ${LAN_IP:-127.0.0.1}
+      PORT: 27028
+    volumes:
+      # The ban list (bans.json).
+      - hl-data:/xashds/data
+    ports:
+      - "27026:27016"
+      - "27028:27028/tcp"
+      - "27028:27028/udp"
+    labels:
+      project: cs
+      app: hl-server
+
+volumes:
+  hl-data:
+
 networks:
   proxy:
     name: proxy

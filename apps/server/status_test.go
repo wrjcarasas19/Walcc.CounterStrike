@@ -374,7 +374,7 @@ func (s *fakeStatusSource) count() int {
 }
 
 func newTestStatus(source statusSource) (*statusHandler, *time.Time) {
-	h := newStatusHandler(source)
+	h := newStatusHandler(source, "cstrike")
 	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
 	h.now = func() time.Time { return now }
 	h.logf = func(string, ...any) {}
@@ -414,7 +414,7 @@ func TestStatusHandler(t *testing.T) {
 	if strings.Contains(raw, "<img") {
 		t.Errorf("name not escaped: %s", raw)
 	}
-	want := `{"map":"de_dust2","playerCount":2,"maxPlayers":16,"bots":1,"players":[{"name":"\u003cimg src=x onerror=alert(1)\u003e","frags":5},{"name":"Bot","frags":0,"bot":true}],"timeLimit":30,"timeLeft":600,"nextMap":"de_aztec","gameMode":2}`
+	want := `{"game":"cstrike","map":"de_dust2","playerCount":2,"maxPlayers":16,"bots":1,"players":[{"name":"\u003cimg src=x onerror=alert(1)\u003e","frags":5},{"name":"Bot","frags":0,"bot":true}],"timeLimit":30,"timeLeft":600,"nextMap":"de_aztec","gameMode":2}`
 	if raw != want {
 		t.Errorf("body\n%s\nwant\n%s", raw, want)
 	}
@@ -427,7 +427,17 @@ func TestStatusHandler(t *testing.T) {
 func TestStatusHandlerNullsAndEmptyList(t *testing.T) {
 	h, _ := newTestStatus(&fakeStatusSource{st: serverStatus{Map: "de_dust2", MaxPlayers: 16}})
 	w := getStatus(h, "203.0.113.7:4000", nil)
-	want := `{"map":"de_dust2","playerCount":0,"maxPlayers":16,"bots":0,"players":[],"timeLimit":null,"timeLeft":null}`
+	want := `{"game":"cstrike","map":"de_dust2","playerCount":0,"maxPlayers":16,"bots":0,"players":[],"timeLimit":null,"timeLeft":null}`
+	if w.Body.String() != want {
+		t.Fatalf("got %s", w.Body)
+	}
+}
+
+func TestStatusHandlerGame(t *testing.T) {
+	h, _ := newTestStatus(&fakeStatusSource{st: serverStatus{Map: "crossfire", MaxPlayers: 16}})
+	h.game = "valve"
+	w := getStatus(h, "203.0.113.7:4000", nil)
+	want := `{"game":"valve","map":"crossfire","playerCount":0,"maxPlayers":16,"bots":0,"players":[],"timeLimit":null,"timeLeft":null}`
 	if w.Body.String() != want {
 		t.Fatalf("got %s", w.Body)
 	}

@@ -329,6 +329,30 @@ RUN emcmake cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
 FROM scratch AS hlsdk-portable-dist
 COPY --from=hlsdk-portable /out/ /
 
+# The Half-Life deathmatch server's game library (valve/dlls/hl.so, run by the
+# hl-web-server compose service): the same commit and patches as the browser's
+# client library above, built for 32-bit Linux like the engine, so the
+# client's weapon prediction and messages match the server's code. Valve's
+# hl.so from the HLDS archive is a later Steam build the SDK doesn't follow.
+FROM debian:bookworm-slim AS hlsdk-portable-server
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates git cmake make gcc-multilib g++-multilib \
+    && apt-get clean
+ARG HLSDK_REPO=https://github.com/FWGS/hlsdk-portable
+ARG HLSDK_COMMIT=d0b128ec9dfc577b1069df9e4ffda5d891f83966
+WORKDIR /hlsdk
+COPY apps/hlsdk-portable/patches/ /patches/
+RUN git init -q . \
+    && git remote add origin "$HLSDK_REPO" \
+    && git fetch -q --depth=1 origin "$HLSDK_COMMIT" \
+    && git checkout -q FETCH_HEAD \
+    && git apply /patches/*.patch
+# hlsdk-portable adds -m32 itself on a 64-bit host (its 64BIT option is off).
+RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+    && cmake --build build --target server -j"$(nproc)" \
+    && mkdir -p /out \
+    && cp build/dlls/hl.so /out/hl.so
+
 # The browser engine (apps/xash3d-fwgs): Xash3D FWGS compiled to wasm with
 # the same emsdk, as yohimik/webxash3d-fwgs builds its npm package
 # xash3d-fwgs (packages/xash3d-fwgs/Dockerfile there). Pinned to the engine
@@ -425,6 +449,7 @@ COPY --from=go /src/xash ./xash
 COPY --from=client /apps/client/dist ./public
 COPY --from=engine /xash/build/filesystem/filesystem_stdio.so ./filesystem_stdio.so
 COPY --from=amxx-plugins /out/ ./cstrike/addons/amxmodx/plugins/
+COPY --from=hlsdk-portable-server /out/hl.so ./valve/dlls/hl.so
 
 # The legacy HLDS archive includes old GCC runtime libraries in /xashds.
 # Because /xashds is on LD_LIBRARY_PATH, they would override Debian's compatible

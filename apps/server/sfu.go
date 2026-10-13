@@ -672,11 +672,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// runSFU serves HTTP and WebRTC. admin is nil when the admin API is off,
+// runSFU serves HTTP and WebRTC. game is the engine's game folder (game.go). admin is nil when the admin API is off,
 // console when both the admin API and the leaderboard are off; query (server queries for /status.json) is always on;
 // leaderboard, duel and names are nil when their database couldn't be
 // opened.
-func runSFU(admin http.Handler, console *engineConsole, query *engineQuery, leaderboard, duel, names http.Handler) {
+func runSFU(game string, admin http.Handler, console *engineConsole, query *engineQuery, leaderboard, duel, names http.Handler) {
 	settingEngine := webrtc.SettingEngine{}
 	settingEngine.DetachDataChannels()
 
@@ -749,9 +749,9 @@ func runSFU(admin http.Handler, console *engineConsole, query *engineQuery, lead
 	// start HTTP server
 	if err := http.ListenAndServe(addr, &Server{
 		static:      newStaticHandler("public"),
-		maps:        newMapsHandler("cstrike"),
+		maps:        newMapsHandler(game),
 		admin:       admin,
-		status:      newStatusHandler(query),
+		status:      newStatusHandler(query, game),
 		leaderboard: leaderboard,
 		duel:        duel,
 		names:       names,

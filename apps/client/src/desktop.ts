@@ -126,6 +126,23 @@ export function showError(stage: Stage, message: string): void {
   setPhase('error');
 }
 
+/**
+ * Labels the login page for the Half-Life deathmatch server (servergame.ts).
+ * "Play Half-Life" stays: single player in this browser.
+ */
+export function showHalfLifeServer(): void {
+  document.title = 'Half-Life Deathmatch';
+  const title = form.querySelector('.launcher-title');
+  if (title) {
+    const accent = document.createElement('span');
+    accent.textContent = 'DM';
+    title.replaceChildren('Half-Life ', accent);
+  }
+  const subtitle = form.querySelector('.launcher-subtitle');
+  if (subtitle) subtitle.textContent = 'LAN Deathmatch';
+  halfLifeButton.textContent = 'Single player';
+}
+
 export function removeDesktop(): void {
   desktop.remove();
 }

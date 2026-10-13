@@ -1,1 +1,12 @@
-de_dust2
+crossfire
+stalkyard
+bounce
+datacore
+frenzy
+gasworks
+lambda_bunker
+rapidcore
+snark_pit
+subtransit
+undertow
+boot_camp

@@ -182,6 +182,9 @@ jobs:
               | .volumes = ["cs16-data:/xashds/data"]
             )
             | .volumes."cs16-data" = {}
+            # The Half-Life LAN server (profile hl) is for local networks only.
+            | del(.services."hl-web-server")
+            | del(.volumes."hl-data")
           ' docker-compose.yml > /tmp/cs-docker-compose.yml
           cat /tmp/cs-docker-compose.yml
 
