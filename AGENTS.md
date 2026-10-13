@@ -13,7 +13,7 @@ One Docker image runs a Counter-Strike 1.6 dedicated server (Xash3D FWGS, 32-bit
 | `apps/xash3d-fwgs/` | [apps/xash3d-fwgs/AGENTS.md](apps/xash3d-fwgs/AGENTS.md) | The browser engine package `xash3d-fwgs` the page imports: Xash3D FWGS (yohimik's web fork) compiled to wasm at a pinned commit plus `patches/`, and the TypeScript wrapper from yohimik/webxash3d-fwgs |
 | `apps/amxx/` | [apps/amxx/AGENTS.md](apps/amxx/AGENTS.md) | Our AMX Mod X plugins (`wc_*.sma`): game modes, weapon modes, extra log lines, kill info |
 
-The six apps build into one image and run as one container: `apps/server/Dockerfile` is built with the repository root as context, and the root `docker-compose.yml` is its only service. There is no `deploy/bundles.yml` and no app registry beyond this table. `README.md` is the user manual (features, environment variables, plugin and map tables, customization); update it in the same change when behaviour it describes changes.
+The six apps build into one image: `apps/server/Dockerfile` is built with the repository root as context. The root `docker-compose.yml` runs it as `cs16-web-server` (Counter-Strike) and, only with `--profile hl`, as `hl-web-server` (Half-Life deathmatch for the local network, `-game valve`, ports 27026 and 27028, address `LAN_IP` from `.env`). There is no `deploy/bundles.yml` and no app registry beyond this table. `README.md` is the user manual (features, environment variables, plugin and map tables, customization); update it in the same change when behaviour it describes changes.
 
 ## Build and run
 
@@ -21,7 +21,7 @@ The six apps build into one image and run as one container: `apps/server/Dockerf
 - Run `docker build` from the repository root with `-f apps/server/Dockerfile`. Build with an explicit platform. `make build-local-image` builds `linux/386` (what the image runs as); `docker-compose.yml` and the workflow build `linux/amd64`. On Apple Silicon a build without `--platform` targets arm64 and fails at `gcc-multilib`.
 - `make run` is `docker compose up -d`: container `cs16-web-server`, labels `project: cs` and `app: server`, host path `/var/data/cs` mounted on `/xashds/data`, and the external network `proxy`. Create the network once with `docker network create proxy`. Then open http://127.0.0.1:27016.
 - Passwords and bot settings come from `.env` next to the compose file (`.env.example`); never write them into `apps/server/configs/` or the Dockerfile.
-- Ports: 27016 TCP carries the page, `/websocket` and every HTTP route; `PORT` (27018) TCP and UDP carries WebRTC, advertised at the address in `IP`; 27015/udp is the engine inside the container only.
+- Ports: 27016 TCP carries the page, `/websocket` and every HTTP route; `PORT` (27018) TCP and UDP carries WebRTC, advertised at the address in `IP`; 27015/udp is the engine inside the container only. `hl-web-server` maps host 27026 to its 27016 and uses `PORT` 27028.
 - Every upstream (engine commit, browser engine commit, goxash3d-fwgs, hlsdk-portable, HLDS build, Metamod, AMX Mod X, YaPB, ReGameDLL, community maps) is a Dockerfile `ARG` with a pinned commit or sha256. Change the version and its checksum together, and keep the comment that says where it comes from.
 - The image runs as user `xashds`, with no health check and no image labels; the compose file supplies the labels. Keep it that way unless the task is about the container itself.
 
@@ -47,7 +47,7 @@ A browser check needs the full image. `npm run dev` serves the page alone, with 
 
 - `.github/workflows/deploy.yml` runs on every push to `main`: it builds `ghcr.io/<owner>/cs16-web-server:<sha>` and `:latest`, then deploys to the staging VPS (GitHub Environment `staging-vps`, directory `/opt/apps/cs`) over SSH and waits for HTTP on 27016. Pushing to `main` is the deployment; there is no production environment and no promotion step.
 - Rollback is `workflow_dispatch` with `skip_build` and an `image_tag` set to an earlier commit SHA.
-- The deploy job rewrites `docker-compose.yml` with `yq` (drops `build`, sets the image, IP, port and a named volume). Keep that file valid for both local use and the VPS, and keep the workflow's `yq` expression in step with its structure.
+- The deploy job rewrites `docker-compose.yml` with `yq` (drops `build`, sets the image, IP, port and a named volume, and deletes `hl-web-server`, which is for local networks only). Keep that file valid for both local use and the VPS, and keep the workflow's `yq` expression in step with its structure.
 - Deployment variables and secrets live on the GitHub Environment, documented at the top of the workflow. Never commit them.
 
 ## Conventions

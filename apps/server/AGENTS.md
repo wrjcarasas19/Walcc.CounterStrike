@@ -9,6 +9,7 @@ This folder also holds the image the whole repository builds: `Dockerfile` (buil
 | File | Role |
 |---|---|
 | `main.go` | Reads the environment, decides admin and rcon mode, opens `DATA_DIR`, starts the leaderboard follower and the SFU, hands the engine its arguments |
+| `game.go` | The engine's game folder from `-game` (`cstrike` from the ENTRYPOINT, `valve` for the `hl-web-server` compose service). Under anything but `cstrike` the admin API, leaderboard, `/duel`, `/names/*` and `BOT_QUOTA` are off; `/status.json` reports the folder as `game` |
 | `sfu.go`, `recv.go`, `drop.go`, `fsa.go` | `/websocket` signalling, pion WebRTC peers, data channel to and from the engine's packet queues, per-address limits, the engine's `sendto` and `recvfrom` callbacks, slot table |
 | `static.go` | Serves `public/` (the Vite build): gzip from memory, immutable caching under `/assets/`, `.webm` and `.mp3` MIME types |
 | `admin.go`, `admin_*.go`, `console.go`, `rcon.go` | `/admin/login`, `/admin/logout`, `/admin/session`, `/admin/command`: session cookie, lockout, allowed actions per tab, rcon to the engine |
@@ -38,7 +39,7 @@ Environment: `IP`, `PORT`, `ADMIN_PASSWORD`, `RCON_PASSWORD`, `BOT_QUOTA`, `LEAD
 
 ## Contracts with other parts
 
-- JSON shapes and status codes of `/status.json`, `/leaderboard`, `/duel`, `/names/*`, `/maps/index.json` and `/admin/*` are consumed by `apps/client`. Change both sides in the same commit.
+- JSON shapes and status codes of `/status.json` (its `game` field picks what the page joins as, `apps/client/src/servergame.ts`), `/leaderboard`, `/duel`, `/names/*`, `/maps/index.json` and `/admin/*` are consumed by `apps/client`. Change both sides in the same commit.
 - The log lines `statsfollow.go` parses (`killed`, `wc_headshot`, `wc_gg_win`, `changed name to`, `connected, address`) are written by the engine and by `apps/amxx`. A format change touches the plugin, this parser and its tests.
 - `.res` files and the files `/maps/files/` may serve are produced by the Dockerfile `maps` stage; the allowed extensions are listed in `maps.go`.
 - Leaderboard schema changes are numbered migrations in `statsdb.go`. Totals, duels and read offsets are updated in one transaction; keep that invariant.

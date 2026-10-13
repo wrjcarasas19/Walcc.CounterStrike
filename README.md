@@ -15,6 +15,7 @@ This repository provides a **plug-and-play Docker image** for running a fully fu
 - ✅ Invite links: Settings (F3, or the Settings button on the login page) → "Copy invite link"; opening `/?join=1` loads the game and joins with the saved nickname (or asks for one first)
 - ✅ Claimed names: Settings (F3) → "Your name" claims your nickname on this server, with a recovery code to sign in other browsers; nobody else can play or score under it, the leaderboard marks it with ✓, and the admin can release it (F4 → Players)
 - ✅ Half-Life single player (proof of concept): "Play Half-Life" on the login page runs the campaign in your browser from the same game files, with no nickname and no server connection. It uses the engine's own menu and HUD (none of the Counter-Strike extras). Level changes and saving and loading work; saves last only until the page is closed
+- ✅ Half-Life deathmatch on your network: a second server from the same image (crossfire, stalkyard and the other stock maps); see [Half-Life deathmatch (LAN)](#half-life-deathmatch-lan)
 - ✅ Dockerized & easy to deploy
 - ✅ i386 (32-bit) architecture support
 
@@ -74,6 +75,29 @@ docker run -d \
 
 Then open http://127.0.0.1:27016 in your browser!
 
+### Half-Life deathmatch (LAN)
+
+The compose file has a second service, `hl-web-server`, that runs Half-Life
+deathmatch instead of Counter-Strike. It is in the `hl` profile, so plain
+`docker compose up -d` doesn't start it:
+
+```sh
+# in .env: this machine's address on your network
+LAN_IP=192.168.1.20
+
+docker compose --profile hl up -d --build
+```
+
+Players on the network open `http://192.168.1.20:27026`, enter a nickname
+and press Download, then Connect. The page asks the server which game it runs
+(`game` in `/status.json`) and joins as Half-Life, with the engine's own HUD,
+chat and scoreboard. Ports: 27026/tcp for the page, 27028/tcp+udp for WebRTC.
+Maps change every 15 minutes or at 30 frags (`apps/server/configs/valve/`).
+This server has no leaderboard, claimed names, bots, community maps or F4
+admin menu, and the deploy workflow leaves it out. To let players in over
+the internet instead, set `LAN_IP` to the public address and forward both
+ports to this machine.
+
 ## 🌍 Environment Variables
 
 | Variable           | Description                                                                                                                                    | Example            |
@@ -85,6 +109,7 @@ Then open http://127.0.0.1:27016 in your browser!
 | `BOT_QUOTA`        | Players (humans + YaPB bots) to keep in the game, 0–32; bots leave as humans join. Default `0` (no bots)                                       | `6`                |
 | `DATA_DIR`         | Directory of the ban list (`bans.json`) and the leaderboard (`leaderboard.db`); default `data` in the working dir, `/xashds/data` in the image | `/xashds/data`     |
 | `LEADERBOARD_BOTS` | `1` lists YaPB bots on the leaderboard too; default `0` (bots get no row, but kills on them and deaths by them count)                          | `1`                |
+| `LAN_IP`           | Compose only: the address the Half-Life deathmatch server (`hl-web-server`) advertises for WebRTC; default `127.0.0.1` (this machine only)    | `192.168.1.20`     |
 
 With docker compose, put the passwords in a `.env` file next to
 `docker-compose.yml` (ignored by git; see `.env.example`). Never set them in

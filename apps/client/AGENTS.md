@@ -47,6 +47,8 @@ npm run build               # dist/
 
 "Play Half-Life" (`playHalfLife` in `main.ts`) is single player: the engine runs the game's server itself from the same game-files zip (its `valve/` folder only), with the engine's generic main menu and HUD. None of the Counter-Strike parts run: no connection, nickname, lobby polling after start, HTML HUD, F3 settings, F4 admin or announcer. Saves live in the engine's in-memory filesystem and are lost when the page closes. Level changes and saves keep entity functions through a browser engine patch; see `apps/hlsdk-portable/AGENTS.md`.
 
+On a server that runs Half-Life deathmatch (the `hl-web-server` compose service), `/status.json` says `"game": "valve"` (`servergame.ts`). The login page is relabelled (`showHalfLifeServer` in `desktop.ts`), `prepare` loads only `valve/` with the Half-Life libraries, and Connect runs `startDeathmatch`: nickname, the shared `joinServer` settings, reconnects, and the engine's own HUD, chat and scoreboard. The HTML HUD, announcer, kill card, chat, wheel, F3/F4 hooks and map sync are written for cs16-client and don't run. When `/status.json` doesn't answer, the page assumes Counter-Strike.
+
 ## Browser check
 
 Exercise the changed flow in the real image: login page, lobby, F3 settings, F4 admin (needs `ADMIN_PASSWORD` in `.env`), and in-game HUD after joining. A visual change gets a screenshot of the changed state. Chromium can join a game headless if the task needs an in-game screenshot; the first load downloads the game files (about 480 MB), cached afterwards.

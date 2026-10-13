@@ -1,6 +1,6 @@
 # Half-Life game code (`apps/hlsdk-portable`)
 
-The Half-Life game client and server library the page loads for "Play Half-Life" (single player in the browser), compiled to WebAssembly with Emscripten from [FWGS/hlsdk-portable](https://github.com/FWGS/hlsdk-portable). Unlike `apps/cs16-client`, the source isn't kept here: the Dockerfile `hlsdk-portable` stage fetches the commit pinned in `HLSDK_COMMIT` and applies `patches/`. Read the root guide first.
+The Half-Life game client and server library the page loads for "Play Half-Life" (single player in the browser) and for the deathmatch server, compiled to WebAssembly with Emscripten from [FWGS/hlsdk-portable](https://github.com/FWGS/hlsdk-portable). The same commit and patch are also built for 32-bit Linux (Dockerfile stage `hlsdk-portable-server`) as the image's `valve/dlls/hl.so`, which the `hl-web-server` compose service runs, so the browser client and that server run the same game code. Unlike `apps/cs16-client`, the source isn't kept here: the Dockerfile `hlsdk-portable` stage fetches the commit pinned in `HLSDK_COMMIT` and applies `patches/`. Read the root guide first.
 
 | Path | Tracked | What it is |
 |---|---|---|
@@ -28,7 +28,7 @@ The Docker image builds this stage itself. The emsdk image is amd64-only. No hos
 
 ## Rules
 
-- Move upstream by changing `HLSDK_COMMIT` in the Dockerfile and keeping its comment; check the patch still applies.
+- Move upstream by changing `HLSDK_COMMIT` in the Dockerfile and keeping its comment; check the patch still applies. The `hlsdk-portable` and `hlsdk-portable-server` stages each pin it: change both together.
 - Keep the patch to build settings. Game code changes would need a different layout (a vendored tree, like `apps/cs16-client`).
 - The code is under Valve's Half Life 1 SDK license (non-commercial, see upstream `LICENSE`), as is ReGameDLL in `apps/cs16-client`.
 - Game files come from the same zip as Counter-Strike (`apps/client/src/gamefiles.ts`, its `valve/` folder); nothing here is a game asset.
