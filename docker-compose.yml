@@ -36,7 +36,8 @@ services:
 
   # Half-Life deathmatch for players on this network, from the same image.
   # Started only with `docker compose --profile hl up -d`; the deploy
-  # workflow drops it. Players open http://<LAN_IP>:27026.
+  # workflow keeps it on the VPS, stopped, on Counter-Strike's ports and
+  # public IP (one runs at a time). Players open http://<LAN_IP>:27026.
   hl-web-server:
     profiles: [hl]
     build:

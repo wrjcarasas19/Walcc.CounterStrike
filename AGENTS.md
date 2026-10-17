@@ -47,7 +47,7 @@ A browser check needs the full image. `npm run dev` serves the page alone, with 
 
 - `.github/workflows/deploy.yml` runs on every push to `main`: it builds `ghcr.io/<owner>/cs16-web-server:<sha>` and `:latest`, then deploys to the staging VPS (GitHub Environment `staging-vps`, directory `/opt/apps/cs`) over SSH and waits for HTTP on 27016. Pushing to `main` is the deployment; there is no production environment and no promotion step.
 - Rollback is `workflow_dispatch` with `skip_build` and an `image_tag` set to an earlier commit SHA.
-- The deploy job rewrites `docker-compose.yml` with `yq` (drops `build`, sets the image, IP, port and a named volume, and deletes `hl-web-server`, which is for local networks only). Keep that file valid for both local use and the VPS, and keep the workflow's `yq` expression in step with its structure.
+- The deploy job rewrites `docker-compose.yml` with `yq` (drops `build`, sets the image, IP, port and a named volume, and gives `hl-web-server` the same image, ports, IP and network, since on the VPS it runs instead of Counter-Strike; it stays in profile `hl`, so the deploy's `up` doesn't start it, and the deploy removes it before `up`). Keep that file valid for both local use and the VPS, and keep the workflow's `yq` expression in step with its structure.
 - Deployment variables and secrets live on the GitHub Environment, documented at the top of the workflow. Never commit them.
 
 ## Conventions

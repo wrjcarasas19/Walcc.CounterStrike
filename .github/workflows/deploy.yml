@@ -182,9 +182,22 @@ jobs:
               | .volumes = ["cs16-data:/xashds/data"]
             )
             | .volumes."cs16-data" = {}
-            # The Half-Life LAN server (profile hl) is for local networks only.
-            | del(.services."hl-web-server")
-            | del(.volumes."hl-data")
+            # Half-Life deathmatch stays in profile hl, so the "up -d" below
+            # never starts it; it is switched to by hand (README). It runs
+            # instead of Counter-Strike, never beside it, so it takes the
+            # same image, ports, IP and proxy alias.
+            | .services."hl-web-server" |= (
+              del(.build)
+              | .image = strenv(CS16_IMAGE)
+              | .environment.IP = strenv(VPS_IP)
+              | .environment.PORT = strenv(VPS_GAME_PORT)
+              | .ports = [
+                  "27016:27016",
+                  strenv(VPS_GAME_PORT) + ":" + strenv(VPS_GAME_PORT) + "/tcp",
+                  strenv(VPS_GAME_PORT) + ":" + strenv(VPS_GAME_PORT) + "/udp"
+                ]
+            )
+            | .services."hl-web-server".networks = .services."cs16-web-server".networks
           ' docker-compose.yml > /tmp/cs-docker-compose.yml
           cat /tmp/cs-docker-compose.yml
 
@@ -250,6 +263,8 @@ jobs:
           docker network inspect proxy >/dev/null 2>&1 || docker network create proxy
           echo '${GHCR_TOKEN}' | docker login ghcr.io -u '${GHCR_USER}' --password-stdin
           "\${dc[@]}" pull
+          # hl-web-server holds Counter-Strike's ports while it runs.
+          docker rm -f hl-web-server >/dev/null 2>&1 || true
           "\${dc[@]}" up -d --remove-orphans
           docker logout ghcr.io >/dev/null 2>&1 || true
           "\${dc[@]}" ps

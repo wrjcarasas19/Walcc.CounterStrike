@@ -94,9 +94,24 @@ and press Download, then Connect. The page asks the server which game it runs
 chat and scoreboard. Ports: 27026/tcp for the page, 27028/tcp+udp for WebRTC.
 Maps change every 15 minutes or at 30 frags (`apps/server/configs/valve/`).
 This server has no leaderboard, claimed names, bots, community maps or F4
-admin menu, and the deploy workflow leaves it out. To let players in over
-the internet instead, set `LAN_IP` to the public address and forward both
-ports to this machine.
+admin menu. To let players in over the internet instead, set `LAN_IP` to
+the public address and forward both ports to this machine.
+
+On the VPS the deploy keeps this service in the compose file, on
+Counter-Strike's ports (27016 and the WebRTC port) and public IP, but starts
+only Counter-Strike. One of the two runs at a time, at the same address. To
+switch games there, in `/opt/apps/cs`:
+
+```sh
+docker compose stop cs16-web-server
+docker compose --profile hl up -d hl-web-server
+# and back:
+docker compose stop hl-web-server
+docker compose up -d cs16-web-server
+```
+
+Starting one while the other runs fails with "port is already allocated".
+A deploy removes `hl-web-server` and starts Counter-Strike again.
 
 ## 🌍 Environment Variables
 
