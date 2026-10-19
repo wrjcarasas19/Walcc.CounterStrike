@@ -1,6 +1,7 @@
 import type { Xash3D } from 'xash3d-fwgs';
 import { announce, getAnnouncerOptions } from './announcer';
 import { createAnnouncerTriggers, modeSound } from './announcer-rules';
+import type { BuyMenuEvent } from './buy/items';
 import {
   MODE_EVENT_CLIENT_VERSION,
   gunGameStrip,
@@ -112,7 +113,10 @@ export type HudEvent =
   // To the victim of a player kill, right after its `kill` event
   // (cs16-client 0.0.10+, wc_html_hud 1): see killinfo.ts. Read it with
   // parseKillInfo; the "Killed by" card (killcard.ts) shows it.
-  | { type: 'killinfo'; payload: KillInfo };
+  | { type: 'killinfo'; payload: KillInfo }
+  // The server opened or closed a buy menu (cs16-client 0.0.11+, only with
+  // hud_html_buymenu 1): see buy/index.ts.
+  | { type: 'buymenu'; payload: BuyMenuEvent };
 
 /** One chat line from the client (cs16-client 0.0.8+), color codes stripped. */
 export type ChatLine = {

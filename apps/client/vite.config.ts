@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { defineConfig } from 'vite';
-// Throw if a game mode preset, a settings default or a radio wheel item is
-// invalid, so the build fails.
+// Throw if a game mode preset, a settings default, a radio wheel item or a
+// buy menu item is invalid, so the build fails.
 import './src/admin/presets';
+import './src/buy/items';
 import './src/settings/schema';
 import './src/wheel/items';
 

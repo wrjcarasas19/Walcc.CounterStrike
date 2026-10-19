@@ -20,6 +20,7 @@
 #include "hud.h"
 #include "cl_util.h"
 #include "parsemsg.h"
+#include "web_bridge.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -90,6 +91,10 @@ int CHudMenu :: Draw( float flTime )
 			return 1;
 		}
 	}
+
+	// the web page draws the buy menu (web_bridge.h, "buymenu")
+	if ( WebBridge_BuyMenuShown() )
+		return 1;
 
 	// don't draw the menu if the scoreboard is being shown
 	//if ( gViewPort && gViewPort->IsScoreBoardVisible() )
@@ -215,6 +220,8 @@ int CHudMenu :: MsgFunc_ShowMenu( const char *pszName, int iSize, void *pbuf )
 			g_szMenuString[MAX_MENU_STRING-1] = 0;
 			free( temp );
 		}
+
+		WebBridge_Menu( g_szPrelocalisedMenuString );
 	}
 
 	m_fMenuDisplayed = 1;
@@ -265,6 +272,7 @@ void CHudMenu::UserCmd_OldStyleMenuClose()
 	m_iFlags &= ~HUD_DRAW;
 
 	Touch_CloseMenu();
+	WebBridge_MenuClosed();
 }
 
 // lol, no real VGUI here

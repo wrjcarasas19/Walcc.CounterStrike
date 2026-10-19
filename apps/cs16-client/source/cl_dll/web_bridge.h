@@ -201,6 +201,28 @@ When each fires:
   Both messages are registered by server plugins, so their ids are not
   fixed; WebBridge_Init hooks them by name.
 
+  "buymenu"  { open: boolean, menu: string, team: "CT" | "T" | "",
+               map: string }   (0.0.11+)
+            Only while the cvar hud_html_buymenu is nonzero. open true: the
+            server opened one of its buy menus as a text menu (ShowMenu; the
+            page runs "_vgui_menus 0"), sent for every buy menu it opens,
+            including a submenu replacing the main one. menu is the menu's
+            title key without '#': "Buy" (main menu), "CT_BuyPistol",
+            "T_BuyPistol", "BuyShotgun", "CT_BuySubMachineGun",
+            "T_BuySubMachineGun", "CT_BuyRifle", "T_BuyRifle",
+            "BuyMachineGun", "CT_BuyItem", "T_BuyItem", "DCT_BuyItem",
+            "DT_BuyItem" or an assassination map's "AS_..." variant (see
+            s_buyMenus in web_bridge.cpp). team is the local player's
+            TeamInfo, map the level name as in "scores". The client keeps the
+            menu open (number keys still go to it) but doesn't draw it.
+            open false: that menu closed, for any reason: an item picked
+            (slot keys), slot10 (the server sends it when the player leaves
+            the buy zone or buy time ends), a menu with no valid keys,
+            another text menu replacing it, or the cvar turned off; menu,
+            team and map are "". The page closes the menu with "slot10",
+            which also tells the server ("menuselect 10"). After "reset" it
+            is closed and not resent.
+
 Values not received from the server yet are not resent.
 
 The menu library (3rdparty/mainui_cpp/BaseMenu.cpp) sends one more event the
@@ -215,6 +237,10 @@ WebBridge_Frame sets it back to 1 whenever something else changes it.
 
 cvar hud_html_scores (default 0): nonzero also sends "scores" every 0.5 s
 while the scoreboard is hidden (the page's admin player list).
+
+cvar hud_html_buymenu (default 0): nonzero sends "buymenu" and skips drawing
+the buy menus; the page sets it when it has its own buy menu, so a page
+without one keeps the stock text menu.
 */
 
 #pragma once
@@ -235,6 +261,9 @@ void WebBridge_TextMsg( int dest, const char *message );	// TextMsg: round end c
 void WebBridge_SayText( const char *fmt, int slot, char *const argv[3], const char *formatted );	// SayText: argv[0] is the sender's name
 void WebBridge_Notice( const char *text );	// TextMsg HUD_PRINTTALK
 void WebBridge_Radio( int slot, const char *name, const char *location, const char *text );	// TextMsg HUD_PRINTRADIO
+void WebBridge_Menu( const char *menu );	// ShowMenu: a whole text menu arrived (title key before localization)
+void WebBridge_MenuClosed( void );	// CHudMenu closed its text menu
+bool WebBridge_BuyMenuShown( void );	// the page draws the open text menu: CHudMenu::Draw skips it
 void WebBridge_Init( void );		// CHud::Init: hooks the server plugins' WcMode / WcKillInfo
 void WebBridge_Frame( void );		// once per frame: timer seconds, alive state, scoreboard
 void WebBridge_InitHUD( void );		// sends "reset" + resend

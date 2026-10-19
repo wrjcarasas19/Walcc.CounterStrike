@@ -75,6 +75,12 @@ event contract: each event calls `Module.hudEvent(type, payload)` on the page.
 - **Server plugin events**: `WebBridge_Init` hooks the user messages `WcMode`
   (`apps/amxx/wc_gamemode.sma`) and `WcKillInfo` (`apps/amxx/wc_killinfo.sma`)
   by name and sends `mode` and `killinfo`.
+- **Buy menu** (`menu.cpp`): with cvar `hud_html_buymenu 1` (the page sets
+  it), a buy menu the server sends as a text menu (`ShowMenu` with a title
+  key from `s_buyMenus`) goes to the page as `buymenu { open, menu, team,
+  map }` and isn't drawn; the menu stays open in `CHudMenu`, so slot keys,
+  `slot10` and the server's own close work as before, and every close sends
+  `buymenu { open: false }`.
 - **High-DPI screens** (`hud.cpp`, `CHud::VidInit`): the HUD's true screen
   size (`TrueWidth`/`TrueHeight`, used by the sniper scope and crosshair) comes
   from `PARM_SCREEN_WIDTH`/`HEIGHT`, the framebuffer the HUD draws in, instead
@@ -88,7 +94,7 @@ Checking that the bridge made it into the client: each EM_JS function is an
 import `env.js_hud_<event>` that `--minify-wasm-imports` doesn't rename.
 
 ```sh
-strings dist/cl_dll/client_emscripten_wasm32.wasm | grep -c hudEvent   # 15
+strings dist/cl_dll/client_emscripten_wasm32.wasm | grep -c hudEvent   # 16
 ```
 
 Keep EM_JS parameter lists unpadded (`(int a, int b)`, not `( int a, int b )`):

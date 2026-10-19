@@ -109,6 +109,13 @@ EM_JS( void, js_hud_killinfo, (const char *json), {
 	if( typeof f !== "function" ) return;
 	try { f( "killinfo", JSON.parse( UTF8ToString( json ))); } catch( e ) { console.error( "hudEvent", e ); }
 } );
+EM_JS( void, js_hud_buymenu, (int open, const char *menu, const char *team, const char *map), {
+	var f = Module["hudEvent"];
+	if( typeof f !== "function" ) return;
+	try { f( "buymenu", {
+		open: !!open, menu: UTF8ToString( menu ), team: UTF8ToString( team ), map: UTF8ToString( map )
+	} ); } catch( e ) { console.error( "hudEvent", e ); }
+} );
 
 #else
 
@@ -127,6 +134,7 @@ static void js_hud_scores( const char * ) { }
 static void js_hud_chat( const char * ) { }
 static void js_hud_mode( const char * ) { }
 static void js_hud_killinfo( const char * ) { }
+static void js_hud_buymenu( int, const char *, const char *, const char * ) { }
 
 #endif
 
@@ -166,6 +174,7 @@ static struct
 
 	const struct round_end_s *roundEnd;	// round end seen, "round" goes out next frame
 	bool intermission;	// last sent "intermission" active
+	bool buyMenu;		// last sent "buymenu" open: the page draws the open text menu
 } s_web;
 
 // snapshot interval while the scoreboard is visible (or hud_html_scores is set)
@@ -743,6 +752,67 @@ static int WebBridge_MsgWcKillInfo( const char *pszName, int iSize, void *pbuf )
 	return 1;
 }
 
+// Title keys of the CS game dll's buy menus as ShowVGUIMenu sends them in a
+// text menu (ReGameDLL_CS client.cpp; same keys in HLDS mp.dll).
+static const char *const s_buyMenus[] =
+{
+	"#Buy",
+	"#CT_BuyPistol", "#T_BuyPistol",
+	"#BuyShotgun", "#AS_BuyShotgun",
+	"#CT_BuySubMachineGun", "#T_BuySubMachineGun", "#AS_CT_BuySubMachineGun", "#AS_T_BuySubMachineGun",
+	"#CT_BuyRifle", "#T_BuyRifle", "#AS_CT_BuyRifle", "#AS_T_BuyRifle",
+	"#BuyMachineGun", "#AS_T_BuyMachineGun",
+	"#CT_BuyItem", "#T_BuyItem", "#DCT_BuyItem", "#DT_BuyItem",
+};
+
+static bool WebBridge_BuyMenusOn( void )
+{
+	return HUD_HTML_ACTIVE() && gHUD.hud_html_buymenu && gHUD.hud_html_buymenu->value != 0.0f;
+}
+
+void WebBridge_Menu( const char *menu )
+{
+	const char *key = NULL;
+
+	for( size_t i = 0; menu && i < sizeof( s_buyMenus ) / sizeof( s_buyMenus[0] ); i++ )
+	{
+		if( !strcmp( menu, s_buyMenus[i] ))
+		{
+			key = s_buyMenus[i];
+			break;
+		}
+	}
+
+	if( !key || !WebBridge_BuyMenusOn( ))
+	{
+		// another menu replaced the buy menu
+		WebBridge_MenuClosed();
+		return;
+	}
+
+	int local = gHUD.m_Scoreboard.m_iPlayerNum;
+	int team = local > 0 && local <= MAX_PLAYERS ? g_PlayerExtraInfo[local].teamnumber : 0;
+	char map[64];
+	WebBridge_MapName( map, sizeof( map ));
+
+	s_web.buyMenu = true;
+	js_hud_buymenu( true, key + 1, WebBridge_TeamName( team ), map );
+}
+
+void WebBridge_MenuClosed( void )
+{
+	if( !s_web.buyMenu )
+		return;
+
+	s_web.buyMenu = false;
+	js_hud_buymenu( false, "", "", "" );
+}
+
+bool WebBridge_BuyMenuShown( void )
+{
+	return s_web.buyMenu;
+}
+
 void WebBridge_Init( void )
 {
 	gEngfuncs.pfnHookUserMsg( "WcMode", WebBridge_MsgWcMode );
@@ -757,6 +827,10 @@ void WebBridge_Frame( void )
 	if( gHUD.hud_html && gHUD.hud_html->value != 1.0f )
 		gEngfuncs.Cvar_SetValue( "hud_html", 1.0f );
 #endif
+
+	// the page gave up its buy menu: CHudMenu draws the open one again
+	if( s_web.buyMenu && !WebBridge_BuyMenusOn( ))
+		WebBridge_MenuClosed();
 
 	if( s_web.timerKnown )
 	{
@@ -846,6 +920,8 @@ void WebBridge_InitHUD( void )
 	s_web.tScoreKnown = false;
 	s_web.roundEnd = NULL;
 	s_web.intermission = false;
+	// CHudMenu::InitHUDData drops the open menu; the page closes its own on "reset"
+	s_web.buyMenu = false;
 
 	js_hud_reset();
 	WebBridge_ResetHUD();

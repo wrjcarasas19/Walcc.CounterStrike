@@ -1,6 +1,6 @@
 {
   "name": "cs16-client",
-  "version": "0.0.10",
+  "version": "0.0.11",
   "private": true,
   "description": "cs16-client (game client, menu and ReGameDLL) built for the browser; see README.md",
   "exports": {

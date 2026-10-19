@@ -1,5 +1,6 @@
 import { attachAdmin, detachAdmin } from './admin';
 import { setAnnouncerOptions, startAnnouncer } from './announcer';
+import { attachBuyMenu, detachBuyMenu } from './buy';
 // Before ./wheel: its key listeners must run before the wheel's (chat.ts).
 import { attachChat, detachChat } from './chat';
 import { createEngine, type Game } from './engine';
@@ -299,6 +300,7 @@ function start(engine: Xash3DWebRTC): void {
       detachAdmin();
       detachSettings();
       detachWheel();
+      detachBuyMenu();
       setInGame(false);
       detachChat();
       detachHud();
@@ -324,6 +326,7 @@ function start(engine: Xash3DWebRTC): void {
   // Saved settings (sensitivity, crosshair, volume) before connecting.
   attachSettings(engine, touch);
   attachWheel(engine, touch);
+  attachBuyMenu(engine, touch);
   engine.Cmd_ExecuteString(`name "${playerName}"`);
   setLocalPlayerName(playerName);
   // Claimed names: the server reads the name cookie when the game

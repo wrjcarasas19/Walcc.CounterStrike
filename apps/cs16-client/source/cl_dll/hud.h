@@ -1022,6 +1022,7 @@ public:
 	cvar_t *cscl_mapprefix;
 	cvar_t *hud_html;
 	cvar_t *hud_html_scores;
+	cvar_t *hud_html_buymenu;
 
 	cvar_t* m_pCvarColor;
 	unsigned long m_iDefaultHUDColor;

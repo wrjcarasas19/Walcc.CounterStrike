@@ -31,6 +31,6 @@ The Docker image (`apps/server/Dockerfile`) builds this stage itself; the comman
 
 ## Verify
 
-1. `npm run build:cs16-client` (in `apps/client`), then confirm the bridge survived minification: `strings dist/cl_dll/client_emscripten_wasm32.wasm | grep -c hudEvent` prints the number of events (15 at the last count; adjust with the contract).
+1. `npm run build:cs16-client` (in `apps/client`), then confirm the bridge survived minification: `strings dist/cl_dll/client_emscripten_wasm32.wasm | grep -c hudEvent` prints the number of events (16 at the last count; adjust with the contract).
 2. `npm run build` (in `apps/client`) for the page, or `make build-local-image` for the whole image.
 3. `make run`, join a game in a browser and check the changed event reaches the HTML HUD (the page's HUD, kill card or mode strip). Report what was seen.

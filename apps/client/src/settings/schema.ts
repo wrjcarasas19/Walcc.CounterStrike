@@ -164,6 +164,14 @@ export const SETTINGS = {
     hint: 'Who killed you and your record against them',
     default: true,
   }),
+  // The buy menu with weapon pictures (../buy); off brings back the game's
+  // text menu (cvar hud_html_buymenu, set by ../buy).
+  buyMenu: toggleSetting({
+    group: 'HUD',
+    label: 'Buy menu with pictures',
+    hint: 'Off: the classic text menu',
+    default: true,
+  }),
   // Hold to show the radio and quick chat wheel (../wheel). Z replaces the
   // stock radio1 menu key (the wheel has the same commands); V is unbound in
   // stock CS 1.6.
