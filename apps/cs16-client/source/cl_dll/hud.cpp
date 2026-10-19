@@ -431,8 +431,20 @@ void CHud :: VidInit( void )
 	m_scrinfo.iSize = sizeof( m_scrinfo );
 	GetScreenInfo( &m_scrinfo );
 
-	m_truescrinfo.iWidth = CVAR_GET_FLOAT("width");
-	m_truescrinfo.iHeight = CVAR_GET_FLOAT("height");
+	// "width" and "height" are the window size, which on a High-DPI screen
+	// (the browser's devicePixelRatio) is smaller than the framebuffer the HUD
+	// draws in; the sniper scope and crosshair then sat in the top-left corner.
+	// PARM_SCREEN_* is that framebuffer size (refState in the engine's cl_render.c).
+	if( g_iXash && gRenderAPI.RenderGetParm )
+	{
+		m_truescrinfo.iWidth = gRenderAPI.RenderGetParm( PARM_SCREEN_WIDTH, 0 );
+		m_truescrinfo.iHeight = gRenderAPI.RenderGetParm( PARM_SCREEN_HEIGHT, 0 );
+	}
+	else
+	{
+		m_truescrinfo.iWidth = CVAR_GET_FLOAT("width");
+		m_truescrinfo.iHeight = CVAR_GET_FLOAT("height");
+	}
 
 	// ----------
 	// Load Sprites

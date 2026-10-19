@@ -75,6 +75,12 @@ event contract: each event calls `Module.hudEvent(type, payload)` on the page.
 - **Server plugin events**: `WebBridge_Init` hooks the user messages `WcMode`
   (`apps/amxx/wc_gamemode.sma`) and `WcKillInfo` (`apps/amxx/wc_killinfo.sma`)
   by name and sends `mode` and `killinfo`.
+- **High-DPI screens** (`hud.cpp`, `CHud::VidInit`): the HUD's true screen
+  size (`TrueWidth`/`TrueHeight`, used by the sniper scope and crosshair) comes
+  from `PARM_SCREEN_WIDTH`/`HEIGHT`, the framebuffer the HUD draws in, instead
+  of the `width`/`height` cvars, which hold the window size in CSS pixels.
+  Upstream's cvars put the scope in the top-left corner whenever
+  `devicePixelRatio` isn't 1.
 - **Menu** (`patches/mainui_cpp.patch`, `BaseMenu.cpp`): `menu { visible }`
   when the main menu opens or closes, so the page hides its HUD under it.
 
