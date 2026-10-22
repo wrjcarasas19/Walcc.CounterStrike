@@ -116,6 +116,13 @@ EM_JS( void, js_hud_buymenu, (int open, const char *menu, const char *team, cons
 		open: !!open, menu: UTF8ToString( menu ), team: UTF8ToString( team ), map: UTF8ToString( map )
 	} ); } catch( e ) { console.error( "hudEvent", e ); }
 } );
+EM_JS( void, js_hud_teammenu, (int open, const char *menu, int keys, const char *team), {
+	var f = Module["hudEvent"];
+	if( typeof f !== "function" ) return;
+	try { f( "teammenu", {
+		open: !!open, menu: UTF8ToString( menu ), keys: keys, team: UTF8ToString( team )
+	} ); } catch( e ) { console.error( "hudEvent", e ); }
+} );
 
 #else
 
@@ -135,6 +142,7 @@ static void js_hud_chat( const char * ) { }
 static void js_hud_mode( const char * ) { }
 static void js_hud_killinfo( const char * ) { }
 static void js_hud_buymenu( int, const char *, const char *, const char * ) { }
+static void js_hud_teammenu( int, const char *, int, const char * ) { }
 
 #endif
 
@@ -174,8 +182,15 @@ static struct
 
 	const struct round_end_s *roundEnd;	// round end seen, "round" goes out next frame
 	bool intermission;	// last sent "intermission" active
-	bool buyMenu;		// last sent "buymenu" open: the page draws the open text menu
+	int pageMenu;		// WEB_MENU_*: the page draws the open text menu (last "buymenu" / "teammenu" open)
 } s_web;
+
+enum
+{
+	WEB_MENU_NONE = 0,
+	WEB_MENU_BUY,
+	WEB_MENU_TEAM,
+};
 
 // snapshot interval while the scoreboard is visible (or hud_html_scores is set)
 #define SCORES_INTERVAL 0.5f
@@ -765,52 +780,81 @@ static const char *const s_buyMenus[] =
 	"#CT_BuyItem", "#T_BuyItem", "#DCT_BuyItem", "#DT_BuyItem",
 };
 
+// Title keys of the team and character (class) menus, same source. Which
+// options each one offers is in its valid keys, sent along.
+static const char *const s_teamMenus[] =
+{
+	"#Team_Select", "#Team_Select_Spect",
+	"#IG_Team_Select", "#IG_Team_Select_Spect",
+	"#IG_VIP_Team_Select", "#IG_VIP_Team_Select_Spect",
+	"#Terrorist_Select", "#CT_Select",
+};
+
 static bool WebBridge_BuyMenusOn( void )
 {
 	return HUD_HTML_ACTIVE() && gHUD.hud_html_buymenu && gHUD.hud_html_buymenu->value != 0.0f;
 }
 
-void WebBridge_Menu( const char *menu )
+static bool WebBridge_TeamMenusOn( void )
 {
-	const char *key = NULL;
+	return HUD_HTML_ACTIVE() && gHUD.hud_html_teammenu && gHUD.hud_html_teammenu->value != 0.0f;
+}
 
-	for( size_t i = 0; menu && i < sizeof( s_buyMenus ) / sizeof( s_buyMenus[0] ); i++ )
+static const char *WebBridge_FindMenu( const char *menu, const char *const *keys, size_t count )
+{
+	for( size_t i = 0; menu && i < count; i++ )
 	{
-		if( !strcmp( menu, s_buyMenus[i] ))
-		{
-			key = s_buyMenus[i];
-			break;
-		}
+		if( !strcmp( menu, keys[i] ))
+			return keys[i];
 	}
+	return NULL;
+}
 
-	if( !key || !WebBridge_BuyMenusOn( ))
-	{
-		// another menu replaced the buy menu
+void WebBridge_Menu( const char *menu, int keys )
+{
+	const char *buyKey = WebBridge_FindMenu( menu, s_buyMenus, sizeof( s_buyMenus ) / sizeof( s_buyMenus[0] ));
+	const char *teamKey = WebBridge_FindMenu( menu, s_teamMenus, sizeof( s_teamMenus ) / sizeof( s_teamMenus[0] ));
+	int kind = buyKey && WebBridge_BuyMenusOn() ? WEB_MENU_BUY
+		: teamKey && WebBridge_TeamMenusOn() ? WEB_MENU_TEAM
+		: WEB_MENU_NONE;
+
+	// another menu replaced the open one: close it on the page first
+	if( s_web.pageMenu != kind )
 		WebBridge_MenuClosed();
+
+	if( kind == WEB_MENU_NONE )
 		return;
-	}
 
 	int local = gHUD.m_Scoreboard.m_iPlayerNum;
 	int team = local > 0 && local <= MAX_PLAYERS ? g_PlayerExtraInfo[local].teamnumber : 0;
-	char map[64];
-	WebBridge_MapName( map, sizeof( map ));
 
-	s_web.buyMenu = true;
-	js_hud_buymenu( true, key + 1, WebBridge_TeamName( team ), map );
+	s_web.pageMenu = kind;
+	if( kind == WEB_MENU_BUY )
+	{
+		char map[64];
+		WebBridge_MapName( map, sizeof( map ));
+		js_hud_buymenu( true, buyKey + 1, WebBridge_TeamName( team ), map );
+	}
+	else
+	{
+		js_hud_teammenu( true, teamKey + 1, keys, WebBridge_TeamName( team ));
+	}
 }
 
 void WebBridge_MenuClosed( void )
 {
-	if( !s_web.buyMenu )
-		return;
+	int kind = s_web.pageMenu;
 
-	s_web.buyMenu = false;
-	js_hud_buymenu( false, "", "", "" );
+	s_web.pageMenu = WEB_MENU_NONE;
+	if( kind == WEB_MENU_BUY )
+		js_hud_buymenu( false, "", "", "" );
+	else if( kind == WEB_MENU_TEAM )
+		js_hud_teammenu( false, "", 0, "" );
 }
 
-bool WebBridge_BuyMenuShown( void )
+bool WebBridge_PageMenuShown( void )
 {
-	return s_web.buyMenu;
+	return s_web.pageMenu != WEB_MENU_NONE;
 }
 
 void WebBridge_Init( void )
@@ -828,8 +872,9 @@ void WebBridge_Frame( void )
 		gEngfuncs.Cvar_SetValue( "hud_html", 1.0f );
 #endif
 
-	// the page gave up its buy menu: CHudMenu draws the open one again
-	if( s_web.buyMenu && !WebBridge_BuyMenusOn( ))
+	// the page gave up its menu: CHudMenu draws the open one again
+	if(( s_web.pageMenu == WEB_MENU_BUY && !WebBridge_BuyMenusOn( ))
+		|| ( s_web.pageMenu == WEB_MENU_TEAM && !WebBridge_TeamMenusOn( )))
 		WebBridge_MenuClosed();
 
 	if( s_web.timerKnown )
@@ -921,7 +966,7 @@ void WebBridge_InitHUD( void )
 	s_web.roundEnd = NULL;
 	s_web.intermission = false;
 	// CHudMenu::InitHUDData drops the open menu; the page closes its own on "reset"
-	s_web.buyMenu = false;
+	s_web.pageMenu = WEB_MENU_NONE;
 
 	js_hud_reset();
 	WebBridge_ResetHUD();

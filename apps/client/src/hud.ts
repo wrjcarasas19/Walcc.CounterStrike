@@ -2,6 +2,7 @@ import type { Xash3D } from 'xash3d-fwgs';
 import { announce, getAnnouncerOptions } from './announcer';
 import { createAnnouncerTriggers, modeSound } from './announcer-rules';
 import type { BuyMenuEvent } from './buy/items';
+import type { TeamMenuEvent } from './team/items';
 import {
   MODE_EVENT_CLIENT_VERSION,
   gunGameStrip,
@@ -116,7 +117,10 @@ export type HudEvent =
   | { type: 'killinfo'; payload: KillInfo }
   // The server opened or closed a buy menu (cs16-client 0.0.11+, only with
   // hud_html_buymenu 1): see buy/index.ts.
-  | { type: 'buymenu'; payload: BuyMenuEvent };
+  | { type: 'buymenu'; payload: BuyMenuEvent }
+  // The server opened or closed a team or character menu (cs16-client
+  // 0.0.12+, only with hud_html_teammenu 1): see team/index.ts.
+  | { type: 'teammenu'; payload: TeamMenuEvent };
 
 /** One chat line from the client (cs16-client 0.0.8+), color codes stripped. */
 export type ChatLine = {

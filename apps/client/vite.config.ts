@@ -1,10 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { defineConfig } from 'vite';
 // Throw if a game mode preset, a settings default, a radio wheel item or a
-// buy menu item is invalid, so the build fails.
+// buy menu item or a team menu option is invalid, so the build fails.
 import './src/admin/presets';
 import './src/buy/items';
 import './src/settings/schema';
+import './src/team/items';
 import './src/wheel/items';
 
 // The installed cs16-client release, so the page knows which bridge events

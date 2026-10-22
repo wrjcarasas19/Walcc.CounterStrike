@@ -39,6 +39,7 @@ import { attachSettings, detachSettings } from './settings';
 import { serverGame } from './servergame';
 import { getSettings, onSettingsChange } from './settings/store';
 import type { Settings } from './settings/schema';
+import { attachTeamMenu, detachTeamMenu } from './team';
 import { attachWheel, detachWheel } from './wheel';
 import { ConnectError, type Xash3DWebRTC } from './webrtc';
 
@@ -301,6 +302,7 @@ function start(engine: Xash3DWebRTC): void {
       detachSettings();
       detachWheel();
       detachBuyMenu();
+      detachTeamMenu();
       setInGame(false);
       detachChat();
       detachHud();
@@ -327,6 +329,7 @@ function start(engine: Xash3DWebRTC): void {
   attachSettings(engine, touch);
   attachWheel(engine, touch);
   attachBuyMenu(engine, touch);
+  attachTeamMenu(engine, touch);
   engine.Cmd_ExecuteString(`name "${playerName}"`);
   setLocalPlayerName(playerName);
   // Claimed names: the server reads the name cookie when the game

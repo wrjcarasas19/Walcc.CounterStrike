@@ -3,6 +3,7 @@ import { versionAtLeast } from '../gamemode';
 import { onHudEvent } from '../hud';
 import { createModal, type Modal } from '../modal';
 import { getSettings, onSettingsChange } from '../settings/store';
+import { readVguiPictures } from '../vgui-pictures';
 import { itemIndexForKey } from '../wheel/items';
 import {
   BUYMENU_EVENT_CLIENT_VERSION,
@@ -17,7 +18,6 @@ import {
   type CategoryId,
   type Team,
 } from './items';
-import { decodeTga } from './tga';
 
 // Buy menu with the game's weapon pictures, in place of the stock text menu.
 // The server still opens and closes it: B runs `buy`, the server sends its
@@ -28,9 +28,6 @@ import { decodeTga } from './tga';
 // `slot10`, which closes the client's hidden menu and the server's
 // (`menuselect 10`). Number keys work as in the stock menus (B 4 2: AK-47).
 // Open, close, Esc, keys and the pointer lock come from ../modal.ts.
-
-// Where main.ts (loadGameFiles) unpacks the game files.
-const PICTURE_DIR = '/rodir/cstrike/gfx/vgui';
 
 const supported = versionAtLeast(
   __CS16_CLIENT_VERSION__,
@@ -54,7 +51,7 @@ let money: number | undefined;
 let level: 'main' | 'category' = 'main';
 let shown: CategoryId = 'rifles';
 // Picture data URLs by file name, read from the engine's files on first open.
-const pictures = new Map<string, string>();
+let pictures = new Map<string, string>();
 let picturesLoaded = false;
 
 const header = document.createElement('header');
@@ -192,30 +189,7 @@ function buy(item: BuyItem): void {
 function loadPictures(): void {
   if (picturesLoaded || !engine) return;
   picturesLoaded = true;
-  const canvas = document.createElement('canvas');
-  const context = canvas.getContext('2d');
-  if (!context) return;
-  const failed: string[] = [];
-  for (const name of allImages()) {
-    try {
-      const image = decodeTga(
-        engine.em.FS.readFile(`${PICTURE_DIR}/${name}.tga`)
-      );
-      canvas.width = image.width;
-      canvas.height = image.height;
-      context.putImageData(
-        new ImageData(image.data, image.width, image.height),
-        0,
-        0
-      );
-      pictures.set(name, canvas.toDataURL('image/png'));
-    } catch {
-      failed.push(name);
-    }
-  }
-  if (failed.length > 0) {
-    console.warn(`Buy menu pictures not loaded: ${failed.join(', ')}`);
-  }
+  pictures = readVguiPictures(engine, allImages(), 'Buy menu');
 }
 
 const modal: Modal = createModal({
@@ -342,7 +316,7 @@ export function attachBuyMenu(target: Xash3D, touch: boolean): void {
   gameMenuOpen = false;
   requested = false;
   money = undefined;
-  pictures.clear();
+  pictures = new Map();
   picturesLoaded = false;
   applySetting();
 }

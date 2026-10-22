@@ -14,9 +14,10 @@ The browser side: TypeScript built by Vite, no framework. `index.html` holds the
 | `settings/` | `schema.ts` defines every setting (the panel is built from it); `store.ts` keeps them in `localStorage` under `player-settings` |
 | `admin/` | F4 admin menu: `index.ts` lists the tabs, each tab is a module, `core.ts` has login and shared helpers, `presets.ts` the Match tab presets |
 | `wheel/`, `invite/`, `names/`, `leaderboard.ts`, `player.ts` | Chat wheel, invite links (`/?join=1`), claimed names API, leaderboard window, saved nickname |
-| `buy/` | Buy menu with pictures, opened by the client's `buymenu` event: `items.ts` the items, prices and stock key order, `tga.ts` decodes the pictures read from the engine's files (`cstrike/gfx/vgui/*.tga`) |
+| `buy/` | Buy menu with pictures, opened by the client's `buymenu` event: `items.ts` the items, prices and stock key order, `tga.ts` decodes the pictures read from the engine's files (`cstrike/gfx/vgui/*.tga`, read by `vgui-pictures.ts`) |
+| `team/` | Team and character menus with pictures, opened by the client's `teammenu` event: `items.ts` the options by menu key; the event's valid keys decide which are shown and whether the menu can be closed (`canClose` in `modal.ts`) |
 
-`vite.config.ts` imports `admin/presets`, `buy/items`, `settings/schema` and `wheel/items` so their self-checks run at build time: an invalid preset, buy item, setting or chat line fails `npm run build`.
+`vite.config.ts` imports `admin/presets`, `buy/items`, `settings/schema`, `team/items` and `wheel/items` so their self-checks run at build time: an invalid preset, buy item, setting, team menu option or chat line fails `npm run build`.
 
 ## Commands
 

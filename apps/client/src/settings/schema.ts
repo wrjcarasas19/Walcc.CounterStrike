@@ -172,6 +172,14 @@ export const SETTINGS = {
     hint: 'Off: the classic text menu',
     default: true,
   }),
+  // The team and character menus with pictures (../team); off brings back
+  // the game's text menus (cvar hud_html_teammenu, set by ../team).
+  teamMenu: toggleSetting({
+    group: 'HUD',
+    label: 'Team menus with pictures',
+    hint: 'Team and character; off: the classic text menus',
+    default: true,
+  }),
   // Hold to show the radio and quick chat wheel (../wheel). Z replaces the
   // stock radio1 menu key (the wheel has the same commands); V is unbound in
   // stock CS 1.6.

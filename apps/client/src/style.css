@@ -2455,6 +2455,96 @@ canvas,
   }
 }
 
+/* Team and character menus (team/index.ts): opened by the server's team menu
+   (joining, M) and character menu, with the game's player pictures. Same
+   frame and key badges as the buy menu. */
+.team-panel {
+  --buy-team: var(--accent);
+}
+
+.team-options {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  align-content: start;
+  gap: 10px;
+  min-height: 0;
+  padding: 14px;
+  overflow-y: auto;
+}
+
+.team-option {
+  --side: var(--border);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  background: var(--well);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  color: var(--text);
+  font-family: var(--font-body);
+  text-align: left;
+  cursor: pointer;
+}
+
+.team-option[data-side='CT'] {
+  --side: var(--team-ct);
+}
+
+.team-option[data-side='T'] {
+  --side: var(--team-t);
+}
+
+.team-option:hover,
+.team-option.team-current {
+  border-color: var(--side);
+  background: var(--bg-glow);
+}
+
+.team-option:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.team-option .buy-key {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+}
+
+.team-picture {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  height: 160px;
+}
+
+.team-picture img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.team-name {
+  padding-left: 8px;
+  border-left: 2px solid var(--side);
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.team-detail {
+  min-height: 1.2em;
+  padding-left: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.team-current .team-detail {
+  color: var(--side);
+}
+
 /* Phones: categories become a row above the items. */
 @media (max-width: 560px) {
   .buy-body {
@@ -2483,6 +2573,14 @@ canvas,
 
   .buy-items {
     grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  }
+
+  .team-options {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  }
+
+  .team-picture {
+    height: 100px;
   }
 }
 

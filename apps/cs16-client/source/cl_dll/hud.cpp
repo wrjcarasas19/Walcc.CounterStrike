@@ -314,6 +314,7 @@ void CHud :: Init( void )
 #endif
 	hud_html_scores = CVAR_CREATE( "hud_html_scores", "0", 0 ); // 1 = also send "scores" while the scoreboard is hidden
 	hud_html_buymenu = CVAR_CREATE( "hud_html_buymenu", "0", 0 ); // 1 = the web page draws the buy menus ("buymenu")
+	hud_html_teammenu = CVAR_CREATE( "hud_html_teammenu", "0", 0 ); // 1 = the web page draws the team and character menus ("teammenu")
 	fastsprites  = CVAR_CREATE( "fastsprites", "0", FCVAR_ARCHIVE );
 	cl_gunsmoke  = CVAR_CREATE( "cl_gunsmoke", "0", FCVAR_ARCHIVE );
 	cl_weapon_sparks = CVAR_CREATE( "cl_weapon_sparks", "1", FCVAR_ARCHIVE );

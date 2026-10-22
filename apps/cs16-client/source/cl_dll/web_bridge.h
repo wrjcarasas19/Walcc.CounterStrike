@@ -223,6 +223,22 @@ When each fires:
             which also tells the server ("menuselect 10"). After "reset" it
             is closed and not resent.
 
+  "teammenu" { open: boolean, menu: string, keys: number,
+               team: "CT" | "T" | "" }   (0.0.12+)
+            Only while the cvar hud_html_teammenu is nonzero. Like "buymenu",
+            for the team and character menus: menu is "Team_Select",
+            "Team_Select_Spect", "IG_Team_Select", "IG_Team_Select_Spect",
+            "IG_VIP_Team_Select", "IG_VIP_Team_Select_Spect" (team: 1 T,
+            2 CT, 3 VIP, 5 auto, 6 spectate, 0 cancel) or "Terrorist_Select",
+            "CT_Select" (character: 1-4, 5 auto; see s_teamMenus in
+            web_bridge.cpp). keys is the menu's valid keys from ShowMenu,
+            bit n for key n + 1 and bit 9 for key 0: the options the server
+            accepts, and without bit 9 the menu can't be closed (joining).
+            team is the local player's TeamInfo. The page picks with "slotN",
+            which closes the menu (open false) like any pick; after a team
+            pick the server opens the character menu. It closes with
+            "slot10".
+
 Values not received from the server yet are not resent.
 
 The menu library (3rdparty/mainui_cpp/BaseMenu.cpp) sends one more event the
@@ -241,6 +257,9 @@ while the scoreboard is hidden (the page's admin player list).
 cvar hud_html_buymenu (default 0): nonzero sends "buymenu" and skips drawing
 the buy menus; the page sets it when it has its own buy menu, so a page
 without one keeps the stock text menu.
+
+cvar hud_html_teammenu (default 0): the same for "teammenu" and the team and
+character menus.
 */
 
 #pragma once
@@ -261,9 +280,9 @@ void WebBridge_TextMsg( int dest, const char *message );	// TextMsg: round end c
 void WebBridge_SayText( const char *fmt, int slot, char *const argv[3], const char *formatted );	// SayText: argv[0] is the sender's name
 void WebBridge_Notice( const char *text );	// TextMsg HUD_PRINTTALK
 void WebBridge_Radio( int slot, const char *name, const char *location, const char *text );	// TextMsg HUD_PRINTRADIO
-void WebBridge_Menu( const char *menu );	// ShowMenu: a whole text menu arrived (title key before localization)
+void WebBridge_Menu( const char *menu, int keys );	// ShowMenu: a whole text menu arrived (title key before localization, valid keys)
 void WebBridge_MenuClosed( void );	// CHudMenu closed its text menu
-bool WebBridge_BuyMenuShown( void );	// the page draws the open text menu: CHudMenu::Draw skips it
+bool WebBridge_PageMenuShown( void );	// the page draws the open text menu: CHudMenu::Draw skips it
 void WebBridge_Init( void );		// CHud::Init: hooks the server plugins' WcMode / WcKillInfo
 void WebBridge_Frame( void );		// once per frame: timer seconds, alive state, scoreboard
 void WebBridge_InitHUD( void );		// sends "reset" + resend

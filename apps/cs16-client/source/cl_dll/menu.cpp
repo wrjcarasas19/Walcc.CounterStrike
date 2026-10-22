@@ -92,8 +92,8 @@ int CHudMenu :: Draw( float flTime )
 		}
 	}
 
-	// the web page draws the buy menu (web_bridge.h, "buymenu")
-	if ( WebBridge_BuyMenuShown() )
+	// the web page draws the buy, team and character menus (web_bridge.h, "buymenu", "teammenu")
+	if ( WebBridge_PageMenuShown() )
 		return 1;
 
 	// don't draw the menu if the scoreboard is being shown
@@ -221,7 +221,7 @@ int CHudMenu :: MsgFunc_ShowMenu( const char *pszName, int iSize, void *pbuf )
 			free( temp );
 		}
 
-		WebBridge_Menu( g_szPrelocalisedMenuString );
+		WebBridge_Menu( g_szPrelocalisedMenuString, m_bitsValidSlots );
 	}
 
 	m_fMenuDisplayed = 1;

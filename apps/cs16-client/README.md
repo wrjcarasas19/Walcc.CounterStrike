@@ -81,6 +81,10 @@ event contract: each event calls `Module.hudEvent(type, payload)` on the page.
   map }` and isn't drawn; the menu stays open in `CHudMenu`, so slot keys,
   `slot10` and the server's own close work as before, and every close sends
   `buymenu { open: false }`.
+- **Team and character menus** (`menu.cpp`): the same with cvar
+  `hud_html_teammenu 1` and the title keys in `s_teamMenus`, sent as
+  `teammenu { open, menu, keys, team }`; `keys` is the menu's valid keys from
+  `ShowMenu`, so the page shows only what the server accepts.
 - **High-DPI screens** (`hud.cpp`, `CHud::VidInit`): the HUD's true screen
   size (`TrueWidth`/`TrueHeight`, used by the sniper scope and crosshair) comes
   from `PARM_SCREEN_WIDTH`/`HEIGHT`, the framebuffer the HUD draws in, instead
@@ -94,7 +98,7 @@ Checking that the bridge made it into the client: each EM_JS function is an
 import `env.js_hud_<event>` that `--minify-wasm-imports` doesn't rename.
 
 ```sh
-strings dist/cl_dll/client_emscripten_wasm32.wasm | grep -c hudEvent   # 16
+strings dist/cl_dll/client_emscripten_wasm32.wasm | grep -c hudEvent   # 17
 ```
 
 Keep EM_JS parameter lists unpadded (`(int a, int b)`, not `( int a, int b )`):

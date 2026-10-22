@@ -16,6 +16,12 @@ export type ModalOptions = {
   toggleKey: string | ((event: KeyboardEvent) => boolean);
   /** False while the menu can't be used (e.g. the admin menu before a game). */
   canOpen(): boolean;
+  /**
+   * False while the player must pick something (the team menu on joining):
+   * Esc, the toggle key and backdrop clicks leave the menu open. Other menus
+   * opening, and close() from code, still close it.
+   */
+  canClose?(): boolean;
   /** Called after the menu became visible: fill it in and move focus. */
   onOpen(): void;
   /** Called after the menu was hidden. */
@@ -92,6 +98,10 @@ export function anyModalOpen(): boolean {
   return modals.some((modal) => modal.isOpen()) || overlayOpen();
 }
 
+function closable(modal: ModalImpl): boolean {
+  return modal.options.canClose?.() ?? true;
+}
+
 function isToggleKey(modal: ModalImpl, event: KeyboardEvent): boolean {
   const { toggleKey } = modal.options;
   return typeof toggleKey === 'string'
@@ -127,7 +137,7 @@ export function createModal(options: ModalOptions): Modal {
   };
   // Clicks on the backdrop close the menu; clicks on the panel don't.
   backdrop.addEventListener('mousedown', (event) => {
-    if (event.target === backdrop) modal.close(false);
+    if (event.target === backdrop && closable(modal)) modal.close(false);
   });
   modals.push(modal);
   return modal;
@@ -215,8 +225,8 @@ function onKey(event: KeyboardEvent): void {
         heldToggleKeys.set(event.code, toggled);
       }
       if (event.repeat) return;
-      if (toggled === current) toggled.close(true);
-      else toggled.open();
+      if (toggled !== current) toggled.open();
+      else if (closable(toggled)) toggled.close(true);
       return;
     }
   }
@@ -226,7 +236,7 @@ function onKey(event: KeyboardEvent): void {
   if (event.type !== 'keydown') return;
   if (event.code === 'Escape') {
     event.preventDefault();
-    current.close(false);
+    if (closable(current)) current.close(false);
   } else if (event.key === 'Tab') {
     trapFocus(current.options.panel, event);
   } else if (current.options.onKeyDown?.(event)) {

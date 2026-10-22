@@ -1,4 +1,4 @@
-// Truevision TGA decoder for the buy menu's pictures (cstrike/gfx/vgui/*.tga
+// Truevision TGA decoder for the buy, team and character menus' pictures (cstrike/gfx/vgui/*.tga
 // in the game files: 32-bit, uncompressed, which browsers can't show). Also
 // reads 24-bit and run-length encoded files. No DOM here.
 
