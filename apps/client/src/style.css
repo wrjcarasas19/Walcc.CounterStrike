@@ -2019,6 +2019,12 @@ canvas,
 
 .admin-button-row .action-button {
   flex: 1 1 140px;
+  margin-top: 0;
+}
+
+/* Change map and Set as next map: stacked, side by side on wide screens. */
+.admin-map-actions .action-button {
+  flex-basis: 100%;
 }
 
 .admin-vote-maps {
@@ -3202,4 +3208,264 @@ canvas,
 
 .names .names-status:empty {
   display: none;
+}
+
+/* Wide screens: the launcher, settings (F3) and admin (F4) spread over two
+   or more columns. Below 900px they stay the single column above; the
+   launcher's wrappers then add no boxes of their own. leaderboard.ts opens
+   "Top players" at the same width (WIDE_LAYOUT). */
+.launcher-info,
+.launcher-controls {
+  display: contents;
+}
+
+.admin-side:empty {
+  display: none;
+}
+
+@media (min-width: 900px) {
+  /* Two columns only once the lobby or the leaderboard has something to
+     show; without them the launcher keeps its narrow column. */
+  .launcher:has(.launcher-info > :not([hidden])) {
+    max-width: 1280px;
+  }
+
+  .launcher-header {
+    padding: 22px 36px;
+  }
+
+  .launcher-title {
+    font-size: 28px;
+  }
+
+  .launcher-subtitle {
+    margin-top: 4px;
+  }
+
+  .launcher:has(.launcher-info > :not([hidden])) .launcher-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+    align-items: start;
+    gap: 28px;
+    padding: 28px 36px;
+  }
+
+  .launcher:has(.launcher-info > :not([hidden])) .launcher-info {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    min-width: 0;
+  }
+
+  .launcher:has(.launcher-info > :not([hidden])) .launcher-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    min-width: 0;
+    align-self: stretch;
+    padding-left: 28px;
+    border-left: 1px solid var(--divider);
+  }
+
+  .launcher-info .lobby,
+  .launcher-info .leaderboard {
+    padding-bottom: 0;
+    border-bottom: none;
+  }
+
+  .lobby-summary {
+    font-size: 17px;
+  }
+
+  .lobby-players {
+    max-height: 190px;
+  }
+
+  .lobby-player {
+    padding: 8px 14px;
+  }
+
+  .leaderboard-scroll {
+    max-height: 260px;
+  }
+
+  .leaderboard-table th,
+  .leaderboard-table td {
+    padding: 8px 10px;
+  }
+
+  .admin-backdrop:has(> .admin-wide) {
+    padding: 32px;
+  }
+
+  .admin-wide {
+    max-width: 1280px;
+  }
+
+  #admin-form.admin-wide {
+    max-width: 1320px;
+  }
+
+  .admin-wide .admin-header {
+    padding: 22px 36px;
+  }
+
+  .admin-wide .admin-title {
+    font-size: 26px;
+    letter-spacing: 4px;
+  }
+
+  .admin-wide .admin-hint {
+    letter-spacing: 1.5px;
+  }
+
+  .admin-wide .admin-tabs {
+    gap: 32px;
+    padding: 0 36px;
+  }
+
+  .admin-wide .admin-tab {
+    padding: 14px 0;
+  }
+
+  .admin-wide .admin-tab:first-child {
+    margin-left: 0;
+  }
+
+  /* Admin: the tab on the left; the password, the tab's side content
+     (AdminTab.side) and the status line on the right. */
+  .admin-columns {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    grid-template-rows: auto auto auto 1fr;
+    grid-template-areas:
+      'main auth'
+      'main side'
+      'main status'
+      'main .';
+    align-items: start;
+    gap: 20px 28px;
+    padding: 28px 36px;
+  }
+
+  .admin-columns > #admin-auth,
+  .admin-columns > #admin-session {
+    grid-area: auth;
+  }
+
+  .admin-columns > #admin-panels {
+    grid-area: main;
+  }
+
+  .admin-columns > #admin-side {
+    grid-area: side;
+  }
+
+  .admin-columns > #admin-status {
+    grid-area: status;
+  }
+
+  .admin-columns > #admin-auth,
+  .admin-columns > #admin-session,
+  .admin-side > .admin-tab-body > * {
+    padding: 20px;
+    border: 1px solid var(--divider);
+  }
+
+  .admin-side > .admin-tab-body {
+    gap: 20px;
+  }
+
+  .admin-columns > #admin-auth {
+    gap: 12px;
+  }
+
+  .admin-wide .admin-maps {
+    max-height: 50vh;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 12px;
+  }
+
+  .admin-wide .admin-map span {
+    padding: 12px 14px;
+  }
+
+  .admin-wide .admin-map-actions .action-button {
+    flex-basis: 0;
+  }
+
+  .admin-wide .admin-tab-body > .admin-button-row .action-button {
+    padding: 16px;
+    font-size: 14px;
+    letter-spacing: 1.5px;
+  }
+
+  /* Settings: a card per group (data-group from settings/index.ts, groups
+     from settings/schema.ts). The name card spans two rows, Mouse and Keys
+     stack beside it (dense placement fills Keys in), Crosshair takes the
+     rest of those rows and Sound and HUD share the row under them. */
+  .settings-body {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-auto-flow: row dense;
+    gap: 24px;
+    padding: 28px 36px;
+  }
+
+  .settings-body > .settings-group,
+  .settings-body > .settings-group + .settings-group {
+    gap: 14px;
+    padding: 20px 24px;
+    border: 1px solid var(--divider);
+  }
+
+  .settings-body > .invite {
+    grid-column: 1 / -1;
+  }
+
+  .settings-body > .names {
+    grid-row: span 2;
+  }
+
+  .settings-body > [data-group='Crosshair'] {
+    grid-column: span 2;
+    grid-row: span 2;
+  }
+
+  .settings-body > [data-group='Sound'],
+  .settings-body > [data-group='HUD'] {
+    grid-column: span 2;
+  }
+
+  .settings-group-title {
+    font-size: 14px;
+  }
+
+  .admin-wide .settings-actions {
+    justify-content: flex-end;
+    gap: 14px;
+    padding: 20px 36px;
+  }
+
+  .admin-wide .settings-actions .action-button {
+    flex: none;
+    padding: 14px 26px;
+    font-size: 14px;
+    letter-spacing: 1.5px;
+  }
+
+  .admin-wide .settings-actions #settings-close {
+    padding: 14px 40px;
+  }
+}
+
+/* Between phones and wide screens the settings cards come two abreast. */
+@media (min-width: 900px) and (max-width: 1199px) {
+  .settings-body {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .settings-body > [data-group='Crosshair'] {
+    grid-row: auto;
+  }
 }

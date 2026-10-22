@@ -39,6 +39,7 @@ const menu = document.getElementById('admin-menu')!;
 const form = document.getElementById('admin-form') as HTMLFormElement;
 const tabList = document.getElementById('admin-tabs')!;
 const panels = document.getElementById('admin-panels')!;
+const side = document.getElementById('admin-side')!;
 const passwordInput = document.getElementById(
   'admin-password'
 ) as HTMLInputElement;
@@ -113,6 +114,7 @@ function renderTabs(): void {
     else button.removeAttribute('aria-controls');
   });
   panels.replaceChildren(active.panel);
+  side.replaceChildren(...(active.side ? [active.side] : []));
 }
 
 function select(tab: AdminTab, focusTab: boolean): void {

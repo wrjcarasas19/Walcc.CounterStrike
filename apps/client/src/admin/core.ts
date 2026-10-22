@@ -31,6 +31,11 @@ export type AdminTab = {
   label: string;
   /** The tab's content, built once. Buttons that submit the form run submit. */
   panel: HTMLElement;
+  /**
+   * Content for the right-hand column under the password, built once; on
+   * narrow screens it follows the panel.
+   */
+  side?: HTMLElement;
   /** The tab became visible (menu opened or tab selected). */
   show?(): void;
   /** The tab stopped being visible (menu closed or another tab selected). */

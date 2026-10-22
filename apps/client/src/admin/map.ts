@@ -53,8 +53,18 @@ setNext.className = 'action-button admin-secondary';
 setNext.type = 'button';
 setNext.textContent = 'Set as next map';
 
+const buttonRow = document.createElement('div');
+buttonRow.className = 'admin-button-row admin-map-actions';
+buttonRow.append(submit, setNext);
+
+const nextField = document.createElement('div');
+nextField.className = 'field';
+const nextLabel = document.createElement('span');
+nextLabel.className = 'field-label';
+nextLabel.textContent = 'Next map';
 const nextNote = document.createElement('p');
 nextNote.className = 'admin-note';
+nextField.append(nextLabel, nextNote);
 
 const voteField = document.createElement('div');
 voteField.className = 'field';
@@ -90,7 +100,15 @@ voteNote.textContent =
   `away if one map gets ${VOTE_RATIO} of the votes. Bots don't vote. ` +
   'One map asks yes or no.';
 
-panel.append(field, submit, setNext, nextNote, voteField, voteRow, voteNote);
+panel.append(field, buttonRow);
+
+// Next map and the vote: the right-hand column on wide screens.
+const side = document.createElement('div');
+side.className = 'admin-tab-body';
+const voteBox = document.createElement('div');
+voteBox.className = 'admin-tab-body';
+voteBox.append(voteField, voteRow, voteNote);
+side.append(nextField, voteBox);
 mapList.addEventListener('change', refresh);
 setNext.addEventListener('click', () => void setNextMap());
 addVote.addEventListener('click', addPick);
@@ -358,6 +376,7 @@ export const mapTab: AdminTab = {
   id: 'map',
   label: 'Map',
   panel,
+  side,
   show,
   hide,
   submit: () => void changeMap(),

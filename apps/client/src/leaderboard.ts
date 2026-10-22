@@ -1,7 +1,8 @@
 /**
  * Leaderboard on the login page: the top players by kills from the
  * server's `/leaderboard` (leaderboard.go), totals kept across maps and
- * restarts. Shown as a closed "Top players" section under the lobby status;
+ * restarts. Shown as a "Top players" section under the lobby status, closed
+ * on narrow screens and open in the wide launcher (WIDE_LAYOUT);
  * it is fetched once when the page opens (to know whether the server has a
  * leaderboard at all) and again when opened, at most every REFRESH_MS.
  * Names are whatever players typed, so they only go in through textContent.
@@ -39,6 +40,8 @@ const REFRESH_MS = 30_000;
 const REQUEST_TIMEOUT_MS = 4_000;
 const NAME_MAX = 64;
 const ROWS_MAX = 20;
+// The launcher's two-column layout starts here (style.css).
+const WIDE_LAYOUT = '(min-width: 900px)';
 
 function isCount(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0;
@@ -210,6 +213,7 @@ export function startLeaderboard(): void {
   const el = elements();
   if (running || !el) return;
   running = true;
+  if (matchMedia(WIDE_LAYOUT).matches) el.panel.open = true;
   el.panel.addEventListener('toggle', onToggle);
   void refresh();
 }

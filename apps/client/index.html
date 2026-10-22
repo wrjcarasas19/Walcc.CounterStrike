@@ -25,132 +25,136 @@
         </header>
 
         <div class="launcher-body">
-          <section
-            id="lobby"
-            class="lobby"
-            aria-labelledby="lobby-label"
-            hidden
-          >
-            <div class="lobby-heading">
-              <span id="lobby-label" class="field-label">On the server</span>
-              <span id="lobby-time" class="lobby-time"></span>
-            </div>
-            <div id="lobby-summary" class="lobby-summary"></div>
-            <ul id="lobby-players" class="lobby-players" hidden></ul>
-            <div id="lobby-empty" class="lobby-empty" hidden></div>
-          </section>
+          <div class="launcher-info">
+            <section
+              id="lobby"
+              class="lobby"
+              aria-labelledby="lobby-label"
+              hidden
+            >
+              <div class="lobby-heading">
+                <span id="lobby-label" class="field-label">On the server</span>
+                <span id="lobby-time" class="lobby-time"></span>
+              </div>
+              <div id="lobby-summary" class="lobby-summary"></div>
+              <ul id="lobby-players" class="lobby-players" hidden></ul>
+              <div id="lobby-empty" class="lobby-empty" hidden></div>
+            </section>
 
-          <details id="leaderboard" class="leaderboard" hidden>
-            <summary class="leaderboard-toggle">
-              <span class="field-label">Top players</span>
-            </summary>
-            <div class="leaderboard-scroll">
-              <table id="leaderboard-table" class="leaderboard-table" hidden>
-                <thead>
-                  <tr>
-                    <th class="leaderboard-rank" scope="col">#</th>
-                    <th class="leaderboard-name" scope="col">Name</th>
-                    <th class="leaderboard-number" scope="col" title="Kills">
-                      K
-                    </th>
-                    <th class="leaderboard-number" scope="col" title="Deaths">
-                      D
-                    </th>
-                    <th class="leaderboard-number" scope="col">K/D</th>
-                    <th
-                      class="leaderboard-number"
-                      scope="col"
-                      title="Headshot kills"
-                    >
-                      HS
-                    </th>
-                    <th
-                      class="leaderboard-number"
-                      scope="col"
-                      title="Gun Game wins"
-                    >
-                      GG
-                    </th>
-                  </tr>
-                </thead>
-                <tbody id="leaderboard-rows"></tbody>
-              </table>
-            </div>
-            <div id="leaderboard-note" class="lobby-empty"></div>
-          </details>
-
-          <div class="field">
-            <label class="field-label" for="nickname-input">Nickname</label>
-            <input
-              id="nickname-input"
-              class="field-input"
-              type="text"
-              placeholder="Enter nickname"
-              autocomplete="nickname"
-              maxlength="31"
-              autofocus
-              aria-describedby="nickname-status"
-            />
-            <div
-              id="nickname-status"
-              class="field-note"
-              aria-live="polite"
-            ></div>
+            <details id="leaderboard" class="leaderboard" hidden>
+              <summary class="leaderboard-toggle">
+                <span class="field-label">Top players</span>
+              </summary>
+              <div class="leaderboard-scroll">
+                <table id="leaderboard-table" class="leaderboard-table" hidden>
+                  <thead>
+                    <tr>
+                      <th class="leaderboard-rank" scope="col">#</th>
+                      <th class="leaderboard-name" scope="col">Name</th>
+                      <th class="leaderboard-number" scope="col" title="Kills">
+                        K
+                      </th>
+                      <th class="leaderboard-number" scope="col" title="Deaths">
+                        D
+                      </th>
+                      <th class="leaderboard-number" scope="col">K/D</th>
+                      <th
+                        class="leaderboard-number"
+                        scope="col"
+                        title="Headshot kills"
+                      >
+                        HS
+                      </th>
+                      <th
+                        class="leaderboard-number"
+                        scope="col"
+                        title="Gun Game wins"
+                      >
+                        GG
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody id="leaderboard-rows"></tbody>
+                </table>
+              </div>
+              <div id="leaderboard-note" class="lobby-empty"></div>
+            </details>
           </div>
 
-          <section id="download-section" class="progress-section">
-            <div class="progress-heading">
-              <span class="field-label">Downloading files</span>
-              <span id="download-percent" class="progress-percent">0%</span>
+          <div class="launcher-controls">
+            <div class="field">
+              <label class="field-label" for="nickname-input">Nickname</label>
+              <input
+                id="nickname-input"
+                class="field-input"
+                type="text"
+                placeholder="Enter nickname"
+                autocomplete="nickname"
+                maxlength="31"
+                autofocus
+                aria-describedby="nickname-status"
+              />
+              <div
+                id="nickname-status"
+                class="field-note"
+                aria-live="polite"
+              ></div>
             </div>
-            <div class="progress-track">
-              <div id="download-bar" class="progress-fill"></div>
-            </div>
-            <div id="download-status" class="progress-status"></div>
-          </section>
 
-          <section id="load-section" class="progress-section">
-            <div class="progress-heading">
-              <span class="field-label">Loading files</span>
-              <span id="load-percent" class="progress-percent">0%</span>
-            </div>
-            <div class="progress-track">
-              <div id="load-bar" class="progress-fill"></div>
-            </div>
-            <div id="load-status" class="progress-status"></div>
-          </section>
+            <section id="download-section" class="progress-section">
+              <div class="progress-heading">
+                <span class="field-label">Downloading files</span>
+                <span id="download-percent" class="progress-percent">0%</span>
+              </div>
+              <div class="progress-track">
+                <div id="download-bar" class="progress-fill"></div>
+              </div>
+              <div id="download-status" class="progress-status"></div>
+            </section>
 
-          <div
-            id="connect-status"
-            class="progress-status connect-status"
-            role="status"
-          ></div>
+            <section id="load-section" class="progress-section">
+              <div class="progress-heading">
+                <span class="field-label">Loading files</span>
+                <span id="load-percent" class="progress-percent">0%</span>
+              </div>
+              <div class="progress-track">
+                <div id="load-bar" class="progress-fill"></div>
+              </div>
+              <div id="load-status" class="progress-status"></div>
+            </section>
 
-          <button
-            id="action-button"
-            class="action-button"
-            type="submit"
-            disabled
-          >
-            Download
-          </button>
+            <div
+              id="connect-status"
+              class="progress-status connect-status"
+              role="status"
+            ></div>
 
-          <button
-            id="halflife-button"
-            class="action-button admin-secondary"
-            type="button"
-            title="Single player, in your browser; no server or nickname needed"
-          >
-            Play Half-Life
-          </button>
+            <button
+              id="action-button"
+              class="action-button"
+              type="submit"
+              disabled
+            >
+              Download
+            </button>
 
-          <button
-            id="settings-launcher-button"
-            class="action-button admin-secondary"
-            type="button"
-          >
-            Settings
-          </button>
+            <button
+              id="halflife-button"
+              class="action-button admin-secondary"
+              type="button"
+              title="Single player, in your browser; no server or nickname needed"
+            >
+              Play Half-Life
+            </button>
+
+            <button
+              id="settings-launcher-button"
+              class="action-button admin-secondary"
+              type="button"
+            >
+              Settings
+            </button>
+          </div>
         </div>
       </form>
     </div>
@@ -405,7 +409,7 @@
       <div id="admin-menu" class="admin-backdrop" hidden>
         <form
           id="admin-form"
-          class="admin-panel"
+          class="admin-panel admin-wide"
           role="dialog"
           aria-modal="true"
           aria-labelledby="admin-title"
@@ -421,7 +425,7 @@
             role="tablist"
             aria-labelledby="admin-title"
           ></div>
-          <div class="admin-body">
+          <div class="admin-body admin-columns">
             <div id="admin-auth" class="field">
               <label
                 id="admin-password-label"
@@ -459,6 +463,7 @@
               </button>
             </div>
             <div id="admin-panels" class="admin-panels"></div>
+            <div id="admin-side" class="admin-side"></div>
             <div id="admin-status" class="progress-status" role="status"></div>
           </div>
         </form>
@@ -477,7 +482,7 @@
     <div id="settings-menu" class="admin-backdrop settings-backdrop" hidden>
       <div
         id="settings-panel"
-        class="admin-panel"
+        class="admin-panel admin-wide"
         role="dialog"
         aria-modal="true"
         aria-labelledby="settings-title"
@@ -486,7 +491,7 @@
           <span id="settings-title" class="admin-title">Settings</span>
           <span class="admin-hint settings-key-hint">F3 / Esc to close</span>
         </header>
-        <div id="settings-body" class="admin-body"></div>
+        <div id="settings-body" class="admin-body settings-body"></div>
         <footer class="settings-actions">
           <button
             id="settings-reset"

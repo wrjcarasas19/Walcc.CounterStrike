@@ -175,6 +175,8 @@ function buildPanel(): void {
       const section = document.createElement('section');
       section.className = 'settings-group';
       section.setAttribute('aria-label', def.group);
+      // Places the group's card in the wide layout (style.css).
+      section.dataset.group = def.group;
       const title = document.createElement('h2');
       title.className = 'settings-group-title';
       title.textContent = def.group;
