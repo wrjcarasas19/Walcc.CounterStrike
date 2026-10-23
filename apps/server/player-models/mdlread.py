@@ -1,6 +1,6 @@
 """Reads a GoldSrc studio model (IDST version 10): header, bones, sequences'
-animations, textures and a body part's mesh. Used by gltf2mdl.py and
-preview.py."""
+animations, textures and a body part's mesh. Used by gltf2mdl.py,
+preview.py and portrait.py."""
 import struct
 
 import numpy as np
@@ -25,7 +25,8 @@ class Mdl:
         self.seqs = {}
         for q in range(self.numseq):
             o = self.seqindex + q * 176
-            self.seqs[self.s(o, 32)] = dict(numframes=self.i(o + 56), animindex=self.i(o + 124))
+            self.seqs[self.s(o, 32)] = dict(numframes=self.i(o + 56), numblends=self.i(o + 120),
+                                            animindex=self.i(o + 124))
         self.textures = []
         for t in range(self.numtex):
             o = self.texindex + t * 80
@@ -69,14 +70,15 @@ class Mdl:
                         tris.append((skinref, (pts[k - 1], pts[k - 2], pts[k])))
         return verts, vbone, norms, nbone, tris
 
-    def pose(self, seq=None, frame=0):
-        """Bone-to-model matrices (4x4) for a frame of a sequence's first
-        blend, or for the reference pose the mesh is bound in."""
+    def pose(self, seq=None, frame=0, blend=0):
+        """Bone-to-model matrices (4x4) for a frame of one of a sequence's
+        blends (stored one after another, 12 bytes per bone), or for the
+        reference pose the mesh is bound in."""
         mats = []
         for b, bone in enumerate(self.bones):
             v = bone['value'].copy()
             if seq is not None:
-                panim = self.seqs[seq]['animindex'] + b * 12
+                panim = self.seqs[seq]['animindex'] + (blend * self.numbones + b) * 12
                 offs = struct.unpack_from('<6H', self.d, panim)
                 for j in range(6):
                     if offs[j]:

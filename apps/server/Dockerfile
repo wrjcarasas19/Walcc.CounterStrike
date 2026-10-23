@@ -312,8 +312,12 @@ COPY --from=maps /game/ cstrike/
 # gltf2mdl.py, which puts it on the stock urban.mdl from HLDS, keeping its
 # skeleton, animations and hitboxes; the head is drawn 1.3 times as wide as
 # the source's, which looked small on the stock body (the head hitbox is the
-# stock one). The output joins the player-models
-# stage's files, and resources.res is written again to list it (the web
+# stock one). portrait.py then renders the seven characters' team menu
+# pictures (gfx/vgui/<name>.tga, read by apps/client/src/vgui-pictures.ts)
+# from these models, holding the stock weapon models; Palpatine's gets more
+# light and an edge light, as his black robe vanished on the menu's dark cards.
+# The output joins the player-models
+# stage's files, and resources.res is written again to list them (the web
 # server sends those files to browsers, apps/server/maps.go).
 FROM --platform=$BUILDPLATFORM debian:bookworm-slim AS player-models-converted
 
@@ -325,6 +329,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=player-models /game/ /game/
 COPY --from=hlds /opt/xash/xashds/cstrike/models/player/urban/urban.mdl /stock/urban.mdl
+COPY --from=hlds /opt/xash/xashds/cstrike/models/p_m4a1.mdl /opt/xash/xashds/cstrike/models/p_ak47.mdl /stock/
 COPY apps/server/player-models/ /src/
 WORKDIR /src
 RUN mkdir -p /game/models/player/urban \
@@ -332,7 +337,18 @@ RUN mkdir -p /game/models/player/urban \
         --gltf palpatine/Unity2Skfb.gltf --texture palpatine/Darth_Sidious_D.jpeg \
         --name palpatine --head-width 1.3 --out /game/models/player/urban/urban.mdl \
     && chmod 644 /game/models/player/urban/urban.mdl \
-    && (cd /game && find models -type f | sort > resources.res) \
+    && mkdir -p /game/gfx/vgui \
+    && for name in terror leet arctic guerilla urban sas gign; do \
+        case $name in \
+            urban|sas|gign) weapon=p_m4a1 seq=ref_aim_carbine ;; \
+            *) weapon=p_ak47 seq=ref_aim_ak47 ;; \
+        esac; \
+        look=; [ $name = urban ] && look='--exposure 1.3 --rim 0.5'; \
+        python3 -B portrait.py --model /game/models/player/$name/$name.mdl \
+            --weapon /stock/$weapon.mdl --seq $seq $look --out /game/gfx/vgui/$name.tga || exit 1; \
+    done \
+    && chmod 644 /game/gfx/vgui/*.tga \
+    && (cd /game && find models gfx -type f | sort > resources.res) \
     && chmod 644 /game/resources.res
 
 # Compiles the server's own AMX Mod X plugins (apps/amxx/*.sma) with the

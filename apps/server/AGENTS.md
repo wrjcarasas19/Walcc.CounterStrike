@@ -2,7 +2,7 @@
 
 Package `main` at the root of this folder (its own `go.mod`), built as `/xashds/xash` in the image. It links the Xash3D FWGS engine through `github.com/yohimik/goxash3d-fwgs` (cgo, 32-bit) and runs the dedicated server in-process (`main.go` calls `HostMain`), while serving HTTP on `:27016` (`runSFU` in `sfu.go`). Read the root guide first.
 
-This folder also holds the image the whole repository builds: `Dockerfile` (build context: the repository root), `configs/` (copied into the image's `cstrike/` and `valve/`: `server.cfg`, map cycle, Metamod/AMXX/YaPB config, bot graphs, per-prefix map configs), `patches/engine/` (applied to the pinned engine source in the `engine` stage) and `player-models/` (Python tools run in the `player-models-converted` stage that put a Mixamo-rigged glTF character on a stock player model, and the source of the Palpatine model with its credits).
+This folder also holds the image the whole repository builds: `Dockerfile` (build context: the repository root), `configs/` (copied into the image's `cstrike/` and `valve/`: `server.cfg`, map cycle, Metamod/AMXX/YaPB config, bot graphs, per-prefix map configs), `patches/engine/` (applied to the pinned engine source in the `engine` stage) and `player-models/` (Python tools run in the `player-models-converted` stage that put a Mixamo-rigged glTF character on a stock player model and render the team menu pictures from the player models, and the source of the Palpatine model with its credits).
 
 ## Files
 

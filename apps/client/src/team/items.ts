@@ -69,8 +69,9 @@ const TEAM_OPTIONS: readonly TeamOption[] = [
 ];
 
 // Seven characters are Star Wars models in this image (apps/server/Dockerfile,
-// player-models and player-models-converted stages); the pictures are still
-// the stock ones.
+// player-models and player-models-converted stages), and the server sends
+// their pictures (gfx/vgui/<image>.tga, rendered from the models by
+// apps/server/player-models/portrait.py) with the models.
 const T_CLASSES: readonly TeamOption[] = [
   { key: 1, label: 'Yoda', image: 'terror', side: 'T' },
   { key: 2, label: 'Tusken Raider', image: 'leet', side: 'T' },
