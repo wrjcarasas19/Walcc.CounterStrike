@@ -18,6 +18,10 @@ from PIL import Image
 import gltfload
 import mdlread
 
+# Vertices, normals and strip vertices per submodel the browser's GL renderer
+# can draw (MAXSTUDIOVERTS in the engine's engine/studio.h and ref/gl/gl_studio.c).
+MAXSTUDIOVERTS = 16384
+
 # Mixamo bone -> (stock bone it follows, Mixamo joint at its tip, stock bone
 # at that tip). A bone without a tip keeps its parent's rotation.
 BONES = {
@@ -130,14 +134,51 @@ def retarget(joints, prims, stock, ref):
     return out
 
 
+def strips(tris):
+    """Greedy triangle strips over corner triples in the file's winding; a
+    strip's odd triangles are wound (n-1, n-2, n), as the engine reads them."""
+    edges = {}
+    for k, t in enumerate(tris):
+        for i in range(3):
+            edges.setdefault((t[i], t[(i + 1) % 3]), []).append(k)
+    used = [False] * len(tris)
+
+    def grow(start, taken):
+        seq = list(start)
+        while True:
+            p, q = (seq[-1], seq[-2]) if len(seq) % 2 else (seq[-2], seq[-1])
+            for k in edges.get((p, q), ()):
+                if not used[k] and k not in taken:
+                    t = tris[k]
+                    i = next(i for i in range(3) if (t[i], t[(i + 1) % 3]) == (p, q))
+                    seq.append(t[(i + 2) % 3])
+                    taken.add(k)
+                    break
+            else:
+                return seq
+
+    out = []
+    for k, t in enumerate(tris):
+        if used[k]:
+            continue
+        best, best_taken = None, None
+        for r in range(3):
+            taken = {k}
+            seq = grow(t[r:] + t[:r], taken)
+            if best is None or len(seq) > len(best):
+                best, best_taken = seq, taken
+        for j in best_taken:
+            used[j] = True
+        out.append(best)
+    return out
+
 def body_mesh(parts, ref, texsize):
-    """Bone-space vertices and normals (shared where bone and value match)
-    and the triangle commands, one 3-vertex strip per triangle."""
+    """Bone-space vertices and normals (shared where bone and value match),
+    the triangles as (vert, norm, s, t) corners and their triangle commands."""
     inv = np.linalg.inv(ref)
     verts, vbone, vkey = [], [], {}
     norms, nbone, nkey = [], [], {}
-    cmds = bytearray()
-    ntris = 0
+    tris = []
     for p in parts:
         lv = np.einsum('nij,nj->ni', inv[p['bone']], np.c_[p['pos'], np.ones(len(p['pos']))])[:, :3]
         ln = np.einsum('nij,nj->ni', inv[p['bone']][:, :3, :3], p['nrm'])
@@ -160,12 +201,23 @@ def body_mesh(parts, ref, texsize):
         st = np.round(np.c_[p['uv'][:, 0], 1 - p['uv'][:, 1]] * texsize).astype(int)
         for a, b, c in p['tris']:
             # GoldSrc front faces wind the other way round from glTF's.
-            cmds += struct.pack('<h', 3)
-            for x in (a, c, b):
-                cmds += struct.pack('<4h', vi[x], ni[x], *st[x])
-            ntris += 1
+            tris.append(tuple((vi[x], ni[x], *map(int, st[x])) for x in (a, c, b)))
+    # The GL renderer copies every strip vertex of a submodel into fixed
+    # arrays without a bounds check (g_studio.arrayverts[MAXSTUDIOVERTS],
+    # ref/gl/gl_studio.c, 16384), and overflowing them corrupts the browser
+    # engine's memory; one strip per triangle took 3 of them per triangle.
+    cmds = bytearray()
+    drawn = 0
+    for s in strips(tris):
+        cmds += struct.pack('<h', len(s))
+        for corner in s:
+            cmds += struct.pack('<4h', *corner)
+        drawn += len(s)
     cmds += struct.pack('<h', 0)
-    return verts, vbone, norms, nbone, bytes(cmds), ntris
+    if len(verts) > MAXSTUDIOVERTS or len(norms) > MAXSTUDIOVERTS or drawn > MAXSTUDIOVERTS:
+        raise ValueError(f'{len(verts)} vertices, {len(norms)} normals, {drawn} strip vertices: '
+                         f'the renderer takes {MAXSTUDIOVERTS} of each')
+    return verts, vbone, norms, nbone, bytes(cmds), tris, drawn
 
 
 def quantize(path, size):
@@ -183,7 +235,7 @@ def build(stock_path, gltf_path, texture_path, out_path, name, texsize):
     d = stock.d
     ref = stock.pose()
     joints, prims = gltfload.load(gltf_path)
-    verts, vbone, norms, nbone, cmds, ntris = body_mesh(retarget(joints, prims, stock, ref), ref, texsize)
+    verts, vbone, norms, nbone, cmds, tris, drawn = body_mesh(retarget(joints, prims, stock, ref), ref, texsize)
 
     # Everything before the body parts (bones, controllers, attachments,
     # hitboxes, sequences, animations) is kept byte for byte; the body parts,
@@ -238,7 +290,7 @@ def build(stock_path, gltf_path, texture_path, out_path, name, texsize):
             if bp == 0 and j == 0:
                 write_model(models_off, name_field(name, 64), mtype, radius, np.array(verts),
                             np.array(vbone, np.uint8), np.array(norms), np.array(nbone, np.uint8),
-                            [(cmds, ntris, 0, len(norms))])
+                            [(cmds, len(tris), 0, len(norms))])
                 continue
             nmesh, meshi, nv, vii, vi, nn, nii, ni = struct.unpack_from('<8i', d, mo + 72)
             meshes = []
@@ -274,7 +326,11 @@ def build(stock_path, gltf_path, texture_path, out_path, name, texsize):
 
     # Read it back: the body must have every triangle, the rest must match the stock model.
     check = mdlread.Mdl(out_path)
-    if len(check.model(0)[4]) != ntris or len(check.model(1, 1)[4]) != len(stock.model(1, 1)[4]) \
+    def canon(t):
+        k = t.index(min(t))
+        return t[k:] + t[:k]
+    body = sorted(canon(tuple(t)) for _, t in check.model(0)[4])
+    if body != sorted(canon(t) for t in tris) or len(check.model(1, 1)[4]) != len(stock.model(1, 1)[4]) \
             or check.seqs != stock.seqs or check.textures[1]['name'] != stock.textures[1]['name']:
         raise ValueError(f'{out_path}: read back differs')
     # Walk the models the way Mod_StudioComputeBounds does: one array from body part 0.
@@ -283,7 +339,7 @@ def build(stock_path, gltf_path, texture_path, out_path, name, texsize):
         nv, vi = struct.unpack_from('<i4xi', out, first + 112 * k + 80)
         if nv < 0 or vi < 0 or vi + 12 * nv > len(out):
             raise ValueError(f'{out_path}: model {k} is out of the file for the engine')
-    print(f'gltf2mdl: {out_path}: {len(verts)} vertices, {len(norms)} normals, {ntris} triangles, {len(out)} bytes')
+    print(f'gltf2mdl: {out_path}: {len(verts)} vertices, {len(norms)} normals, {len(tris)} triangles in {drawn} strip vertices, {len(out)} bytes')
 
 
 if __name__ == '__main__':
