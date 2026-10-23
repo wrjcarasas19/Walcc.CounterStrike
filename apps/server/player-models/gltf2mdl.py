@@ -221,10 +221,16 @@ def build(stock_path, gltf_path, texture_path, out_path, name, texsize):
                          len(v), vi_off, v_off, len(n), ni_off, n_off, 0, 0)
 
     bp_off = reserve(76 * stock.numbodyparts)
+    # Every body part's models in one array, as studiomdl writes them: the
+    # engine's Mod_StudioComputeBounds (engine/common/mod_studio.c) indexes
+    # them all from body part 0's modelindex and crashes otherwise.
+    nmods = [struct.unpack_from('<i', d, stock.bodypartindex + bp * 76 + 64)[0]
+             for bp in range(stock.numbodyparts)]
+    models_all = reserve(112 * sum(nmods))
     for bp in range(stock.numbodyparts):
         o = stock.bodypartindex + bp * 76
         nmod, base, mi = struct.unpack_from('<3i', d, o + 64)
-        models_off = reserve(112 * nmod)
+        models_off = models_all + 112 * sum(nmods[:bp])
         struct.pack_into('<64s3i', out, bp_off + 76 * bp, d[o:o + 64], nmod, base, models_off)
         for j in range(nmod):
             mo = mi + j * 112
@@ -271,6 +277,12 @@ def build(stock_path, gltf_path, texture_path, out_path, name, texsize):
     if len(check.model(0)[4]) != ntris or len(check.model(1, 1)[4]) != len(stock.model(1, 1)[4]) \
             or check.seqs != stock.seqs or check.textures[1]['name'] != stock.textures[1]['name']:
         raise ValueError(f'{out_path}: read back differs')
+    # Walk the models the way Mod_StudioComputeBounds does: one array from body part 0.
+    first = struct.unpack_from('<i', out, bp_off + 72)[0]
+    for k in range(sum(nmods)):
+        nv, vi = struct.unpack_from('<i4xi', out, first + 112 * k + 80)
+        if nv < 0 or vi < 0 or vi + 12 * nv > len(out):
+            raise ValueError(f'{out_path}: model {k} is out of the file for the engine')
     print(f'gltf2mdl: {out_path}: {len(verts)} vertices, {len(norms)} normals, {ntris} triangles, {len(out)} bytes')
 
 
