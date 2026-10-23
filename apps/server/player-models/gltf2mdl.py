@@ -69,8 +69,9 @@ def min_rotation(a, b):
     return np.eye(3) + k + k @ k / (1 + a @ b)
 
 
-def retarget(joints, prims, stock, ref):
-    """The glTF primitives in the stock reference pose, with one stock bone per vertex."""
+def retarget(joints, prims, stock, ref, head=(1.0, 1.0)):
+    """The glTF primitives in the stock reference pose, with one stock bone per
+    vertex; head is the (width, height) scale of the head around its joint."""
     names = [b['name'] for b in stock.bones]
     C = {n: ref[i][:3, 3] for i, n in enumerate(names)}
     P = {k: m[:3, 3] for k, m in joints.items()}
@@ -103,6 +104,12 @@ def retarget(joints, prims, stock, ref):
             lin, _, rot = maps[PARENT[mb]]
         else:
             lin = rot = np.eye(3)
+        if mb == 'Head':
+            # Model space is X forward, Y left, Z up. Vertices shared with the
+            # neck blend both maps, so the neck follows without a seam;
+            # normals take the inverse scale (they are normalised below).
+            s = np.diag([head[0], head[0], head[1]])
+            lin, rot = s @ lin, np.linalg.inv(s) @ rot
         maps[mb] = (lin, C[cb] - lin @ Pg[mb], rot)
 
     out = []
@@ -230,12 +237,12 @@ def name_field(s, n):
     return s.encode('latin1')[:n - 1].ljust(n, b'\0')
 
 
-def build(stock_path, gltf_path, texture_path, out_path, name, texsize):
+def build(stock_path, gltf_path, texture_path, out_path, name, texsize, head=(1.0, 1.0)):
     stock = mdlread.Mdl(stock_path)
     d = stock.d
     ref = stock.pose()
     joints, prims = gltfload.load(gltf_path)
-    verts, vbone, norms, nbone, cmds, tris, drawn = body_mesh(retarget(joints, prims, stock, ref), ref, texsize)
+    verts, vbone, norms, nbone, cmds, tris, drawn = body_mesh(retarget(joints, prims, stock, ref, head), ref, texsize)
 
     # Everything before the body parts (bones, controllers, attachments,
     # hitboxes, sequences, animations) is kept byte for byte; the body parts,
@@ -350,5 +357,7 @@ if __name__ == '__main__':
     ap.add_argument('--name', required=True, help='model and texture name inside the file')
     ap.add_argument('--out', required=True)
     ap.add_argument('--texsize', type=int, default=512, help='texture size in the model (stock: 512)')
+    ap.add_argument('--head-width', type=float, default=1.0, help='scale of the head across (1: as made)')
+    ap.add_argument('--head-height', type=float, default=1.0, help='scale of the head upwards (1: as made)')
     a = ap.parse_args()
-    build(a.stock, a.gltf, a.texture, a.out, a.name, a.texsize)
+    build(a.stock, a.gltf, a.texture, a.out, a.name, a.texsize, (a.head_width, a.head_height))

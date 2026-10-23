@@ -310,7 +310,9 @@ COPY --from=maps /game/ cstrike/
 # Emperor Palpatine in place of SEAL Team 6 (urban): apps/server/player-models
 # holds the CC BY 4.0 source (credits in palpatine/README.md) and
 # gltf2mdl.py, which puts it on the stock urban.mdl from HLDS, keeping its
-# skeleton, animations and hitboxes. The output joins the player-models
+# skeleton, animations and hitboxes; the head is drawn 1.3 times as wide as
+# the source's, which looked small on the stock body (the head hitbox is the
+# stock one). The output joins the player-models
 # stage's files, and resources.res is written again to list it (the web
 # server sends those files to browsers, apps/server/maps.go).
 FROM --platform=$BUILDPLATFORM debian:bookworm-slim AS player-models-converted
@@ -328,7 +330,7 @@ WORKDIR /src
 RUN mkdir -p /game/models/player/urban \
     && python3 -B gltf2mdl.py --stock /stock/urban.mdl \
         --gltf palpatine/Unity2Skfb.gltf --texture palpatine/Darth_Sidious_D.jpeg \
-        --name palpatine --out /game/models/player/urban/urban.mdl \
+        --name palpatine --head-width 1.3 --out /game/models/player/urban/urban.mdl \
     && chmod 644 /game/models/player/urban/urban.mdl \
     && (cd /game && find models -type f | sort > resources.res) \
     && chmod 644 /game/resources.res

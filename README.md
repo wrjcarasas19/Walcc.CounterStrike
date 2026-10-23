@@ -390,7 +390,9 @@ Player models:
   `apps/server/player-models/gltf2mdl.py` puts a Mixamo-rigged glTF
   character on a stock player model: the stock skeleton, animations,
   hitboxes and defuse kit stay, the body mesh and its texture are replaced,
-  and each vertex follows one bone. `preview.py` in the same folder renders
+  and each vertex follows one bone. Palpatine's head is drawn 1.3 times as
+  wide as the source's (`--head-width`; `--head-height` scales it upwards).
+  `preview.py` in the same folder renders
   a model's reference pose and a few animation frames to a PNG.
 - `cstrike/resources.res` lists the files every map needs (here the seven
   models and the two `*T.mdl` texture files); `/maps/index.json` adds them to
