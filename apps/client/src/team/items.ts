@@ -68,8 +68,9 @@ const TEAM_OPTIONS: readonly TeamOption[] = [
   { key: 6, label: 'Spectate' },
 ];
 
-// Six characters are Star Wars models in this image (apps/server/Dockerfile,
-// player-models stage); the pictures are still the stock ones.
+// Seven characters are Star Wars models in this image (apps/server/Dockerfile,
+// player-models and player-models-converted stages); the pictures are still
+// the stock ones.
 const T_CLASSES: readonly TeamOption[] = [
   { key: 1, label: 'Yoda', image: 'terror', side: 'T' },
   { key: 2, label: 'Tusken Raider', image: 'leet', side: 'T' },
@@ -79,7 +80,7 @@ const T_CLASSES: readonly TeamOption[] = [
 ];
 
 const CT_CLASSES: readonly TeamOption[] = [
-  { key: 1, label: 'SEAL Team 6', image: 'urban', side: 'CT' },
+  { key: 1, label: 'Emperor Palpatine', image: 'urban', side: 'CT' },
   { key: 2, label: 'GSG-9', image: 'gsg9', side: 'CT' },
   { key: 3, label: 'Obi-Wan Kenobi', image: 'sas', side: 'CT' },
   { key: 4, label: 'General Grievous', image: 'gign', side: 'CT' },

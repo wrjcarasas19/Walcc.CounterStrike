@@ -10,7 +10,7 @@ This repository provides a **plug-and-play Docker image** for running a fully fu
 - ✅ ReGameDLL_CS, Metamod-R, AMX Mod X and YaPB bots included
 - ✅ Game modes from the F4 Match tab: Gun Game and Deathmatch (respawns, endless rounds, spawn protection; Gun Game has a 24-weapon ladder with knife steals and a winner that ends the map; Deathmatch has a guns menu), plus knife only and pistols only
 - ✅ Community maps on top of the stock ones: `fy_iceworld`, `aim_map`, `awp_india`, `fy_pool_day`, `cs_mansion`, `ttt_mario_b1` (browsers download them, and the models, sounds and skies they need, from the server before joining)
-- ✅ Star Wars player models in place of six stock characters: the terrorists are Yoda (Phoenix Connexion), a Tusken Raider (Elite Crew), C-3PO (Arctic Avengers) and a Jawa (Guerilla Warfare); on the counter-terrorist side Obi-Wan Kenobi replaces the SAS and General Grievous the GIGN, while SEAL Team 6 and GSG-9 stay stock. Browsers download them from the server before joining (about 12 MB once, then cached); the team menu shows their names with the stock pictures. See "Player models" under Customization
+- ✅ Star Wars player models in place of seven stock characters: the terrorists are Yoda (Phoenix Connexion), a Tusken Raider (Elite Crew), C-3PO (Arctic Avengers) and a Jawa (Guerilla Warfare); on the counter-terrorist side Emperor Palpatine replaces SEAL Team 6, Obi-Wan Kenobi the SAS and General Grievous the GIGN, while GSG-9 stays stock. Browsers download them from the server before joining (about 15 MB once, then cached); the team menu shows their names with the stock pictures. See "Player models" under Customization
 - ✅ Announcer sounds on top of the HUD's toasts: First Blood (everyone hears it, with a "<name> drew first blood" toast; once a round, once a map in Gun Game and Deathmatch), Headshot, Double / Triple / Quad kill and Rampage, streaks of 5 / 10 / 15 / 20 (Killing spree, Dominating, Unstoppable, Godlike), also for other players' multi-kills and streaks (with a "Walter: Double kill" toast), Humiliation for a knife kill and a short sound when you are knifed, Last man standing; Gun Game level up, last level and winner once the game client sends the `mode` event (cs16-client 0.0.10). Our own sounds (`apps/client/public/sounds`, credits in its README), loaded only after joining; one at a time, by priority. Settings (F3, Sound): Announcer volume (0 turns it off, and then the sounds aren't even downloaded), Announce headshots, Hear other players' first blood, Other players' kill streaks
 - ✅ "Killed by" card when you die (lower centre, 15 s, also after you respawn or the next round starts; gone at the end of the map): the killer in team colour, weapon, headshot, this map's record against them ("This map: you 2 – 5 Walter"), the all-time record from `/duel` once the pair has history, and their streak from 3 kills; short cards for falls, the bomb, your own grenade or `kill`, and "Killed by teammate". The killer's HP, armour and distance need cs16-client 0.0.10 (`killinfo` event). Setting (F3, HUD): Killer card
 - ✅ Buy menu with the game's weapon pictures (read from the game files, `cstrike/gfx/vgui/*.tga`) instead of the text menu: B opens it in a buy zone, categories on the left, pictures and prices on the right, items you can't afford or can't buy on an `as_` map greyed out; click or use the stock number keys (B 4 2 still buys the AK-47), Backspace goes back, B, 0 or Esc closes, one purchase per opening like the stock menu. The server still decides (buy zone, buy time, money, weapon modes). Needs cs16-client 0.0.11 (`buymenu` event). Setting (F3, HUD): Buy menu with pictures (off: the classic text menu)
@@ -384,11 +384,20 @@ Player models:
   and Obi-Wan Kenobi as `sas`). Sources are in the Dockerfile, above that
   stage. They are CC BY-NC-ND 4.0, so the repository doesn't contain them;
   each has a `*_url` / `*_sha256` build argument to point at your own mirror.
-- `cstrike/resources.res` lists the files every map needs (here the six
+- Emperor Palpatine (`urban`, in place of SEAL Team 6) is made in the
+  `player-models-converted` stage from a CC BY 4.0 Sketchfab model kept in
+  `apps/server/player-models/palpatine` (credits in its `README.md`).
+  `apps/server/player-models/gltf2mdl.py` puts a Mixamo-rigged glTF
+  character on a stock player model: the stock skeleton, animations,
+  hitboxes and defuse kit stay, the body mesh and its texture are replaced,
+  and each vertex follows one bone. `preview.py` in the same folder renders
+  a model's reference pose and a few animation frames to a PNG.
+- `cstrike/resources.res` lists the files every map needs (here the seven
   models and the two `*T.mdl` texture files); `/maps/index.json` adds them to
   each map's files, so browsers download them like a map's `.res` files.
-  To go back to the stock characters, drop the stage's `COPY` in the
-  Dockerfile and the names in `apps/client/src/team/items.ts`.
+  To go back to the stock characters, drop the `player-models-converted`
+  `COPY` in the Dockerfile's final stage and the names in
+  `apps/client/src/team/items.ts`.
 - `fy_`, `aim_` and `awp_` maps load their own settings when they start
   (`apps/server/configs/cstrike/addons/amxmodx/configs/maps/prefix_*.cfg`, run by AMX
   Mod X a few seconds in): `mp_startmoney 16000`, `mp_freezetime 0`,

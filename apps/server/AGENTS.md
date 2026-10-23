@@ -2,7 +2,7 @@
 
 Package `main` at the root of this folder (its own `go.mod`), built as `/xashds/xash` in the image. It links the Xash3D FWGS engine through `github.com/yohimik/goxash3d-fwgs` (cgo, 32-bit) and runs the dedicated server in-process (`main.go` calls `HostMain`), while serving HTTP on `:27016` (`runSFU` in `sfu.go`). Read the root guide first.
 
-This folder also holds the image the whole repository builds: `Dockerfile` (build context: the repository root), `configs/` (copied into the image's `cstrike/` and `valve/`: `server.cfg`, map cycle, Metamod/AMXX/YaPB config, bot graphs, per-prefix map configs) and `patches/engine/` (applied to the pinned engine source in the `engine` stage).
+This folder also holds the image the whole repository builds: `Dockerfile` (build context: the repository root), `configs/` (copied into the image's `cstrike/` and `valve/`: `server.cfg`, map cycle, Metamod/AMXX/YaPB config, bot graphs, per-prefix map configs), `patches/engine/` (applied to the pinned engine source in the `engine` stage) and `player-models/` (Python tools run in the `player-models-converted` stage that put a Mixamo-rigged glTF character on a stock player model, and the source of the Palpatine model with its credits).
 
 ## Files
 
@@ -36,6 +36,8 @@ Environment: `IP`, `PORT`, `ADMIN_PASSWORD`, `RCON_PASSWORD`, `BOT_QUOTA`, `LEAD
 - Tests use `httptest`, fakes such as `fakeConsole`, and temporary directories; none starts the engine. Put a test next to every handler or parser change.
 - The Dockerfile appends a `replace` for goxash3d-fwgs to `go.mod` at build time. Do not commit that `replace`, and keep `go.mod` and `go.sum` tidy.
 - Format with `gofmt`.
+
+- `player-models/`: there is no Python on this machine's path with numpy and Pillow; run the tools in a `debian:bookworm-slim` container with `python3-numpy python3-pil` (what the stage installs). `preview.py <model.mdl> <out.png>` renders the reference pose and a few animation frames, which is quicker than building the image to see a model. `gltf2mdl.py` reads the result back and fails the build if it is incomplete.
 
 ## Contracts with other parts
 

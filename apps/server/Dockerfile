@@ -153,7 +153,8 @@ RUN mkdir -p /game/maps \
     && chmod 644 /game/maps/*
 
 # Star Wars player models in place of six of the stock characters (the team
-# menu's names are in apps/client/src/team/items.ts). They are listed in
+# menu's names are in apps/client/src/team/items.ts; Palpatine, the seventh,
+# is made in the player-models-converted stage). They are listed in
 # resources.res, which the web server reads to send them to browsers on every
 # map (apps/server/maps.go); the server loads the same files, so hitboxes
 # match what players see. Grievous and Obi-Wan
@@ -305,7 +306,32 @@ RUN mkdir /tmp/addons && cd /tmp/addons \
 COPY apps/server/configs/valve valve
 COPY apps/server/configs/cstrike cstrike
 COPY --from=maps /game/ cstrike/
-COPY --from=player-models /game/ cstrike/
+
+# Emperor Palpatine in place of SEAL Team 6 (urban): apps/server/player-models
+# holds the CC BY 4.0 source (credits in palpatine/README.md) and
+# gltf2mdl.py, which puts it on the stock urban.mdl from HLDS, keeping its
+# skeleton, animations and hitboxes. The output joins the player-models
+# stage's files, and resources.res is written again to list it (the web
+# server sends those files to browsers, apps/server/maps.go).
+FROM --platform=$BUILDPLATFORM debian:bookworm-slim AS player-models-converted
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    python3-numpy \
+    python3-pil \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=player-models /game/ /game/
+COPY --from=hlds /opt/xash/xashds/cstrike/models/player/urban/urban.mdl /stock/urban.mdl
+COPY apps/server/player-models/ /src/
+WORKDIR /src
+RUN mkdir -p /game/models/player/urban \
+    && python3 -B gltf2mdl.py --stock /stock/urban.mdl \
+        --gltf palpatine/Unity2Skfb.gltf --texture palpatine/Darth_Sidious_D.jpeg \
+        --name palpatine --out /game/models/player/urban/urban.mdl \
+    && chmod 644 /game/models/player/urban/urban.mdl \
+    && (cd /game && find models -type f | sort > resources.res) \
+    && chmod 644 /game/resources.res
 
 # Compiles the server's own AMX Mod X plugins (apps/amxx/*.sma) with the
 # compiler and includes from the same pinned AMXX archive. amxxpc is a 32-bit
@@ -503,6 +529,7 @@ WORKDIR /xashds
 ENV LD_LIBRARY_PATH=/xashds
 
 COPY --from=hlds /opt/xash/xashds .
+COPY --from=player-models-converted /game/ ./cstrike/
 COPY --from=go /src/xash ./xash
 COPY --from=client /apps/client/dist ./public
 COPY --from=engine /xash/build/filesystem/filesystem_stdio.so ./filesystem_stdio.so
