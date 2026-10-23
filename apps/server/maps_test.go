@@ -127,6 +127,61 @@ func TestMapsHandlerResources(t *testing.T) {
 	}
 }
 
+func TestMapsHandlerSharedResources(t *testing.T) {
+	gameDir := t.TempDir()
+	files := map[string]string{
+		"maps/de_a.bsp":                "A",
+		"maps/de_b.bsp":                "B",
+		"maps/de_b.res":                "models/b.mdl\nmodels/player/gign/gign.mdl\n",
+		"models/b.mdl":                 "b",
+		"models/player/gign/gign.mdl":  "gign",
+		"models/player/gign/gignT.mdl": "gign textures",
+		"resources.res":                "models/player/gign/gign.mdl\nmodels/player/gign/gignT.mdl\nserver.cfg\n",
+		"server.cfg":                   "rcon_password secret",
+	}
+	for name, data := range files {
+		path := filepath.Join(gameDir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := newMapsHandler(gameDir)
+
+	get := func(target string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, nil))
+		return rec
+	}
+	resource := func(path string) resourceInfo {
+		sum := sha256.Sum256([]byte(files[path]))
+		return resourceInfo{Path: path, Size: int64(len(files[path])), SHA256: hex.EncodeToString(sum[:])}
+	}
+
+	var maps []mapInfo
+	if err := json.Unmarshal(get("/maps/index.json").Body.Bytes(), &maps); err != nil {
+		t.Fatal(err)
+	}
+	gign, gignT := resource("models/player/gign/gign.mdl"), resource("models/player/gign/gignT.mdl")
+	want := [][]resourceInfo{
+		{gign, gignT},
+		// The map's own list first; a path in both lists only once.
+		{resource("models/b.mdl"), gign, gignT},
+	}
+	if len(maps) != 2 || !reflect.DeepEqual(maps[0].Resources, want[0]) || !reflect.DeepEqual(maps[1].Resources, want[1]) {
+		t.Fatalf("index = %+v, want resources %+v", maps, want)
+	}
+
+	if rec := get("/maps/files/models/player/gign/gignT.mdl"); rec.Code != http.StatusOK || rec.Body.String() != "gign textures" {
+		t.Fatalf("resource status = %d, body = %q", rec.Code, rec.Body.String())
+	}
+	if rec := get("/maps/files/server.cfg"); rec.Code != http.StatusNotFound {
+		t.Errorf("server.cfg status = %d, want 404", rec.Code)
+	}
+}
+
 func TestMapsHandlerMissingDir(t *testing.T) {
 	h := newMapsHandler(filepath.Join(t.TempDir(), "missing"))
 	rec := httptest.NewRecorder()

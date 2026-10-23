@@ -152,6 +152,61 @@ RUN mkdir -p /game/maps \
         | sha256sum -c - \
     && chmod 644 /game/maps/*
 
+# Star Wars player models in place of six of the stock characters (the team
+# menu's names are in apps/client/src/team/items.ts). They are listed in
+# resources.res, which the web server reads to send them to browsers on every
+# map (apps/server/maps.go); the server loads the same files, so hitboxes
+# match what players see. Grievous and Obi-Wan
+# were made as terrorists and are renamed to the counter-terrorists they
+# replace; the engine loads a model's textures from <name>T.mdl, so both
+# files are renamed. All three are CC BY-NC-ND 4.0 GameBanana uploads, so the
+# repository only pins them; point the URLs at your own mirror to stop
+# depending on GameBanana.
+#   star_wars_t_pack: gamebanana.com/mods/225638 (author unknown); Yoda,
+#   Tusken Raider, C-3PO and Jawa for terror, leet, arctic and guerilla
+#   general_grievous: gamebanana.com/mods/227623, as gign
+#   obi_wan_kenobi: gamebanana.com/mods/228434, as sas
+FROM --platform=$BUILDPLATFORM debian:bookworm-slim AS player-models
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    libarchive-tools \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG star_wars_t_pack_url=https://files.gamebanana.com/mods/star_wars_t_pack.7z
+ARG star_wars_t_pack_sha256=dcec5ab54812ad8cd989cea27346fb1b35c4173960dd4a7f2556c5e54962b0de
+ARG general_grievous_url=https://files.gamebanana.com/mods/general_grievous.rar
+ARG general_grievous_sha256=e686820af2e4089cbdb74a1a0849089e9920db2ce0e007e63c9310a7fa1ef1d0
+ARG obi_wan_kenobi_url=https://files.gamebanana.com/mods/obi_wan_kenobi_hd.rar
+ARG obi_wan_kenobi_sha256=9e297cc3a19e877fedf5cb9fb3fcf3ce2b0c6104db46ac3b3fa7b3712fe93f00
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+# /game is copied over cstrike in the hlds stage.
+WORKDIR /tmp/models
+RUN curl -fsSLo t_pack "$star_wars_t_pack_url" \
+    && curl -fsSLo grievous "$general_grievous_url" \
+    && curl -fsSLo obi_wan "$obi_wan_kenobi_url" \
+    && printf '%s  %s\n' \
+        "$star_wars_t_pack_sha256" t_pack \
+        "$general_grievous_sha256" grievous \
+        "$obi_wan_kenobi_sha256" obi_wan \
+        | sha256sum -c - \
+    && mkdir t_pack.d grievous.d obi_wan.d \
+    && bsdtar -xf t_pack -C t_pack.d \
+    && bsdtar -xf grievous -C grievous.d \
+    && bsdtar -xf obi_wan -C obi_wan.d \
+    && p=/game/models/player \
+    && for name in terror leet arctic guerilla; do \
+        install -D -m 644 "t_pack.d/Star Wars Player T Pack/models/player/$name/$name.mdl" "$p/$name/$name.mdl" || exit 1; \
+    done \
+    && install -D -m 644 grievous.d/models/player/terror/terror.mdl "$p/gign/gign.mdl" \
+    && install -D -m 644 grievous.d/models/player/terror/terrorT.mdl "$p/gign/gignT.mdl" \
+    && install -D -m 644 obi_wan.d/models/player/guerilla/guerilla.mdl "$p/sas/sas.mdl" \
+    && install -D -m 644 obi_wan.d/models/player/guerilla/guerillaT.mdl "$p/sas/sasT.mdl" \
+    && (cd /game && find models -type f | sort > resources.res) \
+    && chmod 644 /game/resources.res \
+    && rm -rf /tmp/models
+
 FROM debian:bookworm-slim AS hlds
 
 ARG hlds_build=8308
@@ -250,6 +305,7 @@ RUN mkdir /tmp/addons && cd /tmp/addons \
 COPY apps/server/configs/valve valve
 COPY apps/server/configs/cstrike cstrike
 COPY --from=maps /game/ cstrike/
+COPY --from=player-models /game/ cstrike/
 
 # Compiles the server's own AMX Mod X plugins (apps/amxx/*.sma) with the
 # compiler and includes from the same pinned AMXX archive. amxxpc is a 32-bit

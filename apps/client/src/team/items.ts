@@ -68,19 +68,21 @@ const TEAM_OPTIONS: readonly TeamOption[] = [
   { key: 6, label: 'Spectate' },
 ];
 
+// Six characters are Star Wars models in this image (apps/server/Dockerfile,
+// player-models stage); the pictures are still the stock ones.
 const T_CLASSES: readonly TeamOption[] = [
-  { key: 1, label: 'Phoenix Connexion', image: 'terror', side: 'T' },
-  { key: 2, label: 'Elite Crew', image: 'leet', side: 'T' },
-  { key: 3, label: 'Arctic Avengers', image: 'arctic', side: 'T' },
-  { key: 4, label: 'Guerilla Warfare', image: 'guerilla', side: 'T' },
+  { key: 1, label: 'Yoda', image: 'terror', side: 'T' },
+  { key: 2, label: 'Tusken Raider', image: 'leet', side: 'T' },
+  { key: 3, label: 'C-3PO', image: 'arctic', side: 'T' },
+  { key: 4, label: 'Jawa', image: 'guerilla', side: 'T' },
   { key: 5, label: 'Auto-select', side: 'T' },
 ];
 
 const CT_CLASSES: readonly TeamOption[] = [
   { key: 1, label: 'SEAL Team 6', image: 'urban', side: 'CT' },
   { key: 2, label: 'GSG-9', image: 'gsg9', side: 'CT' },
-  { key: 3, label: 'SAS', image: 'sas', side: 'CT' },
-  { key: 4, label: 'GIGN', image: 'gign', side: 'CT' },
+  { key: 3, label: 'Obi-Wan Kenobi', image: 'sas', side: 'CT' },
+  { key: 4, label: 'General Grievous', image: 'gign', side: 'CT' },
   { key: 5, label: 'Auto-select', side: 'CT' },
 ];
 

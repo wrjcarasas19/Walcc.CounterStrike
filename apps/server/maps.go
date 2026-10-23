@@ -18,10 +18,14 @@ import (
 // Maps are served over HTTP instead of the engine's in-game download, which
 // pushes large fragmented transfers through Netchan_TransmitBits and has
 // crashed this server before. So are the files a map's maps/<map>.res lists
-// (models, sounds, skies), under filesPrefix.
+// (models, sounds, skies), under filesPrefix, and the ones sharedResList
+// lists for every map.
 const (
 	mapsPrefix  = "/maps/"
 	filesPrefix = mapsPrefix + "files/"
+	// Files every map needs, such as replaced player models; written by the
+	// Dockerfile player-models stage. Relative to the game directory.
+	sharedResList = "resources.res"
 )
 
 var (
@@ -124,7 +128,7 @@ func (h *mapsHandler) serveIndex(w http.ResponseWriter) {
 }
 
 // list returns every .bsp in the maps directory, with the files its .res
-// lists that the server has. Hashes are cached until a file's size or
+// and sharedResList list that the server has. Hashes are cached until a file's size or
 // modification time changes, so maps added to a mounted volume show up
 // without a restart.
 func (h *mapsHandler) list() ([]mapInfo, error) {
@@ -141,6 +145,7 @@ func (h *mapsHandler) list() ([]mapInfo, error) {
 
 	maps := []mapInfo{}
 	seen := map[string]bool{}
+	shared := h.readResList(sharedResList)
 	for _, entry := range entries {
 		base, ok := strings.CutSuffix(entry.Name(), ".bsp")
 		if !ok || entry.IsDir() || !mapNamePattern.MatchString(base) {
@@ -151,7 +156,12 @@ func (h *mapsHandler) list() ([]mapInfo, error) {
 			continue
 		}
 		m := mapInfo{Name: base, Size: cached.size, SHA256: cached.sha256}
-		for _, path := range h.readResList(base) {
+		listed := map[string]bool{}
+		for _, path := range append(h.readResList("maps/"+base+".res"), shared...) {
+			if listed[path] {
+				continue
+			}
+			listed[path] = true
 			if res, ok := h.hashLocked(path, seen); ok {
 				m.Resources = append(m.Resources, resourceInfo{Path: path, Size: res.size, SHA256: res.sha256})
 			}
@@ -189,11 +199,11 @@ func (h *mapsHandler) hashLocked(path string, seen map[string]bool) (hashedFile,
 	return cached, true
 }
 
-// readResList returns the asset paths in maps/<map>.res (one per line,
-// relative to the game directory, // comments), skipping anything that
+// readResList returns the asset paths in the .res file at resList (one per
+// line, relative to the game directory, // comments), skipping anything that
 // isn't a plain relative path with an extension in resourceExtensions.
-func (h *mapsHandler) readResList(mapName string) []string {
-	data, err := os.ReadFile(filepath.Join(h.dir, "maps", mapName+".res"))
+func (h *mapsHandler) readResList(resList string) []string {
+	data, err := os.ReadFile(filepath.Join(h.dir, filepath.FromSlash(resList)))
 	if err != nil {
 		return nil
 	}

@@ -10,10 +10,11 @@ This repository provides a **plug-and-play Docker image** for running a fully fu
 - ✅ ReGameDLL_CS, Metamod-R, AMX Mod X and YaPB bots included
 - ✅ Game modes from the F4 Match tab: Gun Game and Deathmatch (respawns, endless rounds, spawn protection; Gun Game has a 24-weapon ladder with knife steals and a winner that ends the map; Deathmatch has a guns menu), plus knife only and pistols only
 - ✅ Community maps on top of the stock ones: `fy_iceworld`, `aim_map`, `awp_india`, `fy_pool_day`, `cs_mansion`, `ttt_mario_b1` (browsers download them, and the models, sounds and skies they need, from the server before joining)
+- ✅ Star Wars player models in place of six stock characters: the terrorists are Yoda (Phoenix Connexion), a Tusken Raider (Elite Crew), C-3PO (Arctic Avengers) and a Jawa (Guerilla Warfare); on the counter-terrorist side Obi-Wan Kenobi replaces the SAS and General Grievous the GIGN, while SEAL Team 6 and GSG-9 stay stock. Browsers download them from the server before joining (about 12 MB once, then cached); the team menu shows their names with the stock pictures. See "Player models" under Customization
 - ✅ Announcer sounds on top of the HUD's toasts: First Blood (everyone hears it, with a "<name> drew first blood" toast; once a round, once a map in Gun Game and Deathmatch), Headshot, Double / Triple / Quad kill and Rampage, streaks of 5 / 10 / 15 / 20 (Killing spree, Dominating, Unstoppable, Godlike), also for other players' multi-kills and streaks (with a "Walter: Double kill" toast), Humiliation for a knife kill and a short sound when you are knifed, Last man standing; Gun Game level up, last level and winner once the game client sends the `mode` event (cs16-client 0.0.10). Our own sounds (`apps/client/public/sounds`, credits in its README), loaded only after joining; one at a time, by priority. Settings (F3, Sound): Announcer volume (0 turns it off, and then the sounds aren't even downloaded), Announce headshots, Hear other players' first blood, Other players' kill streaks
 - ✅ "Killed by" card when you die (lower centre, 15 s, also after you respawn or the next round starts; gone at the end of the map): the killer in team colour, weapon, headshot, this map's record against them ("This map: you 2 – 5 Walter"), the all-time record from `/duel` once the pair has history, and their streak from 3 kills; short cards for falls, the bomb, your own grenade or `kill`, and "Killed by teammate". The killer's HP, armour and distance need cs16-client 0.0.10 (`killinfo` event). Setting (F3, HUD): Killer card
 - ✅ Buy menu with the game's weapon pictures (read from the game files, `cstrike/gfx/vgui/*.tga`) instead of the text menu: B opens it in a buy zone, categories on the left, pictures and prices on the right, items you can't afford or can't buy on an `as_` map greyed out; click or use the stock number keys (B 4 2 still buys the AK-47), Backspace goes back, B, 0 or Esc closes, one purchase per opening like the stock menu. The server still decides (buy zone, buy time, money, weapon modes). Needs cs16-client 0.0.11 (`buymenu` event). Setting (F3, HUD): Buy menu with pictures (off: the classic text menu)
-- ✅ Team and character menus with the game's player pictures instead of the text menus: on joining and with M, cards for Terrorists, Counter-Terrorists, Auto-select and, when the server offers them, Spectate and VIP, then the four characters of the chosen side plus Auto-select. Click or use the stock number keys (M 1 1 still joins the Phoenix Connexion). The menu on joining can't be closed; the in-game one closes with M, 0 or Esc. Only the options the server's menu accepts are shown. Needs cs16-client 0.0.12 (`teammenu` event). Setting (F3, HUD): Team menus with pictures (off: the classic text menus)
+- ✅ Team and character menus with the game's player pictures instead of the text menus: on joining and with M, cards for Terrorists, Counter-Terrorists, Auto-select and, when the server offers them, Spectate and VIP, then the four characters of the chosen side plus Auto-select. Click or use the stock number keys (M 1 1 still joins the first terrorist, now Yoda). The menu on joining can't be closed; the in-game one closes with M, 0 or Esc. Only the options the server's menu accepts are shown. Needs cs16-client 0.0.12 (`teammenu` event). Setting (F3, HUD): Team menus with pictures (off: the classic text menus)
 - ✅ Invite links: Settings (F3, or the Settings button on the login page) → "Copy invite link"; opening `/?join=1` loads the game and joins with the saved nickname (or asks for one first)
 - ✅ Claimed names: Settings (F3) → "Your name" claims your nickname on this server, with a recovery code to sign in other browsers; nobody else can play or score under it, the leaderboard marks it with ✓, and the admin can release it (F4 → Players)
 - ✅ Half-Life single player (proof of concept): "Play Half-Life" on the login page runs the campaign in your browser from the same game files, with no nickname and no server connection. It uses the engine's own menu and HUD (none of the Counter-Strike extras). Level changes and saving and loading work; saves last only until the page is closed
@@ -374,6 +375,20 @@ Maps:
   lists them under each map with their size and sha256. A map you add to a
   mounted volume works the same way: put its `.res` next to the `.bsp` and
   the files under `cstrike/`.
+
+Player models:
+
+- Six player models are replaced in the Dockerfile `player-models` stage
+  (GameBanana uploads, pinned by the archives' sha256: the Star Wars T pack
+  for `terror`, `leet`, `arctic` and `guerilla`, General Grievous as `gign`
+  and Obi-Wan Kenobi as `sas`). Sources are in the Dockerfile, above that
+  stage. They are CC BY-NC-ND 4.0, so the repository doesn't contain them;
+  each has a `*_url` / `*_sha256` build argument to point at your own mirror.
+- `cstrike/resources.res` lists the files every map needs (here the six
+  models and the two `*T.mdl` texture files); `/maps/index.json` adds them to
+  each map's files, so browsers download them like a map's `.res` files.
+  To go back to the stock characters, drop the stage's `COPY` in the
+  Dockerfile and the names in `apps/client/src/team/items.ts`.
 - `fy_`, `aim_` and `awp_` maps load their own settings when they start
   (`apps/server/configs/cstrike/addons/amxmodx/configs/maps/prefix_*.cfg`, run by AMX
   Mod X a few seconds in): `mp_startmoney 16000`, `mp_freezetime 0`,
