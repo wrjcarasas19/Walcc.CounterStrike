@@ -153,8 +153,8 @@ RUN mkdir -p /game/maps \
     && chmod 644 /game/maps/*
 
 # Star Wars player models in place of six of the stock characters (the team
-# menu's names are in apps/client/src/team/items.ts; Palpatine, the seventh,
-# is made in the player-models-converted stage). They are listed in
+# menu's names are in apps/client/src/team/items.ts; Palpatine and Pickle
+# Rick, the other two, are made in the player-models-converted stage). They are listed in
 # resources.res, which the web server reads to send them to browsers on every
 # map (apps/server/maps.go); the server loads the same files, so hitboxes
 # match what players see. Grievous and Obi-Wan
@@ -312,11 +312,15 @@ COPY --from=maps /game/ cstrike/
 # gltf2mdl.py, which puts it on the stock urban.mdl from HLDS, keeping its
 # skeleton, animations and hitboxes; the head is drawn 1.3 times as wide as
 # the source's, which looked small on the stock body (the head hitbox is the
-# stock one). portrait.py then renders the seven characters' team menu
+# stock one). portrait.py then renders the eight characters' team menu
 # pictures (gfx/vgui/<name>.tga, read by apps/client/src/vgui-pictures.ts)
 # from these models, holding the stock weapon models; Palpatine's gets more
 # light and an edge light, as his black robe vanished on the menu's dark cards.
-# The output joins the player-models
+# Pickle Rick in place of GSG-9 (gsg9) is made the same way from a CC BY 4.0
+# Multiversus model (credits in pickle_rick/README.md), whose rig gltfload.py
+# maps onto the stock bones; it is simplified to fit the browser renderer's
+# limit and its head drawn at 0.6 of its height, keeping the top of the pickle
+# near the stock head hitbox. The output joins the player-models
 # stage's files, and resources.res is written again to list them (the web
 # server sends those files to browsers, apps/server/maps.go).
 FROM --platform=$BUILDPLATFORM debian:bookworm-slim AS player-models-converted
@@ -329,18 +333,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=player-models /game/ /game/
 COPY --from=hlds /opt/xash/xashds/cstrike/models/player/urban/urban.mdl /stock/urban.mdl
+COPY --from=hlds /opt/xash/xashds/cstrike/models/player/gsg9/gsg9.mdl /stock/gsg9.mdl
 COPY --from=hlds /opt/xash/xashds/cstrike/models/p_m4a1.mdl /opt/xash/xashds/cstrike/models/p_ak47.mdl /stock/
 COPY apps/server/player-models/ /src/
 WORKDIR /src
-RUN mkdir -p /game/models/player/urban \
+RUN mkdir -p /game/models/player/urban /game/models/player/gsg9 \
     && python3 -B gltf2mdl.py --stock /stock/urban.mdl \
         --gltf palpatine/Unity2Skfb.gltf --texture palpatine/Darth_Sidious_D.jpeg \
         --name palpatine --head-width 1.3 --out /game/models/player/urban/urban.mdl \
-    && chmod 644 /game/models/player/urban/urban.mdl \
+    && python3 -B gltf2mdl.py --stock /stock/gsg9.mdl \
+        --gltf pickle_rick/pickle_rick.gltf --rig multiversus-pickle \
+        --texture pickle_rick/C020_S01_Base_MIC_baseColor.png --triangles 10000 \
+        --name pickle_rick --head-height 0.6 --out /game/models/player/gsg9/gsg9.mdl \
+    && chmod 644 /game/models/player/urban/urban.mdl /game/models/player/gsg9/gsg9.mdl \
     && mkdir -p /game/gfx/vgui \
-    && for name in terror leet arctic guerilla urban sas gign; do \
+    && for name in terror leet arctic guerilla urban gsg9 sas gign; do \
         case $name in \
-            urban|sas|gign) weapon=p_m4a1 seq=ref_aim_carbine ;; \
+            urban|gsg9|sas|gign) weapon=p_m4a1 seq=ref_aim_carbine ;; \
             *) weapon=p_ak47 seq=ref_aim_ak47 ;; \
         esac; \
         look=; [ $name = urban ] && look='--exposure 1.3 --rim 0.5'; \

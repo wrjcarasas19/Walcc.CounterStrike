@@ -68,8 +68,9 @@ const TEAM_OPTIONS: readonly TeamOption[] = [
   { key: 6, label: 'Spectate' },
 ];
 
-// Seven characters are Star Wars models in this image (apps/server/Dockerfile,
-// player-models and player-models-converted stages), and the server sends
+// Every character is replaced in this image, by Star Wars characters and
+// Pickle Rick (apps/server/Dockerfile, player-models and
+// player-models-converted stages), and the server sends
 // their pictures (gfx/vgui/<image>.tga, rendered from the models by
 // apps/server/player-models/portrait.py) with the models.
 const T_CLASSES: readonly TeamOption[] = [
@@ -82,7 +83,7 @@ const T_CLASSES: readonly TeamOption[] = [
 
 const CT_CLASSES: readonly TeamOption[] = [
   { key: 1, label: 'Emperor Palpatine', image: 'urban', side: 'CT' },
-  { key: 2, label: 'GSG-9', image: 'gsg9', side: 'CT' },
+  { key: 2, label: 'Pickle Rick', image: 'gsg9', side: 'CT' },
   { key: 3, label: 'Obi-Wan Kenobi', image: 'sas', side: 'CT' },
   { key: 4, label: 'General Grievous', image: 'gign', side: 'CT' },
   { key: 5, label: 'Auto-select', side: 'CT' },

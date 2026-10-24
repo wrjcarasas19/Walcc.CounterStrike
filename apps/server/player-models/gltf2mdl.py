@@ -1,4 +1,5 @@
-"""Puts a Mixamo-rigged glTF character on a Counter-Strike 1.6 player model.
+"""Puts a Mixamo-rigged glTF character (or one whose rig gltfload.RIGS maps
+onto Mixamo's bones) on a Counter-Strike 1.6 player model.
 
 The stock model keeps its skeleton, animations, hitboxes, attachments and its
 other body parts (the defuse kit); only body part 0's mesh and the first
@@ -10,6 +11,7 @@ no vertex weights). Run by the Dockerfile player-models-converted stage:
         --texture palpatine/Darth_Sidious_D.jpeg --name palpatine --out urban.mdl
 """
 import argparse
+import heapq
 import struct
 
 import numpy as np
@@ -135,10 +137,108 @@ def retarget(joints, prims, stock, ref, head=(1.0, 1.0)):
             # of Mixamo's Spine goes to Spine1.
             if cb == 'Bip01 Spine' and (nv[i] - C['Bip01 Spine1']) @ (C['Bip01 Spine2'] - C['Bip01 Spine']) > 0:
                 cb = 'Bip01 Spine1'
+            # Parts bound to the upper arm that reach past the elbow (Pickle
+            # Rick's tendon) would stick out of a bent arm: they go to the forearm.
+            for s in 'LR':
+                up, fore = f'Bip01 {s} UpperArm', f'Bip01 {s} Forearm'
+                if cb == up and (nv[i] - C[fore]) @ (C[fore] - C[up]) > 0:
+                    cb = fore
             bones.append(names.index(cb))
         nn /= np.linalg.norm(nn, axis=1, keepdims=True)
         out.append(dict(pos=nv, nrm=nn, uv=p['uv'], bone=np.array(bones), tris=p['tris']))
     return out
+
+
+def simplify(p, target):
+    """Collapses edges of a primitive, cheapest first by quadric error, until
+    it has target triangles. A vertex only moves onto a neighbour, so the
+    remaining vertices keep their texture coordinates and bones; vertices on a
+    texture seam or an open border stay where they are."""
+    pos, tris = p['pos'], [list(t) for t in p['tris']]
+    faces = [set() for _ in pos]
+    for f, t in enumerate(tris):
+        for x in t:
+            faces[x].add(f)
+    Q = np.zeros((len(pos), 4, 4))
+    for t in tris:
+        nrm = np.cross(pos[t[1]] - pos[t[0]], pos[t[2]] - pos[t[0]])
+        area = np.linalg.norm(nrm)
+        if area > 0:
+            plane = np.append(nrm / area, -nrm @ pos[t[0]] / area)
+            for x in t:
+                Q[x] += area * np.outer(plane, plane)
+    seen = {}
+    for x in map(tuple, np.round(pos, 5)):
+        seen[x] = seen.get(x, 0) + 1
+    edges = {}
+    for t in tris:
+        for i in range(3):
+            e = tuple(sorted((t[i], t[(i + 1) % 3])))
+            edges[e] = edges.get(e, 0) + 1
+    locked = np.array([seen[tuple(x)] > 1 for x in np.round(pos, 5)])
+    for (a, b), n in edges.items():
+        if n != 2:
+            locked[a] = locked[b] = True
+
+    def neighbours(u):
+        return {x for f in faces[u] for x in tris[f]} - {u}
+
+    version = [0] * len(pos)
+    heap = []
+
+    def push(u, v):
+        if not locked[u]:
+            h = np.append(pos[v], 1)
+            heapq.heappush(heap, (float(h @ (Q[u] + Q[v]) @ h), u, v, version[u], version[v]))
+
+    for u in range(len(pos)):
+        for v in neighbours(u):
+            push(u, v)
+    alive = len(tris)
+    while alive > target and heap:
+        _, u, v, vu, vv = heapq.heappop(heap)
+        if vu != version[u] or vv != version[v] or not faces[u]:
+            continue
+        shared = faces[u] & faces[v]
+        # Keep the surface a manifold: the edge's two triangles are the only
+        # ones the two ends share, and no triangle turns over.
+        if len(shared) != 2 or len(neighbours(u) & neighbours(v)) != 2:
+            continue
+        flips = False
+        for f in faces[u] - shared:
+            t = tris[f]
+            before = np.cross(pos[t[1]] - pos[t[0]], pos[t[2]] - pos[t[0]])
+            m = [v if x == u else x for x in t]
+            after = np.cross(pos[m[1]] - pos[m[0]], pos[m[2]] - pos[m[0]])
+            if before @ after <= 1e-12 * np.linalg.norm(before) ** 2:
+                flips = True
+                break
+        if flips:
+            continue
+        for f in list(faces[u]):
+            if f in shared:
+                for x in tris[f]:
+                    faces[x].discard(f)
+                alive -= 1
+            else:
+                tris[f] = [v if x == u else x for x in tris[f]]
+                faces[v].add(f)
+        faces[u] = set()
+        Q[v] += Q[u]
+        version[u] += 1
+        version[v] += 1
+        for w in neighbours(v):
+            version[w] += 1
+        for w in neighbours(v):
+            push(w, v)
+            push(v, w)
+            for x in neighbours(w):
+                push(w, x)
+    kept = [t for f, t in enumerate(tris) if any(f in faces[x] for x in t)]
+    used = sorted({x for t in kept for x in t})
+    new = {x: i for i, x in enumerate(used)}
+    return dict(pos=pos[used], nrm=p['nrm'][used], uv=p['uv'][used], weights=p['weights'][used],
+                joints=[p['joints'][x] for x in used], tris=np.array([[new[x] for x in t] for t in kept]))
 
 
 def strips(tris):
@@ -204,8 +304,7 @@ def body_mesh(parts, ref, texsize):
                 norms.append(ln[i])
                 nbone.append(b)
             ni.append(nkey[k])
-        # Unity2Skfb keeps Unity's bottom-up V; texture rows go top-down.
-        st = np.round(np.c_[p['uv'][:, 0], 1 - p['uv'][:, 1]] * texsize).astype(int)
+        st = np.round(p['uv'] * texsize).astype(int)
         for a, b, c in p['tris']:
             # GoldSrc front faces wind the other way round from glTF's.
             tris.append(tuple((vi[x], ni[x], *map(int, st[x])) for x in (a, c, b)))
@@ -237,11 +336,15 @@ def name_field(s, n):
     return s.encode('latin1')[:n - 1].ljust(n, b'\0')
 
 
-def build(stock_path, gltf_path, texture_path, out_path, name, texsize, head=(1.0, 1.0)):
+def build(stock_path, gltf_path, texture_path, out_path, name, texsize, head=(1.0, 1.0), rig=None,
+          triangles=None):
     stock = mdlread.Mdl(stock_path)
     d = stock.d
     ref = stock.pose()
-    joints, prims = gltfload.load(gltf_path)
+    joints, prims = gltfload.load(gltf_path, rig)
+    if triangles:
+        total = sum(len(p['tris']) for p in prims)
+        prims = [simplify(p, len(p['tris']) * triangles // total) for p in prims]
     verts, vbone, norms, nbone, cmds, tris, drawn = body_mesh(retarget(joints, prims, stock, ref, head), ref, texsize)
 
     # Everything before the body parts (bones, controllers, attachments,
@@ -352,12 +455,14 @@ def build(stock_path, gltf_path, texture_path, out_path, name, texsize, head=(1.
 if __name__ == '__main__':
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--stock', required=True, help='stock player model whose skeleton and animations are kept')
-    ap.add_argument('--gltf', required=True, help='Mixamo-rigged character (Unity2Skfb glTF)')
+    ap.add_argument('--gltf', required=True, help='Mixamo-rigged character (Unity2Skfb glTF), or any glTF with --rig')
+    ap.add_argument('--rig', choices=sorted(gltfload.RIGS), help="the glTF's skeleton if it isn't Mixamo's")
     ap.add_argument('--texture', required=True, help="the character's texture (square image)")
     ap.add_argument('--name', required=True, help='model and texture name inside the file')
     ap.add_argument('--out', required=True)
     ap.add_argument('--texsize', type=int, default=512, help='texture size in the model (stock: 512)')
+    ap.add_argument('--triangles', type=int, help='simplify the character to about this many triangles')
     ap.add_argument('--head-width', type=float, default=1.0, help='scale of the head across (1: as made)')
     ap.add_argument('--head-height', type=float, default=1.0, help='scale of the head upwards (1: as made)')
     a = ap.parse_args()
-    build(a.stock, a.gltf, a.texture, a.out, a.name, a.texsize, (a.head_width, a.head_height))
+    build(a.stock, a.gltf, a.texture, a.out, a.name, a.texsize, (a.head_width, a.head_height), a.rig, a.triangles)
