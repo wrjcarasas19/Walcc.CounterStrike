@@ -1,8 +1,11 @@
-// Gun Game and Deathmatch on the HTML HUD (A.4), without DOM: the bridge's
-// `mode` event, the Gun Game strip text and the level toast. hud.ts draws
+// Gun Game, Deathmatch and Zombies on the HTML HUD (A.4), without DOM: the
+// bridge's `mode` event, the strip text and the level toast. hud.ts draws
 // them. The server plugin (apps/amxx/wc_gamemode.sma) sends the user message
 // WcMode only to players whose userinfo has wc_html_hud 1, which the page
-// sets when its cs16-client forwards it (MODE_EVENT_CLIENT_VERSION).
+// sets when its cs16-client forwards it (MODE_EVENT_CLIENT_VERSION). The
+// client (web_bridge.cpp) passes the fields through without checking them,
+// so later modes reuse them with their own meaning (ModeState below); no
+// newer client is needed for them.
 
 /** First cs16-client release whose bridge sends the `mode` event. */
 export const MODE_EVENT_CLIENT_VERSION = '0.0.10';
@@ -10,18 +13,30 @@ export const MODE_EVENT_CLIENT_VERSION = '0.0.10';
 export const GAME_MODE_CLASSIC = 0;
 export const GAME_MODE_GUN_GAME = 1;
 export const GAME_MODE_DEATHMATCH = 2;
+export const GAME_MODE_ZOMBIES = 3;
+/** The highest wc_gamemode the page knows. */
+const GAME_MODE_MAX = GAME_MODE_ZOMBIES;
 
 /** Payload of the bridge's `mode` event (cs16-client 0.0.10+). */
 export type ModeState = {
-  /** 0 classic (the mode ended), 1 Gun Game, 2 Deathmatch. */
+  /** 0 classic (the mode ended), 1 Gun Game, 2 Deathmatch, 3 Zombies. */
   mode: number;
-  /** Gun Game: 1-based level and number of levels; 0 otherwise. */
+  /**
+   * Gun Game: 1-based level and number of levels. Zombies: the round
+   * number (levels 0). 0 otherwise.
+   */
   level: number;
   levels: number;
-  /** Gun Game: counting kills on this level, and kills per level (>= 1). */
+  /**
+   * Gun Game: counting kills on this level, and kills per level (>= 1).
+   * Zombies: zombies left, and zombies at the start of the round.
+   */
   kills: number;
   killsNeeded: number;
-  /** Gun Game: this level's and the next level's weapon ("" on the last). */
+  /**
+   * Gun Game: this level's and the next level's weapon ("" on the last).
+   * Zombies: weapon is "Zombies".
+   */
   weapon: string;
   next: string;
   /** Gun Game: the leader's name ("" none) and 1-based level. */
@@ -48,7 +63,7 @@ export function parseModeState(payload: unknown): ModeState {
   const p = (payload ?? {}) as Record<string, unknown>;
   const mode = int(p.mode);
   return {
-    mode: mode <= GAME_MODE_DEATHMATCH ? mode : GAME_MODE_CLASSIC,
+    mode: mode <= GAME_MODE_MAX ? mode : GAME_MODE_CLASSIC,
     level: int(p.level),
     levels: int(p.levels),
     kills: int(p.kills),
@@ -60,6 +75,14 @@ export function parseModeState(payload: unknown): ModeState {
     winner: str(p.winner),
     protection: int(p.protection),
   };
+}
+
+/**
+ * Rounds never end in this mode (Gun Game, Deathmatch): the announcer
+ * counts first blood and last man per map instead of per round.
+ */
+export function endlessRounds(mode: number): boolean {
+  return mode === GAME_MODE_GUN_GAME || mode === GAME_MODE_DEATHMATCH;
 }
 
 /** True when the state has a Gun Game level to show. */
@@ -102,6 +125,29 @@ export function gunGameStrip(state: ModeState): GunGameStrip {
         : '',
     winner: state.winner ? `${state.winner} won Gun Game!` : '',
   };
+}
+
+/**
+ * The strip under the timer for any mode that has one (Gun Game, Zombies),
+ * in the Gun Game strip's parts; undefined for none. Zombies: "Round 3 ·
+ * Zombies | 5 / 9 left".
+ */
+export function modeStrip(
+  state: ModeState | undefined
+): GunGameStrip | undefined {
+  if (state?.mode === GAME_MODE_ZOMBIES) {
+    return {
+      level: `Round ${Math.max(state.level, 1)}`,
+      weapon: state.weapon || 'Zombies',
+      next: '',
+      leader:
+        state.killsNeeded > 0
+          ? `${state.kills} / ${state.killsNeeded} left`
+          : `${state.kills} left`,
+      winner: '',
+    };
+  }
+  return isGunGame(state) ? gunGameStrip(state) : undefined;
 }
 
 /**

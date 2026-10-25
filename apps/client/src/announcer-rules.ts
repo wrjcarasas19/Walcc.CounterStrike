@@ -304,7 +304,10 @@ export function createAnnouncerTriggers() {
       if (gameMode === 0) newRound();
     },
 
-    /** wc_gamemode: 0 classic, 1 Gun Game, 2 Deathmatch. A change restarts. */
+    /**
+     * wc_gamemode when its rounds never end (1 Gun Game, 2 Deathmatch), else
+     * 0 (classic, Zombies). A change restarts.
+     */
     setGameMode(mode: number): void {
       if (mode === gameMode) return;
       gameMode = mode;

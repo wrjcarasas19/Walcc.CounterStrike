@@ -99,6 +99,8 @@ Changes:
 - Client: `gamemode.ts` (`parseModeState` accepts 3, plus the strip text), the `hud.ts` strip, the mode name in the lobby, a "Zombies" preset, and the F4 Match fields.
 - README and `apps/amxx/AGENTS.md`.
 
+Checked (2026-10-25, 2 headless players): zombies knife only with 1500 HP for 2 humans, speed 300, gravity 0.7, no armour; a slash takes 25 HP through kevlar (30 damage: 15 × 2); the "Killed by" card shows "1500 HP"; zombies win on de_dust2, the timer ending gives `CTs_Win` on de_dust2 and fy_iceworld; on cs_assault the hidden hostages don't end the round. Infection and the cure at round end work. Found and fixed while checking: `/status.json` said no co-op in Zombies (it now counts Zombies), a cured player kept the zombie's powers and only a knife into the next round, and `wc_mode_test <id> 0` couldn't show the HUD line to a page with the HTML HUD (it now sets the player's `wc_html_hud` to 0). Not checked: knockback (the headless players can't aim).
+
 Verify: as Phase 1, plus `wc_gamemode_status` and `wc_zm_status`. Play a round to each ending (humans win, zombies win, time runs out) on one `de_` map and one `fy_` map. Check the strip in the browser and the HUD line on a client without the HTML HUD (`wc_mode_test <userid> 0`). Check `wc_zm_infect 1` once.
 
 ## Phase 3: Survival waves (`wc_gamemode 4`), with leaderboard credit

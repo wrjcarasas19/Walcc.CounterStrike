@@ -96,6 +96,22 @@ export const PRESETS: readonly Preset[] = [
       wc_gamemode: 2,
     },
   },
+  // Zombies (apps/amxx/wc_gm_zombies.inc): normal rounds against knife-only
+  // bots; humans buy anywhere for the whole round with $16000. Co-op is on
+  // while it runs.
+  {
+    id: 'zombies',
+    label: 'Zombies',
+    values: {
+      mp_friendlyfire: 0,
+      mp_startmoney: 16000,
+      mp_freezetime: 3,
+      mp_roundtime: 3,
+      mp_buytime: 3,
+      wc_weaponmode: 0,
+      wc_gamemode: 3,
+    },
+  },
   // Knife only / pistols only (apps/amxx/wc_weaponmode.sma); the other
   // settings stay as they are. The presets above turn the mode off. They
   // do nothing during Gun Game or Deathmatch (the plugin refuses them and

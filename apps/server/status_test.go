@@ -192,6 +192,12 @@ func TestApplyRulesCoop(t *testing.T) {
 			t.Errorf("wc_coop %q: got %v, want %v", tt.value, st.Coop, tt.want)
 		}
 	}
+	// Zombies runs co-op whatever wc_coop says.
+	var st serverStatus
+	applyRules(&st, map[string]string{"wc_coop": "0", "wc_gamemode": "3"})
+	if !st.Coop {
+		t.Errorf("Zombies with wc_coop 0: co-op off")
+	}
 }
 
 func TestApplyRulesGameMode(t *testing.T) {
@@ -202,8 +208,9 @@ func TestApplyRulesGameMode(t *testing.T) {
 		{"0", 0},
 		{"1", 1},
 		{"2", 2},
+		{"3", 3},
 		// Out of range or not a whole number: shown as classic.
-		{"3", 0},
+		{"4", 0},
 		{"-1", 0},
 		{"1.5", 0},
 		{"gungame", 0},

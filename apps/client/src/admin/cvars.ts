@@ -22,7 +22,14 @@ export type CvarName =
   | 'wc_coop'
   | 'wc_coop_ratio'
   | 'wc_coop_max_bots'
-  | 'wc_coop_adapt';
+  | 'wc_coop_adapt'
+  | 'wc_zm_health'
+  | 'wc_zm_health_per_human'
+  | 'wc_zm_speed'
+  | 'wc_zm_gravity'
+  | 'wc_zm_damage'
+  | 'wc_zm_knockback'
+  | 'wc_zm_infect';
 
 /** When a new value takes effect in a running game. */
 export type CvarApplies = 'now' | 'next round' | 'restart';
@@ -153,15 +160,16 @@ export const CVARS: Readonly<Record<CvarName, CvarDef>> = {
   },
   // Our AMX Mod X plugin (apps/amxx/wc_gamemode.sma). A change restarts the
   // game; the plugin sets it back to 0 when a map starts. While it isn't 0,
-  // the weapon mode plugin keeps wc_weaponmode at 0.
+  // the weapon mode plugin keeps wc_weaponmode at 0. Zombies turns co-op
+  // on while it runs.
   wc_gamemode: {
     name: 'wc_gamemode',
     label: 'Game mode',
     unit: '',
     kind: 'choice',
-    choices: ['classic', 'gun game', 'deathmatch'],
+    choices: ['classic', 'gun game', 'deathmatch', 'zombies'],
     min: 0,
-    max: 2,
+    max: 3,
     decimals: 0,
     applies: 'now',
     mapReset: 0,
@@ -255,6 +263,80 @@ export const CVARS: Readonly<Record<CvarName, CvarDef>> = {
     max: 1,
     decimals: 0,
     applies: 'next round',
+  },
+  // Zombies (apps/amxx/wc_gm_zombies.inc), kept over map changes. Health is
+  // the base plus this much per human; speed is capped by sv_maxspeed
+  // (320). Gravity, knife damage and knockback are multipliers.
+  wc_zm_health: {
+    name: 'wc_zm_health',
+    label: 'Zombies: health',
+    unit: 'HP',
+    kind: 'number',
+    min: 100,
+    max: 10000,
+    decimals: 0,
+    applies: 'next round',
+  },
+  wc_zm_health_per_human: {
+    name: 'wc_zm_health_per_human',
+    label: 'Zombies: health per human',
+    unit: 'HP',
+    kind: 'number',
+    min: 0,
+    max: 2000,
+    decimals: 0,
+    applies: 'next round',
+  },
+  wc_zm_speed: {
+    name: 'wc_zm_speed',
+    label: 'Zombies: speed',
+    unit: 'units/s',
+    kind: 'number',
+    min: 150,
+    max: 320,
+    decimals: 0,
+    applies: 'next round',
+  },
+  wc_zm_gravity: {
+    name: 'wc_zm_gravity',
+    label: 'Zombies: gravity',
+    unit: '×',
+    kind: 'number',
+    min: 0.3,
+    max: 1,
+    decimals: 2,
+    applies: 'next round',
+  },
+  wc_zm_damage: {
+    name: 'wc_zm_damage',
+    label: 'Zombies: knife damage',
+    unit: '×',
+    kind: 'number',
+    min: 0.5,
+    max: 10,
+    decimals: 1,
+    applies: 'now',
+  },
+  wc_zm_knockback: {
+    name: 'wc_zm_knockback',
+    label: 'Zombies: knockback',
+    unit: '×',
+    kind: 'number',
+    min: 0,
+    max: 5,
+    decimals: 1,
+    applies: 'now',
+  },
+  // A human killed by a zombie comes back as one until the round ends.
+  wc_zm_infect: {
+    name: 'wc_zm_infect',
+    label: 'Zombies: infection',
+    unit: '',
+    kind: 'bool',
+    min: 0,
+    max: 1,
+    decimals: 0,
+    applies: 'now',
   },
 };
 

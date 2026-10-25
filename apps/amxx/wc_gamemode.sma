@@ -1,7 +1,8 @@
-// Game modes for the web server's admin menu: Gun Game and Deathmatch, and
-// co-op against bots.
+// Game modes for the web server's admin menu: Gun Game, Deathmatch and
+// Zombies, and co-op against bots.
 //
-// cvar wc_gamemode: 0 = classic (normal game), 1 = Gun Game, 2 = Deathmatch.
+// cvar wc_gamemode: 0 = classic (normal game), 1 = Gun Game, 2 = Deathmatch,
+// 3 = Zombies.
 //
 // The cvar goes back to 0 on every map change (plugin_init runs once per
 // map) and is kept over sv_restart. Like wc_weaponmode, the plugin polls it
@@ -34,7 +35,7 @@
 // ran), they are put back to the classic values here too. A map that didn't
 // run a mode leaves them alone, so values set in server.cfg are kept.
 //
-// Both modes (Gun Game and Deathmatch):
+// Gun Game and Deathmatch:
 //
 // - Respawn 1 s after death, rounds never end (ReGameDLL cvars).
 // - Map objectives are off: no C4 (mp_give_player_c4 0), hostages hidden
@@ -93,6 +94,32 @@
 // - wc_gg_status (server command) lists each player's level, used by the
 //   smoke test; wc_gg_setlevel <userid> <level> sets one (tests).
 //
+// Zombies (wc_gm_zombies.inc): humans against knife-only bots with a lot of
+// health. Co-op (below) is on while it runs, whatever wc_coop says.
+//
+// - Rounds are normal rounds, without respawns, objectives or random
+//   spawns: no C4, hostages hidden (as above), bots ignore objectives.
+// - Zombies (the Terrorists): YaPB's yb_jasonmode 1 (knife only, no
+//   buying); the spawn pistol and the C4 are taken away. Health
+//   wc_zm_health (1000) + wc_zm_health_per_human (250) per human, speed
+//   wc_zm_speed (300, set again whenever the game resets it), gravity
+//   wc_zm_gravity (0.7), knife damage times wc_zm_damage (2.0), no armour,
+//   a green glow. A zombie hit by a bullet is pushed along the shooter's
+//   aim (wc_zm_knockback, 1.0). Zombies can't buy or pick up weapons.
+// - Humans (the Counter-Terrorists): buying anywhere (mp_buy_anywhere 1),
+//   reserve ammo refilled on reload, free kevlar and helmet.
+// - The round ends when all humans die (zombies win) or all zombies die
+//   (humans win). The round timer can't end it (mp_round_infinite a):
+//   instead, 1 s before it runs out the plugin kills the zombies left
+//   (user_silentkill, scores unchanged), a humans' win by elimination on
+//   every kind of map.
+// - wc_zm_infect 1 (default 0): a human killed by a zombie comes back 1 s
+//   later as a zombie on the Terrorists, until the round ends; their kills
+//   are logged as a Terrorist's, so they count as enemy kills.
+// - A HUD line at the top: "Round 3 | Zombies 5/9 left" (or WcMode, below).
+// - wc_zm_status (server command) lists each player's team, health, speed,
+//   gravity and weapons.
+//
 // Co-op vs bots (cvar wc_coop 0|1, wc_gm_coop.inc), with any mode above:
 //
 // - Humans play as the Counter-Terrorists and YaPB bots as the Terrorists:
@@ -128,19 +155,25 @@
 //   Everyone else (older clients, the stock HUD, bots) is unchanged, and
 //   never gets WcMode, which their client doesn't hook.
 // - WcMode (registered in plugin_precache, variable size), in this order:
-//     byte   mode         0 classic, 1 Gun Game, 2 Deathmatch
-//     byte   level        Gun Game: 1-based level; 0 otherwise
+//     byte   mode         0 classic, 1 Gun Game, 2 Deathmatch, 3 Zombies
+//     byte   level        Gun Game: 1-based level; Zombies: round number;
+//                         0 otherwise
 //     byte   levels       Gun Game: number of levels; 0 otherwise
-//     byte   kills        Gun Game: counting kills on this level
-//     byte   killsNeeded  Gun Game: wc_gg_kills_per_level (>= 1); 0 otherwise
+//     byte   kills        Gun Game: counting kills on this level; Zombies:
+//                         zombies left
+//     byte   killsNeeded  Gun Game: wc_gg_kills_per_level (>= 1); Zombies:
+//                         zombies at the start of the round; 0 otherwise
 //     byte   leaderLevel  Gun Game: the leader's 1-based level; 0 none
 //     short  protection   spawn protection left in ms; 0 none
-//     string weapon       Gun Game: this level's weapon ("MP5"); "" otherwise
+//     string weapon       Gun Game: this level's weapon ("MP5"); Zombies:
+//                         "Zombies"; "" otherwise
 //     string next         Gun Game: the next level's weapon; "" on the last
 //     string leader       Gun Game: the leader's name; "" none
 //     string winner       Gun Game: the winner's name once won; "" before
 //   The client turns it into hudEvent("mode", {...}) with these field names
-//   (web_bridge.h in cs16-client). Mode 0 is sent once when a mode ends.
+//   (web_bridge.h in cs16-client), passing every field through unchecked,
+//   so new modes reuse the fields (apps/client/src/gamemode.ts reads them).
+//   Mode 0 is sent once when a mode ends.
 //
 // Messages to players are fixed text only: the web client uses TextMsg text
 // as a printf format, so player-supplied text must never go into one.
@@ -153,12 +186,13 @@
 #include "wc_weapons.inc"
 
 #define PLUGIN  "Web game mode"
-#define VERSION "1.5"
+#define VERSION "1.6"
 #define AUTHOR  "Walcc"
 
 #define MODE_CLASSIC    0
 #define MODE_GUNGAME    1
 #define MODE_DEATHMATCH 2
+#define MODE_ZOMBIES    3
 
 #define TASK_POLL     4300
 #define TASK_EQUIP    4400
@@ -167,9 +201,9 @@
 #define TASK_GG_WIN   4700
 #define TASK_RESTART  4800
 
-new const MODE_NAMES[][] = { "Classic", "Gun Game", "Deathmatch" }
+new const MODE_NAMES[][] = { "Classic", "Gun Game", "Deathmatch", "Zombies" }
 
-enum _:ModeCvar { CVAR_NAME[32], CVAR_CLASSIC[24], CVAR_GUNGAME[192], CVAR_DEATHMATCH[24] }
+enum _:ModeCvar { CVAR_NAME[32], CVAR_CLASSIC[24], CVAR_GUNGAME[192], CVAR_DEATHMATCH[24], CVAR_ZOMBIES[24] }
 
 // YaPB's names for every weapon and item (Gun Game: bots buy and pick up
 // nothing; the plugin gives them their level's weapon).
@@ -179,35 +213,40 @@ enum _:ModeCvar { CVAR_NAME[32], CVAR_CLASSIC[24], CVAR_GUNGAME[192], CVAR_DEATH
 // defaults (ReGameDLL's game.cfg isn't shipped, see the Dockerfile; yapb.cfg
 // sets YaPB's again on every map change).
 new const MODE_CVARS[][ModeCvar] = {
-	// Rounds don't end on elimination or on the round timer.
-	{ "mp_round_infinite", "0", "1", "1" },
+	// Rounds don't end on elimination or on the round timer (Zombies: only
+	// not on the timer, a: the plugin ends it).
+	{ "mp_round_infinite", "0", "1", "1", "a" },
 	// Respawn this many seconds after death.
-	{ "mp_forcerespawn", "0", "1", "1" },
+	{ "mp_forcerespawn", "0", "1", "1", "0" },
 	// God mode after a respawn, in seconds...
-	{ "mp_respawn_immunitytime", "0", "2", "2" },
+	{ "mp_respawn_immunitytime", "0", "2", "2", "0" },
 	// ...ended early by shooting (1: also by moving).
-	{ "mp_respawn_immunity_force_unset", "1", "2", "2" },
+	{ "mp_respawn_immunity_force_unset", "1", "2", "2", "1" },
 	// Seconds before dropped weapons disappear.
-	{ "mp_item_staytime", "300", "5", "5" },
+	{ "mp_item_staytime", "300", "5", "5", "300" },
 	// No bomb for the Terrorists.
-	{ "mp_give_player_c4", "1", "0", "0" },
+	{ "mp_give_player_c4", "1", "0", "0", "0" },
 	// Armour (2: kevlar and helmet) and grenades on every spawn.
-	{ "mp_free_armor", "0", "2", "2" },
-	{ "mp_t_default_grenades", "", "", "hegrenade flash flash" },
-	{ "mp_ct_default_grenades", "", "", "hegrenade flash flash" },
+	{ "mp_free_armor", "0", "2", "2", "2" },
+	{ "mp_t_default_grenades", "", "", "hegrenade flash flash", "" },
+	{ "mp_ct_default_grenades", "", "", "hegrenade flash flash", "" },
 	// The pistol everyone spawns with (Gun Game: the level's weapon instead).
-	{ "mp_t_default_weapons_secondary", "glock18", "", "glock18" },
-	{ "mp_ct_default_weapons_secondary", "usp", "", "usp" },
+	{ "mp_t_default_weapons_secondary", "glock18", "", "glock18", "glock18" },
+	{ "mp_ct_default_weapons_secondary", "usp", "", "usp", "usp" },
 	// 3: reserve ammo refilled on each reload.
-	{ "mp_refill_bpammo_weapons", "0", "3", "0" },
+	{ "mp_refill_bpammo_weapons", "0", "3", "0", "3" },
 	// The map ends at this many frags (Deathmatch: from wc_dm_fraglimit).
-	{ "mp_fraglimit", "0", "0", "0" },
+	{ "mp_fraglimit", "0", "0", "0", "0" },
+	// Buying outside the buy zone.
+	{ "mp_buy_anywhere", "0", "0", "0", "1" },
 	// YaPB: no planting, defusing or rescuing; no buying; no going after
 	// weapons on the ground; weapons it may not buy or pick up.
-	{ "yb_ignore_objectives", "0", "1", "1" },
-	{ "yb_botbuy", "1", "0", "0" },
-	{ "yb_pickup_best", "1", "0", "1" },
-	{ "yb_restricted_weapons", "", YAPB_ALL_WEAPONS, "" }
+	{ "yb_ignore_objectives", "0", "1", "1", "1" },
+	{ "yb_botbuy", "1", "0", "0", "0" },
+	{ "yb_pickup_best", "1", "0", "1", "0" },
+	{ "yb_restricted_weapons", "", YAPB_ALL_WEAPONS, "", "" },
+	// YaPB: knife only, no buying.
+	{ "yb_jasonmode", "0", "0", "0", "1" }
 }
 
 // Deathmatch guns menu: primary weapons, then pistols (CSW_ id and name).
@@ -319,6 +358,7 @@ new g_modeSent[MAX_PLAYERS + 1][160]
 new bool:g_modeTest[MAX_PLAYERS + 1]
 
 #include "wc_gm_coop.inc"
+#include "wc_gm_zombies.inc"
 
 public plugin_precache()
 {
@@ -353,6 +393,7 @@ public plugin_init()
 	g_pYbRestricted = get_cvar_pointer("yb_restricted_weapons")
 	g_hudSync = CreateHudSyncObj()
 	CoopInit()
+	ZmInit()
 
 	FindSpawns()
 	FindSpawnTriggers()
@@ -392,6 +433,7 @@ public plugin_init()
 	register_srvcmd("wc_gg_setlevel", "CmdGgSetLevel")
 	register_srvcmd("wc_mode_test", "CmdModeTest")
 	register_srvcmd("wc_coop_status", "CmdCoopStatus")
+	register_srvcmd("wc_zm_status", "CmdZmStatus")
 
 	set_task(1.0, "Poll", TASK_POLL, _, _, "b")
 }
@@ -433,7 +475,7 @@ public client_disconnected(id)
 ReadMode()
 {
 	new mode = get_pcvar_num(g_pMode)
-	if (mode < MODE_CLASSIC || mode > MODE_DEATHMATCH)
+	if (mode < MODE_CLASSIC || mode > MODE_ZOMBIES)
 		return MODE_CLASSIC
 	return mode
 }
@@ -461,12 +503,17 @@ public Poll()
 	}
 	if (g_mode == MODE_GUNGAME)
 		GgPoll()
+	else if (g_mode == MODE_ZOMBIES)
+		ZmPoll()
 }
 
 public OnRestartScheduled()
 {
 	g_restartScheduledAt = get_gametime()
 	g_restartPending = true
+	// Zombies: the round count starts again; infected humans are cured.
+	if (g_mode == MODE_ZOMBIES)
+		ZmStart()
 	// Apply a changed mode now, so the scheduled restart starts it.
 	new mode = ReadMode()
 	if (mode != g_mode)
@@ -510,8 +557,12 @@ ChangeMode(mode)
 		CloseGunMenus()
 	if (old == MODE_GUNGAME)
 		GgStop()
+	else if (old == MODE_ZOMBIES)
+		ZmStop()
 	if (mode == MODE_GUNGAME)
 		GgStart()
+	else if (mode == MODE_ZOMBIES)
+		ZmStart()
 	if (mode == MODE_CLASSIC)
 	{
 		for (new id = 1; id <= MaxClients; id++)
@@ -524,6 +575,8 @@ ChangeMode(mode)
 		client_print(0, print_chat, "[Server] Deathmatch: pick your weapons from the menu. Press B or say guns to open it again.")
 	else if (mode == MODE_GUNGAME)
 		client_print(0, print_chat, "[Server] Gun Game: %d levels. Each kill gives you the next weapon; a knife kill steals a level.", g_ladderCount)
+	else if (mode == MODE_ZOMBIES)
+		client_print(0, print_chat, "[Server] Zombies: survive the round against the bots. They only have knives, but a lot of health. Buy anywhere.")
 	// Everyone starts fresh under the new rules: one restart (see the top).
 	ScheduleModeRestart()
 }
@@ -547,6 +600,7 @@ SetModeCvars(mode)
 		{
 			case MODE_GUNGAME: set_cvar_string(MODE_CVARS[i][CVAR_NAME], MODE_CVARS[i][CVAR_GUNGAME])
 			case MODE_DEATHMATCH: set_cvar_string(MODE_CVARS[i][CVAR_NAME], MODE_CVARS[i][CVAR_DEATHMATCH])
+			case MODE_ZOMBIES: set_cvar_string(MODE_CVARS[i][CVAR_NAME], MODE_CVARS[i][CVAR_ZOMBIES])
 			default: set_cvar_string(MODE_CVARS[i][CVAR_NAME], MODE_CVARS[i][CVAR_CLASSIC])
 		}
 	}
@@ -614,6 +668,12 @@ public OnPlayerSpawn(id)
 {
 	if (g_mode == MODE_CLASSIC || !is_user_alive(id))
 		return HAM_IGNORED
+	// Normal rounds: the map's team spawns, no protection.
+	if (g_mode == MODE_ZOMBIES)
+	{
+		ZmSpawn(id)
+		return HAM_IGNORED
+	}
 
 	g_spawnTime[id] = get_gametime()
 	RandomSpawn(id)
@@ -915,6 +975,13 @@ public OnBuy(id)
 	if (g_mode == MODE_GUNGAME)
 	{
 		client_print(id, print_center, "Gun Game: no buying. Kills give you the next weapon.")
+		return PLUGIN_HANDLED
+	}
+	if (g_mode == MODE_ZOMBIES)
+	{
+		if (!IsZombie(id))
+			return PLUGIN_CONTINUE
+		client_print(id, print_center, "Zombies can't buy: use your knife.")
 		return PLUGIN_HANDLED
 	}
 	if (g_mode != MODE_DEATHMATCH)
@@ -1255,12 +1322,14 @@ public GgHeRefill(taskid)
 	engclient_cmd(id, "weapon_hegrenade")
 }
 
-// Gun Game: no picking up weapons or armour.
+// Gun Game: no picking up weapons or armour; Zombies: not for zombies.
 public OnTouchItem(ent, id)
 {
-	if (g_mode != MODE_GUNGAME || id < 1 || id > MaxClients)
+	if (id < 1 || id > MaxClients)
 		return HAM_IGNORED
-	return HAM_SUPERCEDE
+	if (g_mode == MODE_GUNGAME || IsZombie(id))
+		return HAM_SUPERCEDE
+	return HAM_IGNORED
 }
 
 // Gun Game: dropping the level's weapon would leave only the knife.
@@ -1370,6 +1439,13 @@ SendMode(id)
 		}
 		if (g_ggWinner)
 			get_user_name(g_ggWinner, winner, charsmax(winner))
+	}
+	else if (g_mode == MODE_ZOMBIES)
+	{
+		level = max(g_zmRound, 1)
+		kills = ZmAlive()
+		killsNeeded = g_zmStartCount
+		copy(weapon, charsmax(weapon), "Zombies")
 	}
 	// The end time, not the time left, so a running protection isn't
 	// "changed" every poll.
@@ -1567,9 +1643,10 @@ public CmdGgSetLevel()
 	return PLUGIN_HANDLED
 }
 
-// Server console: wc_mode_test <userid> <0|1> (tests: send WcMode to that
-// player, a bot too, as if their page had set wc_html_hud 1; the state sent
-// shows in wc_gamemode_status).
+// Server console: wc_mode_test <userid> <0|1> (tests: 1 sends WcMode to
+// that player, a bot too, as if their page had set wc_html_hud 1; 0 sets a
+// human's wc_html_hud to 0, so they get the HUD message, until their page
+// sets it again; the state sent shows in wc_gamemode_status).
 public CmdModeTest()
 {
 	new id = read_argc() >= 3 ? find_player("k", read_argv_int(1)) : 0
@@ -1579,6 +1656,8 @@ public CmdModeTest()
 		return PLUGIN_HANDLED
 	}
 	g_modeTest[id] = read_argv_int(2) != 0
+	if (!g_modeTest[id] && !is_user_bot(id))
+		set_user_info(id, "wc_html_hud", "0")
 	g_modeSent[id][0] = EOS
 	SendMode(id)
 	server_print("wc_mode_test: #%d %d sent ^"%s^"", read_argv_int(1), g_modeTest[id], g_modeSent[id])

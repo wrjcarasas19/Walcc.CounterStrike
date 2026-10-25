@@ -95,18 +95,19 @@ type serverStatus struct {
 	TimeLeft *int `json:"timeLeft"`
 	// NextMap is amx_nextmap ("" without AMX Mod X).
 	NextMap string `json:"nextMap,omitempty"`
-	// GameMode is wc_gamemode: 1 Gun Game, 2 Deathmatch; 0 (left out) for
-	// a classic game or when unknown.
+	// GameMode is wc_gamemode: 1 Gun Game, 2 Deathmatch, 3 Zombies; 0 (left
+	// out) for a classic game or when unknown.
 	GameMode int `json:"gameMode,omitempty"`
-	// Coop is wc_coop 1 (apps/amxx/wc_gm_coop.inc): humans are the
-	// Counter-Terrorists, bots the Terrorists. Left out when off or unknown.
+	// Coop is true while co-op runs (apps/amxx/wc_gm_coop.inc): wc_coop 1,
+	// or Zombies, which turns it on. Humans are the Counter-Terrorists, bots
+	// the Terrorists. Left out when off or unknown.
 	Coop bool `json:"coop,omitempty"`
 }
 
 // Values of wc_gamemode (apps/amxx/wc_gamemode.sma).
 const (
-	gameModeClassic    = 0
-	gameModeDeathmatch = 2
+	gameModeClassic = 0
+	gameModeZombies = 3
 )
 
 type statusPlayer struct {
@@ -349,10 +350,10 @@ func applyRules(st *serverStatus, rules map[string]string) {
 	if name := rules["amx_nextmap"]; len(name) <= 64 && mapNamePattern.MatchString(name) {
 		st.NextMap = name
 	}
-	if mode, err := strconv.Atoi(rules["wc_gamemode"]); err == nil && mode > gameModeClassic && mode <= gameModeDeathmatch {
+	if mode, err := strconv.Atoi(rules["wc_gamemode"]); err == nil && mode > gameModeClassic && mode <= gameModeZombies {
 		st.GameMode = mode
 	}
-	st.Coop = rules["wc_coop"] == "1"
+	st.Coop = rules["wc_coop"] == "1" || st.GameMode == gameModeZombies
 }
 
 // statusHandler serves /status.json from a cache.

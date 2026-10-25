@@ -72,8 +72,9 @@ var adminCvars = map[string]adminCvar{
 	"mp_maxrounds":    {0, 100, 0},
 	// 0 off, 1 knife only, 2 pistols only (apps/amxx/wc_weaponmode.sma).
 	"wc_weaponmode": {0, 2, 0},
-	// 0 classic, 1 Gun Game, 2 Deathmatch (apps/amxx/wc_gamemode.sma).
-	"wc_gamemode": {0, 2, 0},
+	// 0 classic, 1 Gun Game, 2 Deathmatch, 3 Zombies
+	// (apps/amxx/wc_gamemode.sma).
+	"wc_gamemode": {0, 3, 0},
 	// Deathmatch frag limit, 0 off (apps/amxx/wc_gamemode.sma).
 	"wc_dm_fraglimit": {0, 500, 0},
 	// Gun Game (apps/amxx/wc_gamemode.sma): kills per level, a level lost on
@@ -87,6 +88,16 @@ var adminCvars = map[string]adminCvar{
 	"wc_coop_ratio":    {1, 6, 0},
 	"wc_coop_max_bots": {1, 20, 0},
 	"wc_coop_adapt":    {0, 1, 0},
+	// Zombies (apps/amxx/wc_gm_zombies.inc): health, health per human,
+	// speed (sv_maxspeed is 320), gravity, knife damage and knockback
+	// multipliers, infection (0/1).
+	"wc_zm_health":           {100, 10000, 0},
+	"wc_zm_health_per_human": {0, 2000, 0},
+	"wc_zm_speed":            {150, 320, 0},
+	"wc_zm_gravity":          {0.3, 1, 2},
+	"wc_zm_damage":           {0.5, 10, 1},
+	"wc_zm_knockback":        {0, 5, 1},
+	"wc_zm_infect":           {0, 1, 0},
 }
 
 // Same as message-text.ts: printable ASCII without " ; \ $ { } ' , ^ %.

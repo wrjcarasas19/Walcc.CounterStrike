@@ -5,8 +5,8 @@ import type { BuyMenuEvent } from './buy/items';
 import type { TeamMenuEvent } from './team/items';
 import {
   MODE_EVENT_CLIENT_VERSION,
-  gunGameStrip,
-  isGunGame,
+  endlessRounds,
+  modeStrip,
   levelToast,
   parseModeState,
   versionAtLeast,
@@ -528,13 +528,14 @@ function renderMode(state: ModeState): void {
   if (toast) showLevelToast(toast);
   const sound = modeSound(modeState, state);
   if (sound) announce(sound);
-  announcer.setGameMode(state.mode);
+  announcer.setGameMode(endlessRounds(state.mode) ? state.mode : 0);
   modeState = state.mode === 0 ? undefined : state;
 
-  setHidden(gg, !isGunGame(modeState));
-  hud.classList.toggle('gun-game', isGunGame(modeState));
-  if (isGunGame(modeState)) {
-    const strip = gunGameStrip(modeState);
+  // The Gun Game strip, also used by Zombies.
+  const strip = modeStrip(modeState);
+  setHidden(gg, !strip);
+  hud.classList.toggle('gun-game', !!strip);
+  if (strip) {
     setText(ggLevel, strip.level);
     setText(ggWeapon, strip.weapon);
     setText(ggNext, strip.next);
@@ -582,7 +583,9 @@ function refreshAnnouncerMode(): void {
   const request = ++lobbyModeRequest;
   void fetchLobbyStatus().then((status) => {
     if (request !== lobbyModeRequest || !status) return;
-    announcer.setGameMode(status.gameMode);
+    announcer.setGameMode(
+      endlessRounds(status.gameMode) ? status.gameMode : 0
+    );
   });
 }
 

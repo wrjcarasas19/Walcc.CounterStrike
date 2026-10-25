@@ -699,7 +699,11 @@ void WebBridge_TextMsg( int dest, const char *message )
 // WcMode (cs16-web-server's wc_gamemode.sma), in this order: byte mode,
 // byte level, byte levels, byte kills, byte killsNeeded, byte leaderLevel,
 // short protection (ms), string weapon, string next, string leader,
-// string winner
+// string winner. Every field is passed through unchecked, so the server's
+// later modes reuse them with their own meaning and need no new client
+// (apps/client/src/gamemode.ts reads them): mode 3 (Zombies) sends the
+// round number as level, the zombies left as kills, the zombies at the
+// round start as killsNeeded and "Zombies" as weapon.
 static int WebBridge_MsgWcMode( const char *pszName, int iSize, void *pbuf )
 {
 	BufferReader reader( pszName, pbuf, iSize );

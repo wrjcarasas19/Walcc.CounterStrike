@@ -78,9 +78,10 @@ CoopCfg()
 		CoopEnd(false)
 }
 
+// wc_coop 1, or a mode that is played against bots.
 bool:CoopWanted()
 {
-	return get_pcvar_num(g_pCoop) != 0
+	return get_pcvar_num(g_pCoop) != 0 || g_mode == MODE_ZOMBIES
 }
 
 // Values from before co-op are saved (co-op ran on this map or the last).
