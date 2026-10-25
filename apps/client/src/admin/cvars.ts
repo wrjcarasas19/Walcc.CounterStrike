@@ -18,7 +18,11 @@ export type CvarName =
   | 'wc_dm_fraglimit'
   | 'wc_gg_kills_per_level'
   | 'wc_gg_suicide_penalty'
-  | 'wc_gg_join_lowest';
+  | 'wc_gg_join_lowest'
+  | 'wc_coop'
+  | 'wc_coop_ratio'
+  | 'wc_coop_max_bots'
+  | 'wc_coop_adapt';
 
 /** When a new value takes effect in a running game. */
 export type CvarApplies = 'now' | 'next round' | 'restart';
@@ -206,6 +210,51 @@ export const CVARS: Readonly<Record<CvarName, CvarDef>> = {
     max: 1,
     decimals: 0,
     applies: 'now',
+  },
+  // Co-op vs bots (apps/amxx/wc_gm_coop.inc): humans on CT, bots on T, with
+  // any game mode. A change restarts the game. Kept over map changes, like
+  // its settings below.
+  wc_coop: {
+    name: 'wc_coop',
+    label: 'Co-op vs bots',
+    unit: '',
+    kind: 'bool',
+    min: 0,
+    max: 1,
+    decimals: 0,
+    applies: 'now',
+  },
+  // Bots per human, and the most bots in all (the plugin sets yb_quota).
+  wc_coop_ratio: {
+    name: 'wc_coop_ratio',
+    label: 'Co-op: bots per human',
+    unit: 'bots',
+    kind: 'number',
+    min: 1,
+    max: 6,
+    decimals: 0,
+    applies: 'now',
+  },
+  wc_coop_max_bots: {
+    name: 'wc_coop_max_bots',
+    label: 'Co-op: most bots',
+    unit: 'bots',
+    kind: 'number',
+    min: 1,
+    max: 20,
+    decimals: 0,
+    applies: 'now',
+  },
+  // Bot difficulty up after two won rounds in a row, down after two lost.
+  wc_coop_adapt: {
+    name: 'wc_coop_adapt',
+    label: 'Co-op: difficulty follows the score',
+    unit: '',
+    kind: 'bool',
+    min: 0,
+    max: 1,
+    decimals: 0,
+    applies: 'next round',
   },
 };
 

@@ -55,6 +55,10 @@ const FIELDS: readonly CvarName[] = [
   'wc_gg_kills_per_level',
   'wc_gg_suicide_penalty',
   'wc_gg_join_lowest',
+  'wc_coop',
+  'wc_coop_ratio',
+  'wc_coop_max_bots',
+  'wc_coop_adapt',
   'wc_weaponmode',
 ];
 

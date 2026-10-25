@@ -81,6 +81,12 @@ var adminCvars = map[string]adminCvar{
 	"wc_gg_kills_per_level": {1, 10, 0},
 	"wc_gg_suicide_penalty": {0, 1, 0},
 	"wc_gg_join_lowest":     {0, 1, 0},
+	// Co-op vs bots (apps/amxx/wc_gm_coop.inc): on/off, bots per human,
+	// most bots, difficulty that follows the humans' wins (0/1).
+	"wc_coop":          {0, 1, 0},
+	"wc_coop_ratio":    {1, 6, 0},
+	"wc_coop_max_bots": {1, 20, 0},
+	"wc_coop_adapt":    {0, 1, 0},
 }
 
 // Same as message-text.ts: printable ASCII without " ; \ $ { } ' , ^ %.

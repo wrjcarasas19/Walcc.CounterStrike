@@ -1,6 +1,7 @@
 import type { Xash3D } from 'xash3d-fwgs';
 import { versionAtLeast } from '../gamemode';
 import { onHudEvent } from '../hud';
+import { fetchLobbyStatus } from '../lobby';
 import { createModal, type Modal } from '../modal';
 import { getSettings, onSettingsChange } from '../settings/store';
 import { readVguiPictures } from '../vgui-pictures';
@@ -27,6 +28,11 @@ import {
 // joining has no key 0, so Esc and M leave it open; when another menu (F3,
 // F4, the main menu) hides it, M or the main menu closing brings it back.
 // Open, close, keys and the pointer lock come from ../modal.ts.
+//
+// In co-op vs bots (wc_coop 1, read from /status.json each time a menu
+// opens) the Terrorists card is greyed out: the server only lets humans
+// join the Counter-Terrorists (ReGameDLL humans_join_team CT) and would
+// refuse the pick anyway.
 
 const supported = versionAtLeast(
   __CS16_CLIENT_VERSION__,
@@ -48,6 +54,9 @@ let silentClose = false;
 let menuName = '';
 let keys = 0;
 let team: Team | '' = '';
+// wc_coop as /status.json last said; false until it answers.
+let coop = false;
+let coopRequest = 0;
 // Picture data URLs by file name, read from the engine's files on first open.
 let pictures = new Map<string, string>();
 let picturesLoaded = false;
@@ -67,6 +76,20 @@ optionsBox.className = 'team-options';
 const keyHint = document.createElement('div');
 keyHint.className = 'buy-key-hint';
 panel.append(header, optionsBox, keyHint);
+
+/** The server refuses this pick: Terrorists in co-op. */
+function blocked(option: TeamOption): boolean {
+  return coop && menuKind(menuName) === 'team' && option.side === 'T';
+}
+
+function refreshCoop(): void {
+  const request = ++coopRequest;
+  void fetchLobbyStatus().then((status) => {
+    if (request !== coopRequest || !status || status.coop === coop) return;
+    coop = status.coop;
+    if (modal.isOpen()) render();
+  });
+}
 
 function relock(): boolean {
   return !touchControls;
@@ -126,8 +149,13 @@ function render(): void {
       name.textContent = option.label;
       const detail = document.createElement('span');
       detail.className = 'team-detail';
-      detail.textContent = current ? 'Your team' : (option.detail ?? '');
+      detail.textContent = current
+        ? 'Your team'
+        : blocked(option)
+          ? 'Bots only in co-op'
+          : (option.detail ?? '');
       if (current) button.classList.add('team-current');
+      button.disabled = blocked(option);
       button.append(badge, picture, name, detail);
       button.addEventListener('click', () => choose(option));
       return button;
@@ -136,7 +164,7 @@ function render(): void {
 }
 
 function choose(option: TeamOption): void {
-  if (!engine || !modal.isOpen()) return;
+  if (!engine || !modal.isOpen() || blocked(option)) return;
   // The slot key closes the client's menu (and its "teammenu" close finds
   // this one closed). Keep the pointer free when the character menu follows.
   silentClose = true;
@@ -208,6 +236,7 @@ function onTeamMenu(event: TeamMenuEvent): void {
   keys = event.keys;
   team = event.team;
   requested = true;
+  if (menuKind(menuName) === 'team') refreshCoop();
   if (modal.isOpen()) {
     render();
     return;

@@ -27,6 +27,17 @@ Run these over rcon / the console against `make run`, and write each result here
 
 If one fails, change the phase that depends on it here first.
 
+Results (2026-10-24, image from 2026-10-24 03:45, `linux/386` under emulation on Apple Silicon, de_dust2, commands sent to the engine console on the container's stdin, no browser):
+
+1. `yb_join_team T`: bots added afterwards all join T (`yb list`). Existing bots stay where they are, so the plugin moves them. `humans_join_team` exists (ReGameDLL 5.30.0.814-dev, default `any`); the human side wasn't checked without a browser. Also: `yb kickall instant` sets `yb_quota` to 0.
+2. `yb_jasonmode 1`: bots buy nothing, even with $16000 (with it off they buy rifles, armour and grenades). They keep the spawn pistol, so Zombies also strips pistols and the C4 on spawn.
+3. Not checkable without the plugin and a browser; checked in Phase 2 with `wc_zm_status`. The "Killed by" card sends the killer's health as a short (0–32767, `wc_killinfo.sma`), so health over 255 fits.
+4. `mp_round_infinite a` blocks only the round timer: no round end 80 s into a 60 s round, while elimination (`Terrorists_Win`) and the bomb (`Bomb_Defused`) still end it. `mp_buytime -1` is accepted (ReGameDLL: no limit). The winner is on `Team "CT" triggered "..."` lines (6 log arguments, the team in argument 1); `World triggered "Round_End"` doesn't name it.
+5. Needs plugin code; checked in Phase 3 (`wc_wave_status`).
+6. 10 bots, no browser: 18–27% of one core, 359 MiB. With 2 headless Chromium players (Playwright) and 9 bots in co-op (Phase 1 image): 33–37%, 337 MiB.
+
+Phase 1 also showed: with `humans_join_team CT` the game skips the team menu on joining and opens the CT character menu; the team menu (M) shows the Terrorists greyed out.
+
 ## Phase 1: Co-op vs Bots (`wc_coop`)
 
 Behaviour:

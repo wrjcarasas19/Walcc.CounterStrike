@@ -167,8 +167,29 @@ func TestApplyRules(t *testing.T) {
 		if !reflect.DeepEqual(st.TimeLimit, tt.limit) || !reflect.DeepEqual(st.TimeLeft, tt.left) || st.NextMap != tt.nextMap {
 			t.Errorf("%s: got limit %v left %v next %q", tt.testName, st.TimeLimit, st.TimeLeft, st.NextMap)
 		}
-		if st.GameMode != 0 {
-			t.Errorf("%s: got game mode %d", tt.testName, st.GameMode)
+		if st.GameMode != 0 || st.Coop {
+			t.Errorf("%s: got game mode %d, co-op %v", tt.testName, st.GameMode, st.Coop)
+		}
+	}
+}
+
+func TestApplyRulesCoop(t *testing.T) {
+	tests := []struct {
+		value string
+		want  bool
+	}{
+		{"1", true},
+		{"0", false},
+		// Anything but exactly 1 (the plugin's cvar is 0 or 1): off.
+		{"2", false},
+		{"1.0", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		var st serverStatus
+		applyRules(&st, map[string]string{"wc_coop": tt.value})
+		if st.Coop != tt.want {
+			t.Errorf("wc_coop %q: got %v, want %v", tt.value, st.Coop, tt.want)
 		}
 	}
 }

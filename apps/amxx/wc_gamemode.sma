@@ -1,4 +1,5 @@
-// Game modes for the web server's admin menu: Gun Game and Deathmatch.
+// Game modes for the web server's admin menu: Gun Game and Deathmatch, and
+// co-op against bots.
 //
 // cvar wc_gamemode: 0 = classic (normal game), 1 = Gun Game, 2 = Deathmatch.
 //
@@ -92,6 +93,32 @@
 // - wc_gg_status (server command) lists each player's level, used by the
 //   smoke test; wc_gg_setlevel <userid> <level> sets one (tests).
 //
+// Co-op vs bots (cvar wc_coop 0|1, wc_gm_coop.inc), with any mode above:
+//
+// - Humans play as the Counter-Terrorists and YaPB bots as the Terrorists:
+//   humans_join_team CT (ReGameDLL), yb_join_team T, mp_autoteambalance 0,
+//   mp_limitteams 0. Turning it on moves humans on T to CT and bots on CT
+//   to T, then restarts the game once, as a mode change does (above);
+//   later, dead players on the wrong team are moved.
+// - The plugin owns the bot count (yb_quota_mode fill): yb_quota is the
+//   humans plus wc_coop_ratio (default 3) bots per human, at most
+//   wc_coop_max_bots (default 10) bots, checked every second. Spectators
+//   don't count.
+// - wc_coop_adapt 1 (default 0): yb_difficulty goes up one (to 4 at most)
+//   after the humans win two rounds in a row, and down one (to 1) after
+//   they lose two in a row (the Team "CT" triggered "..." round end lines).
+// - Unlike wc_gamemode, wc_coop and its settings are kept over map
+//   changes; the new map applies co-op again (plugin_cfg). The cvars it
+//   sets (above, plus yb_quota and yb_difficulty) are saved first, in
+//   wc_saved_<name> cvars so they outlive the map, and put back when co-op
+//   ends (with a restart).
+// - Bomb and hostage maps play as they are: the humans defend the sites
+//   and rescue the hostages.
+// - wc_coop is FCVAR_SERVER, so /status.json says "coop": true and the
+//   page greys out the Terrorists in the team menu (the game refuses them
+//   anyway). wc_coop_status (server command) prints the cvars, the values
+//   from before co-op, the humans, bots and quota.
+//
 // HTML HUD (the web page draws the mode instead of the HUD message):
 //
 // - A player whose client sends the userinfo key wc_html_hud 1 (the page
@@ -126,7 +153,7 @@
 #include "wc_weapons.inc"
 
 #define PLUGIN  "Web game mode"
-#define VERSION "1.4"
+#define VERSION "1.5"
 #define AUTHOR  "Walcc"
 
 #define MODE_CLASSIC    0
@@ -291,6 +318,8 @@ new g_modeSent[MAX_PLAYERS + 1][160]
 // Tests (wc_mode_test): treat this player as having the HTML HUD, bots too.
 new bool:g_modeTest[MAX_PLAYERS + 1]
 
+#include "wc_gm_coop.inc"
+
 public plugin_precache()
 {
 	// Registered here, not with register_message: it is our own message.
@@ -323,6 +352,7 @@ public plugin_init()
 	g_pImmunityTime = get_cvar_pointer("mp_respawn_immunitytime")
 	g_pYbRestricted = get_cvar_pointer("yb_restricted_weapons")
 	g_hudSync = CreateHudSyncObj()
+	CoopInit()
 
 	FindSpawns()
 	FindSpawnTriggers()
@@ -361,6 +391,7 @@ public plugin_init()
 	register_srvcmd("wc_gg_status", "CmdGgStatus")
 	register_srvcmd("wc_gg_setlevel", "CmdGgSetLevel")
 	register_srvcmd("wc_mode_test", "CmdModeTest")
+	register_srvcmd("wc_coop_status", "CmdCoopStatus")
 
 	set_task(1.0, "Poll", TASK_POLL, _, _, "b")
 }
@@ -371,6 +402,7 @@ public plugin_cfg()
 	g_pWeaponMode = get_cvar_pointer("wc_weaponmode")
 	// AMXX's nextmap plugin: the next map in the cycle, or the vote's pick.
 	g_pNextMap = get_cvar_pointer("amx_nextmap")
+	CoopCfg()
 }
 
 public client_putinserver(id)
@@ -415,6 +447,7 @@ public Poll()
 	// ending (mode 0 once).
 	for (new id = 1; id <= MaxClients; id++)
 		SendMode(id)
+	CoopPoll()
 
 	if (g_mode == MODE_CLASSIC)
 		return
@@ -438,6 +471,7 @@ public OnRestartScheduled()
 	new mode = ReadMode()
 	if (mode != g_mode)
 		ChangeMode(mode)
+	CoopFollow(true)
 }
 
 public OnNewRound()
@@ -491,6 +525,12 @@ ChangeMode(mode)
 	else if (mode == MODE_GUNGAME)
 		client_print(0, print_chat, "[Server] Gun Game: %d levels. Each kill gives you the next weapon; a knife kill steals a level.", g_ladderCount)
 	// Everyone starts fresh under the new rules: one restart (see the top).
+	ScheduleModeRestart()
+}
+
+// One restart for a mode or co-op change, unless someone else restarts.
+ScheduleModeRestart()
+{
 	remove_task(TASK_RESTART)
 	g_modeChangedAt = get_gametime()
 	if (RestartPending())

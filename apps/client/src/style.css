@@ -2509,6 +2509,20 @@ canvas,
   background: var(--bg-glow);
 }
 
+.team-option:disabled {
+  cursor: default;
+}
+
+.team-option:disabled:hover {
+  border-color: var(--border);
+  background: var(--well);
+}
+
+.team-option:disabled .team-picture,
+.team-option:disabled .team-name {
+  opacity: 0.35;
+}
+
 .team-option:focus-visible {
   outline: 1px solid var(--accent);
   outline-offset: -1px;

@@ -26,6 +26,8 @@ export interface LobbyStatus {
   nextMap: string;
   /** wc_gamemode: 0 classic (or unknown), 1 Gun Game, 2 Deathmatch. */
   gameMode: number;
+  /** wc_coop 1: humans are the Counter-Terrorists, bots the Terrorists. */
+  coop: boolean;
 }
 
 /** The name of each wc_gamemode value (apps/amxx/wc_gamemode.sma). */
@@ -93,16 +95,21 @@ export function parseLobbyStatus(json: unknown): LobbyStatus | undefined {
       isCount(data.gameMode) && gameModeName(data.gameMode) !== ''
         ? data.gameMode
         : 0,
+    coop: data.coop === true,
   };
 }
 
-/** "de_dust2 · 5/16 players", "de_dust2 · Gun Game · 5/16 players" */
+/**
+ * "de_dust2 · 5/16 players", "de_dust2 · Gun Game · 5/16 players",
+ * "de_dust2 · Co-op vs bots · 3/16 players"
+ */
 export function summaryText(status: LobbyStatus): string {
   const noun = status.maxPlayers === 1 ? 'player' : 'players';
   const mode = gameModeName(status.gameMode);
   return [
     status.map,
     mode,
+    status.coop ? 'Co-op vs bots' : '',
     `${status.playerCount}/${status.maxPlayers} ${noun}`,
   ]
     .filter(Boolean)

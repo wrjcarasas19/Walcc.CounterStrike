@@ -4,7 +4,8 @@ Pawn plugins compiled into the image and loaded by AMX Mod X on the server. Read
 
 | File | Role |
 |---|---|
-| `wc_gamemode.sma` | `wc_gamemode 0\|1\|2`: classic, Gun Game, Deathmatch; sets and restores ReGameDLL and YaPB cvars, sends the `WcMode` user message |
+| `wc_gamemode.sma` | `wc_gamemode 0\|1\|2`: classic, Gun Game, Deathmatch; sets and restores ReGameDLL and YaPB cvars, sends the `WcMode` user message. Includes the mode files below |
+| `wc_gm_coop.inc` | `wc_coop 0\|1`: humans on CT against bots on T, the bot count (`yb_quota`), adaptive difficulty; included by `wc_gamemode.sma` after its globals |
 | `wc_weaponmode.sma` | `wc_weaponmode 0\|1\|2`: off, knife only, pistols only; ignored while a game mode is on |
 | `wc_statslog.sma` | Adds `wc_headshot` and `changed name to` log lines for the leaderboard |
 | `wc_killinfo.sma` | Sends the victim the `WcKillInfo` user message for the "Killed by" card |
@@ -22,7 +23,7 @@ Pawn plugins compiled into the image and loaded by AMX Mod X on the server. Read
 - Players get made-up addresses from the SFU, so address-based admin is off (`adminslots.amxx` is disabled in the Dockerfile). Do not rely on addresses.
 - The engine writes no `changed name to` line; `wc_statslog` does. Keep that in mind when a feature depends on names.
 - Cvars that `/status.json` should show need `FCVAR_SERVER`.
-- Mode cvars (`wc_gamemode`, `wc_weaponmode`, the `wc_gg_*` ones that are not kept) go back to their defaults on every map change; `plugin_init` runs once per map.
+- Mode cvars (`wc_gamemode`, `wc_weaponmode`, the `wc_gg_*` ones that are not kept) go back to their defaults on every map change; `plugin_init` runs once per map. `wc_coop` is kept, and the values it replaced live in `wc_saved_<name>` cvars, because plugin globals don't outlive the map.
 
 ## Contracts
 
@@ -33,4 +34,4 @@ Pawn plugins compiled into the image and loaded by AMX Mod X on the server. Read
 
 ## Verify
 
-No unit tests exist. Build and run the image, add bots (`BOT_QUOTA` or `yb add`), and use the plugin's own console commands over rcon or the F4 menu: `wc_weaponmode_status`, `wc_gamemode_status`, `wc_dm_status`, `wc_dm_guns`, `wc_gg_status`, `wc_gg_setlevel`, `wc_mode_test`, `wc_killinfo_status`, `wc_killinfo_test`. Plugin output goes to the server console (`docker compose logs`) and `log_amx` to `cstrike/addons/amxmodx/logs`. Report which commands ran and what they showed.
+No unit tests exist. Build and run the image, add bots (`BOT_QUOTA` or `yb add`), and use the plugin's own console commands over rcon or the F4 menu: `wc_weaponmode_status`, `wc_gamemode_status`, `wc_dm_status`, `wc_dm_guns`, `wc_gg_status`, `wc_gg_setlevel`, `wc_mode_test`, `wc_coop_status`, `wc_killinfo_status`, `wc_killinfo_test`. Plugin output goes to the server console (`docker compose logs`) and `log_amx` to `cstrike/addons/amxmodx/logs`. Report which commands ran and what they showed.

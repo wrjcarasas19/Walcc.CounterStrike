@@ -36,7 +36,7 @@ import (
 //     sv_expose_player_list 0.
 //   - 'V' (A2S_RULES) -> 'E': every FCVAR_SERVER cvar, which includes
 //     mp_timelimit, AMX Mod X's amx_timeleft ("MM:SS", updated every 0.8 s
-//     by timeleft.amxx), amx_nextmap and our wc_gamemode
+//     by timeleft.amxx), amx_nextmap and our wc_gamemode and wc_coop
 //     (apps/amxx/wc_gamemode.sma).
 //
 // Answers are cached for statusCacheTTL and concurrent requests share one
@@ -98,6 +98,9 @@ type serverStatus struct {
 	// GameMode is wc_gamemode: 1 Gun Game, 2 Deathmatch; 0 (left out) for
 	// a classic game or when unknown.
 	GameMode int `json:"gameMode,omitempty"`
+	// Coop is wc_coop 1 (apps/amxx/wc_gm_coop.inc): humans are the
+	// Counter-Terrorists, bots the Terrorists. Left out when off or unknown.
+	Coop bool `json:"coop,omitempty"`
 }
 
 // Values of wc_gamemode (apps/amxx/wc_gamemode.sma).
@@ -331,8 +334,8 @@ func parseRulesReply(body []byte) map[string]string {
 
 var timeLeftPattern = regexp.MustCompile(`^([0-9]{1,5}):([0-5][0-9])$`)
 
-// applyRules fills the time limit, time left, next map and game mode from
-// the cvars.
+// applyRules fills the time limit, time left, next map, game mode and
+// co-op from the cvars.
 func applyRules(st *serverStatus, rules map[string]string) {
 	if v, err := strconv.ParseFloat(rules["mp_timelimit"], 64); err == nil && v >= 0 && !math.IsInf(v, 0) {
 		st.TimeLimit = &v
@@ -349,6 +352,7 @@ func applyRules(st *serverStatus, rules map[string]string) {
 	if mode, err := strconv.Atoi(rules["wc_gamemode"]); err == nil && mode > gameModeClassic && mode <= gameModeDeathmatch {
 		st.GameMode = mode
 	}
+	st.Coop = rules["wc_coop"] == "1"
 }
 
 // statusHandler serves /status.json from a cache.

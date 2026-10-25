@@ -23,6 +23,7 @@ export const PRESETS: readonly Preset[] = [
       mp_roundtime: 3,
       wc_weaponmode: 0,
       wc_gamemode: 0,
+      wc_coop: 0,
     },
   },
   {
@@ -36,6 +37,7 @@ export const PRESETS: readonly Preset[] = [
       mp_maxrounds: 30,
       wc_weaponmode: 0,
       wc_gamemode: 0,
+      wc_coop: 0,
     },
   },
   {
@@ -48,6 +50,23 @@ export const PRESETS: readonly Preset[] = [
       mp_buytime: 9,
       wc_weaponmode: 0,
       wc_gamemode: 0,
+    },
+  },
+  // Co-op vs bots (apps/amxx/wc_gm_coop.inc): classic rounds, humans on CT
+  // against three bots each. Casual and Competitive turn it off; the other
+  // presets keep it, so Gun Game or Deathmatch can be played against bots.
+  {
+    id: 'coop',
+    label: 'Co-op vs bots',
+    values: {
+      mp_friendlyfire: 0,
+      mp_startmoney: 16000,
+      mp_freezetime: 0,
+      mp_buytime: 0.5,
+      mp_roundtime: 3,
+      wc_weaponmode: 0,
+      wc_gamemode: 0,
+      wc_coop: 1,
     },
   },
   // Gun Game / Deathmatch (apps/amxx/wc_gamemode.sma): respawns and endless
