@@ -703,7 +703,10 @@ void WebBridge_TextMsg( int dest, const char *message )
 // later modes reuse them with their own meaning and need no new client
 // (apps/client/src/gamemode.ts reads them): mode 3 (Zombies) sends the
 // round number as level, the zombies left as kills, the zombies at the
-// round start as killsNeeded and "Zombies" as weapon.
+// round start as killsNeeded and "Zombies" as weapon; mode 4 (Survival)
+// sends the wave and the waves to win as level and levels, the bots killed
+// and the wave's size as kills and killsNeeded, "Wave", "Boss" or "Break"
+// as weapon, the break's seconds left as next and "Humans" as winner.
 static int WebBridge_MsgWcMode( const char *pszName, int iSize, void *pbuf )
 {
 	BufferReader reader( pszName, pbuf, iSize );

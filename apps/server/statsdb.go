@@ -34,6 +34,11 @@ type playerTotals struct {
 	Rounds    int64
 	// GunGameWins are Gun Game games won (wc_gg_win).
 	GunGameWins int64
+	// BestWave is the highest Survival wave cleared (wc_wave_clear). It is
+	// kept as the highest, not added: in a change, the highest seen.
+	BestWave int64
+	// SurvivalWins are Survival games won, all waves cleared (wc_wave_win).
+	SurvivalWins int64
 }
 
 func (t playerTotals) zero() bool {
@@ -110,6 +115,10 @@ CREATE TABLE devices (
 	last_seen INTEGER NOT NULL
 );
 CREATE INDEX devices_by_name ON devices (name_key)`,
+	// 4: Survival (wc_gm_waves.inc): the highest wave cleared and games won.
+	// Adds columns only; existing rows get 0.
+	`ALTER TABLE players ADD COLUMN best_wave INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE players ADD COLUMN survival_wins INTEGER NOT NULL DEFAULT 0`,
 }
 
 func openStatsDB(path string) (*statsDB, error) {
@@ -203,8 +212,8 @@ func (s *statsDB) commit(ctx context.Context, file string, rec logFileRecord, de
 	sort.Strings(names)
 	if len(names) > 0 {
 		stmt, err := tx.PrepareContext(ctx, `
-INSERT INTO players (name, kills, deaths, headshots, teamkills, suicides, rounds, gg_wins, last_seen)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO players (name, kills, deaths, headshots, teamkills, suicides, rounds, gg_wins, best_wave, survival_wins, last_seen)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (name) DO UPDATE SET
 	kills = kills + excluded.kills,
 	deaths = deaths + excluded.deaths,
@@ -213,6 +222,8 @@ ON CONFLICT (name) DO UPDATE SET
 	suicides = suicides + excluded.suicides,
 	rounds = rounds + excluded.rounds,
 	gg_wins = gg_wins + excluded.gg_wins,
+	best_wave = MAX(best_wave, excluded.best_wave),
+	survival_wins = survival_wins + excluded.survival_wins,
 	last_seen = MAX(last_seen, excluded.last_seen)`)
 		if err != nil {
 			return err
@@ -220,7 +231,7 @@ ON CONFLICT (name) DO UPDATE SET
 		defer stmt.Close()
 		for _, name := range names {
 			d := deltas[name]
-			if _, err := stmt.ExecContext(ctx, name, d.Kills, d.Deaths, d.Headshots, d.TeamKills, d.Suicides, d.Rounds, d.GunGameWins, at.Unix()); err != nil {
+			if _, err := stmt.ExecContext(ctx, name, d.Kills, d.Deaths, d.Headshots, d.TeamKills, d.Suicides, d.Rounds, d.GunGameWins, d.BestWave, d.SurvivalWins, at.Unix()); err != nil {
 				return err
 			}
 		}
@@ -269,7 +280,7 @@ func (s *statsDB) forgetLogFile(ctx context.Context, file string) error {
 // top returns up to limit players by kills (then fewer deaths, then name).
 func (s *statsDB) top(ctx context.Context, limit int) ([]leaderboardRow, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT name, kills, deaths, headshots, teamkills, suicides, rounds, gg_wins, last_seen
+SELECT name, kills, deaths, headshots, teamkills, suicides, rounds, gg_wins, best_wave, survival_wins, last_seen
 FROM players ORDER BY kills DESC, deaths ASC, name ASC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
@@ -279,7 +290,7 @@ FROM players ORDER BY kills DESC, deaths ASC, name ASC LIMIT ?`, limit)
 	for rows.Next() {
 		var r leaderboardRow
 		var seen int64
-		if err := rows.Scan(&r.Name, &r.Kills, &r.Deaths, &r.Headshots, &r.TeamKills, &r.Suicides, &r.Rounds, &r.GunGameWins, &seen); err != nil {
+		if err := rows.Scan(&r.Name, &r.Kills, &r.Deaths, &r.Headshots, &r.TeamKills, &r.Suicides, &r.Rounds, &r.GunGameWins, &r.BestWave, &r.SurvivalWins, &seen); err != nil {
 			return nil, err
 		}
 		r.LastSeen = time.Unix(seen, 0).UTC()

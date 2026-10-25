@@ -49,13 +49,13 @@ func newTestLeaderboard(f *fakeTop) (*leaderboardHandler, *time.Time) {
 
 func TestLeaderboardEntries(t *testing.T) {
 	got := leaderboardEntries([]leaderboardRow{
-		{Name: "Walter", playerTotals: playerTotals{Kills: 10, Deaths: 3, Headshots: 4, Rounds: 7, GunGameWins: 2}},
+		{Name: "Walter", playerTotals: playerTotals{Kills: 10, Deaths: 3, Headshots: 4, Rounds: 7, GunGameWins: 2, BestWave: 7, SurvivalWins: 1}},
 		{Name: "Ann", playerTotals: playerTotals{Kills: 2, Deaths: 0, Headshots: 0}},
 		{Name: "Cy", playerTotals: playerTotals{Kills: 0, Deaths: 5}},
 	}, nil)
 	pct := func(n int64) *int64 { return &n }
 	want := []leaderboardEntry{
-		{Rank: 1, Name: "Walter", Kills: 10, Deaths: 3, KD: 3.33, Headshots: 4, HeadshotPct: pct(40), Rounds: 7, GunGameWins: 2},
+		{Rank: 1, Name: "Walter", Kills: 10, Deaths: 3, KD: 3.33, Headshots: 4, HeadshotPct: pct(40), Rounds: 7, GunGameWins: 2, BestWave: 7, SurvivalWins: 1},
 		{Rank: 2, Name: "Ann", Kills: 2, KD: 2, HeadshotPct: pct(0)},
 		{Rank: 3, Name: "Cy", Deaths: 5, KD: 0},
 	}
@@ -125,7 +125,7 @@ func TestLeaderboardHandlerClaims(t *testing.T) {
 func TestLeaderboardHandler(t *testing.T) {
 	f := &fakeTop{rows: []leaderboardRow{
 		{Name: `<img src=x onerror=alert(1)>`, playerTotals: playerTotals{Kills: 3, Deaths: 1, Headshots: 1}},
-		{Name: "Bob", playerTotals: playerTotals{Deaths: 2, GunGameWins: 1}},
+		{Name: "Bob", playerTotals: playerTotals{Deaths: 2, GunGameWins: 1, BestWave: 10, SurvivalWins: 2}},
 	}}
 	h, now := newTestLeaderboard(f)
 	w := getLeaderboard(h, http.MethodGet, "203.0.113.7:4000")
@@ -141,8 +141,8 @@ func TestLeaderboardHandler(t *testing.T) {
 	if strings.Contains(body, "<img") {
 		t.Errorf("name not escaped: %s", body)
 	}
-	want := `{"players":[{"rank":1,"name":"` + "\\u003cimg src=x onerror=alert(1)\\u003e" + `","kills":3,"deaths":1,"kd":3,"headshots":1,"headshotPercent":33,"rounds":0,"ggWins":0,"claimed":false},` +
-		`{"rank":2,"name":"Bob","kills":0,"deaths":2,"kd":0,"headshots":0,"headshotPercent":null,"rounds":0,"ggWins":1,"claimed":false}],"bots":false}`
+	want := `{"players":[{"rank":1,"name":"` + "\\u003cimg src=x onerror=alert(1)\\u003e" + `","kills":3,"deaths":1,"kd":3,"headshots":1,"headshotPercent":33,"rounds":0,"ggWins":0,"bestWave":0,"survivalWins":0,"claimed":false},` +
+		`{"rank":2,"name":"Bob","kills":0,"deaths":2,"kd":0,"headshots":0,"headshotPercent":null,"rounds":0,"ggWins":1,"bestWave":10,"survivalWins":2,"claimed":false}],"bots":false}`
 	if body != want {
 		t.Errorf("body\n%s\nwant\n%s", body, want)
 	}

@@ -6,7 +6,7 @@
  * showed (or stays hidden).
  */
 
-import { GAME_MODE_ZOMBIES } from './gamemode';
+import { againstBots } from './gamemode';
 
 export interface LobbyPlayer {
   name: string;
@@ -28,11 +28,11 @@ export interface LobbyStatus {
   nextMap: string;
   /**
    * wc_gamemode: 0 classic (or unknown), 1 Gun Game, 2 Deathmatch,
-   * 3 Zombies.
+   * 3 Zombies, 4 Survival.
    */
   gameMode: number;
   /**
-   * Co-op runs (wc_coop 1, or a mode against bots such as Zombies): humans
+   * Co-op runs (wc_coop 1, or Zombies or Survival, against bots): humans
    * are the Counter-Terrorists, bots the Terrorists.
    */
   coop: boolean;
@@ -44,6 +44,7 @@ export const GAME_MODE_NAMES: readonly string[] = [
   'Gun Game',
   'Deathmatch',
   'Zombies',
+  'Survival',
 ];
 
 /** "Gun Game"; '' for a classic game or an unknown value. */
@@ -118,8 +119,8 @@ export function summaryText(status: LobbyStatus): string {
   return [
     status.map,
     mode,
-    // Zombies is always against bots: no need to say co-op.
-    status.coop && status.gameMode !== GAME_MODE_ZOMBIES ? 'Co-op vs bots' : '',
+    // Zombies and Survival are always against bots: no need to say co-op.
+    status.coop && !againstBots(status.gameMode) ? 'Co-op vs bots' : '',
     `${status.playerCount}/${status.maxPlayers} ${noun}`,
   ]
     .filter(Boolean)

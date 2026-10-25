@@ -81,7 +81,7 @@ CoopCfg()
 // wc_coop 1, or a mode that is played against bots.
 bool:CoopWanted()
 {
-	return get_pcvar_num(g_pCoop) != 0 || g_mode == MODE_ZOMBIES
+	return get_pcvar_num(g_pCoop) != 0 || g_mode == MODE_ZOMBIES || g_mode == MODE_SURVIVAL
 }
 
 // Values from before co-op are saved (co-op ran on this map or the last).
@@ -206,10 +206,11 @@ CoopMovePlayer(id, bool:alive)
 }
 
 // wc_coop_adapt 1: harder after the humans win COOP_ADAPT_STREAK rounds in
-// a row, easier after they lose as many.
+// a row, easier after they lose as many. Survival sets the difficulty by
+// wave.
 public CoopOnTeamWin()
 {
-	if (!g_coopOn || !get_pcvar_num(g_pCoopAdapt) || !g_pYbDifficulty)
+	if (!g_coopOn || g_mode == MODE_SURVIVAL || !get_pcvar_num(g_pCoopAdapt) || !g_pYbDifficulty)
 		return
 	new team[16]
 	read_logargv(1, team, charsmax(team))

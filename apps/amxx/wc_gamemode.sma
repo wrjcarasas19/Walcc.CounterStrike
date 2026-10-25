@@ -1,8 +1,8 @@
-// Game modes for the web server's admin menu: Gun Game, Deathmatch and
-// Zombies, and co-op against bots.
+// Game modes for the web server's admin menu: Gun Game, Deathmatch, Zombies
+// and Survival, and co-op against bots.
 //
 // cvar wc_gamemode: 0 = classic (normal game), 1 = Gun Game, 2 = Deathmatch,
-// 3 = Zombies.
+// 3 = Zombies, 4 = Survival.
 //
 // The cvar goes back to 0 on every map change (plugin_init runs once per
 // map) and is kept over sv_restart. Like wc_weaponmode, the plugin polls it
@@ -120,6 +120,40 @@
 // - wc_zm_status (server command) lists each player's team, health, speed,
 //   gravity and weapons.
 //
+// Survival waves (wc_gm_waves.inc): the humans against waves of bots that
+// get harder. Co-op is on while it runs.
+//
+// - One endless round (mp_round_infinite 1) with no automatic respawn
+//   (mp_forcerespawn 0): the plugin decides who comes back.
+// - Wave N (from 1): (wc_wave_size (6) + 2 N) bots per human to kill. The
+//   bots alive at once are co-op's bots (wc_coop_ratio per human, at most
+//   wc_coop_max_bots); a killed bot comes back 2 s later at a random spawn
+//   away from the humans until the wave has sent all of its bots. Any bot
+//   death counts. Bot health x (1 + 0.15 N), yb_difficulty min(1 + N / 2,
+//   4), and guns by wave (no buying, yb_botbuy 0): pistols in waves 1-2,
+//   SMGs and shotguns in 3-4, rifles in 5-7, rifles and the AWP from 8.
+// - Every wc_wave_boss_every (5; 0: none) waves the first bot is a boss:
+//   3000 HP per human, an M249, a red glow, announced in the centre and in
+//   chat.
+// - Dead humans wait for the end of the wave. A cleared wave starts a
+//   break of wc_wave_break (12) seconds: the dead come back, every human
+//   gets $2000 + $500 N (up to $16000), and buying is allowed anywhere
+//   (mp_buy_anywhere 1, mp_buytime -1 while the mode runs; the buy
+//   commands are refused outside the breaks). Respawns have 2 s of
+//   protection, as in Deathmatch.
+// - All humans on CT dead at once: "Reached wave N" for 5 s, then the game
+//   restarts at wave 1. Clearing wave wc_wave_count (10): a centre
+//   message, everyone frozen for 5 s, then the next map (as a Gun Game
+//   win).
+// - For the leaderboard (apps/server/statsfollow.go), in the game's format,
+//   for each human on CT (dead or alive) when a wave is cleared:
+//     "Name<uid><auth><CT>" triggered "wc_wave_clear" (wave "N")
+//   and when the last one is cleared, also:
+//     "Name<uid><auth><CT>" triggered "wc_wave_win"
+// - A HUD line at the top: "Wave 4/10 | 12/20 killed" (or WcMode, below).
+// - wc_wave_status (server command) prints the wave, kills, bots and the
+//   boss; wc_wave_set <n> starts wave n now (tests).
+//
 // Co-op vs bots (cvar wc_coop 0|1, wc_gm_coop.inc), with any mode above:
 //
 // - Humans play as the Counter-Terrorists and YaPB bots as the Terrorists:
@@ -155,21 +189,29 @@
 //   Everyone else (older clients, the stock HUD, bots) is unchanged, and
 //   never gets WcMode, which their client doesn't hook.
 // - WcMode (registered in plugin_precache, variable size), in this order:
-//     byte   mode         0 classic, 1 Gun Game, 2 Deathmatch, 3 Zombies
+//     byte   mode         0 classic, 1 Gun Game, 2 Deathmatch, 3 Zombies,
+//                         4 Survival
 //     byte   level        Gun Game: 1-based level; Zombies: round number;
-//                         0 otherwise
-//     byte   levels       Gun Game: number of levels; 0 otherwise
+//                         Survival: wave; 0 otherwise
+//     byte   levels       Gun Game: number of levels; Survival:
+//                         wc_wave_count; 0 otherwise
 //     byte   kills        Gun Game: counting kills on this level; Zombies:
-//                         zombies left
+//                         zombies left; Survival: bots killed this wave
+//                         (all at most 255)
 //     byte   killsNeeded  Gun Game: wc_gg_kills_per_level (>= 1); Zombies:
-//                         zombies at the start of the round; 0 otherwise
+//                         zombies at the start of the round; Survival: the
+//                         wave's size; 0 otherwise
 //     byte   leaderLevel  Gun Game: the leader's 1-based level; 0 none
 //     short  protection   spawn protection left in ms; 0 none
 //     string weapon       Gun Game: this level's weapon ("MP5"); Zombies:
-//                         "Zombies"; "" otherwise
-//     string next         Gun Game: the next level's weapon; "" on the last
+//                         "Zombies"; Survival: "Wave", "Boss" (a boss is
+//                         alive) or "Break"; "" otherwise
+//     string next         Gun Game: the next level's weapon; "" on the last;
+//                         Survival: seconds left in the break ("8"), ""
+//                         otherwise
 //     string leader       Gun Game: the leader's name; "" none
-//     string winner       Gun Game: the winner's name once won; "" before
+//     string winner       Gun Game: the winner's name once won; Survival:
+//                         "Humans" once all waves are cleared; "" before
 //   The client turns it into hudEvent("mode", {...}) with these field names
 //   (web_bridge.h in cs16-client), passing every field through unchecked,
 //   so new modes reuse the fields (apps/client/src/gamemode.ts reads them).
@@ -186,13 +228,14 @@
 #include "wc_weapons.inc"
 
 #define PLUGIN  "Web game mode"
-#define VERSION "1.6"
+#define VERSION "1.7"
 #define AUTHOR  "Walcc"
 
 #define MODE_CLASSIC    0
 #define MODE_GUNGAME    1
 #define MODE_DEATHMATCH 2
 #define MODE_ZOMBIES    3
+#define MODE_SURVIVAL   4
 
 #define TASK_POLL     4300
 #define TASK_EQUIP    4400
@@ -201,9 +244,9 @@
 #define TASK_GG_WIN   4700
 #define TASK_RESTART  4800
 
-new const MODE_NAMES[][] = { "Classic", "Gun Game", "Deathmatch", "Zombies" }
+new const MODE_NAMES[][] = { "Classic", "Gun Game", "Deathmatch", "Zombies", "Survival" }
 
-enum _:ModeCvar { CVAR_NAME[32], CVAR_CLASSIC[24], CVAR_GUNGAME[192], CVAR_DEATHMATCH[24], CVAR_ZOMBIES[24] }
+enum _:ModeCvar { CVAR_NAME[32], CVAR_CLASSIC[24], CVAR_GUNGAME[192], CVAR_DEATHMATCH[24], CVAR_ZOMBIES[24], CVAR_SURVIVAL[24] }
 
 // YaPB's names for every weapon and item (Gun Game: bots buy and pick up
 // nothing; the plugin gives them their level's weapon).
@@ -215,38 +258,39 @@ enum _:ModeCvar { CVAR_NAME[32], CVAR_CLASSIC[24], CVAR_GUNGAME[192], CVAR_DEATH
 new const MODE_CVARS[][ModeCvar] = {
 	// Rounds don't end on elimination or on the round timer (Zombies: only
 	// not on the timer, a: the plugin ends it).
-	{ "mp_round_infinite", "0", "1", "1", "a" },
+	// Columns: classic, Gun Game, Deathmatch, Zombies, Survival.
+	{ "mp_round_infinite", "0", "1", "1", "a", "1" },
 	// Respawn this many seconds after death.
-	{ "mp_forcerespawn", "0", "1", "1", "0" },
+	{ "mp_forcerespawn", "0", "1", "1", "0", "0" },
 	// God mode after a respawn, in seconds...
-	{ "mp_respawn_immunitytime", "0", "2", "2", "0" },
+	{ "mp_respawn_immunitytime", "0", "2", "2", "0", "2" },
 	// ...ended early by shooting (1: also by moving).
-	{ "mp_respawn_immunity_force_unset", "1", "2", "2", "1" },
+	{ "mp_respawn_immunity_force_unset", "1", "2", "2", "1", "2" },
 	// Seconds before dropped weapons disappear.
-	{ "mp_item_staytime", "300", "5", "5", "300" },
+	{ "mp_item_staytime", "300", "5", "5", "300", "30" },
 	// No bomb for the Terrorists.
-	{ "mp_give_player_c4", "1", "0", "0", "0" },
+	{ "mp_give_player_c4", "1", "0", "0", "0", "0" },
 	// Armour (2: kevlar and helmet) and grenades on every spawn.
-	{ "mp_free_armor", "0", "2", "2", "2" },
-	{ "mp_t_default_grenades", "", "", "hegrenade flash flash", "" },
-	{ "mp_ct_default_grenades", "", "", "hegrenade flash flash", "" },
+	{ "mp_free_armor", "0", "2", "2", "2", "2" },
+	{ "mp_t_default_grenades", "", "", "hegrenade flash flash", "", "" },
+	{ "mp_ct_default_grenades", "", "", "hegrenade flash flash", "", "" },
 	// The pistol everyone spawns with (Gun Game: the level's weapon instead).
-	{ "mp_t_default_weapons_secondary", "glock18", "", "glock18", "glock18" },
-	{ "mp_ct_default_weapons_secondary", "usp", "", "usp", "usp" },
+	{ "mp_t_default_weapons_secondary", "glock18", "", "glock18", "glock18", "glock18" },
+	{ "mp_ct_default_weapons_secondary", "usp", "", "usp", "usp", "usp" },
 	// 3: reserve ammo refilled on each reload.
-	{ "mp_refill_bpammo_weapons", "0", "3", "0", "3" },
+	{ "mp_refill_bpammo_weapons", "0", "3", "0", "3", "0" },
 	// The map ends at this many frags (Deathmatch: from wc_dm_fraglimit).
-	{ "mp_fraglimit", "0", "0", "0", "0" },
+	{ "mp_fraglimit", "0", "0", "0", "0", "0" },
 	// Buying outside the buy zone.
-	{ "mp_buy_anywhere", "0", "0", "0", "1" },
+	{ "mp_buy_anywhere", "0", "0", "0", "1", "1" },
 	// YaPB: no planting, defusing or rescuing; no buying; no going after
 	// weapons on the ground; weapons it may not buy or pick up.
-	{ "yb_ignore_objectives", "0", "1", "1", "1" },
-	{ "yb_botbuy", "1", "0", "0", "0" },
-	{ "yb_pickup_best", "1", "0", "1", "0" },
-	{ "yb_restricted_weapons", "", YAPB_ALL_WEAPONS, "", "" },
+	{ "yb_ignore_objectives", "0", "1", "1", "1", "1" },
+	{ "yb_botbuy", "1", "0", "0", "0", "0" },
+	{ "yb_pickup_best", "1", "0", "1", "0", "0" },
+	{ "yb_restricted_weapons", "", YAPB_ALL_WEAPONS, "", "", "" },
 	// YaPB: knife only, no buying.
-	{ "yb_jasonmode", "0", "0", "0", "1" }
+	{ "yb_jasonmode", "0", "0", "0", "1", "0" }
 }
 
 // Deathmatch guns menu: primary weapons, then pistols (CSW_ id and name).
@@ -356,9 +400,14 @@ new g_msgMode
 new g_modeSent[MAX_PLAYERS + 1][160]
 // Tests (wc_mode_test): treat this player as having the HTML HUD, bots too.
 new bool:g_modeTest[MAX_PLAYERS + 1]
+// The player is a bot, as is_user_bot said when they joined. While a bot
+// respawns (Ham_CS_RoundRespawn) its FL_FAKECLIENT flag is cleared and
+// is_user_bot says 0 (checked in the image), so the spawn hook uses this.
+new bool:g_bot[MAX_PLAYERS + 1]
 
 #include "wc_gm_coop.inc"
 #include "wc_gm_zombies.inc"
+#include "wc_gm_waves.inc"
 
 public plugin_precache()
 {
@@ -394,6 +443,7 @@ public plugin_init()
 	g_hudSync = CreateHudSyncObj()
 	CoopInit()
 	ZmInit()
+	WvInit()
 
 	FindSpawns()
 	FindSpawnTriggers()
@@ -434,6 +484,8 @@ public plugin_init()
 	register_srvcmd("wc_mode_test", "CmdModeTest")
 	register_srvcmd("wc_coop_status", "CmdCoopStatus")
 	register_srvcmd("wc_zm_status", "CmdZmStatus")
+	register_srvcmd("wc_wave_status", "CmdWaveStatus")
+	register_srvcmd("wc_wave_set", "CmdWaveSet")
 
 	set_task(1.0, "Poll", TASK_POLL, _, _, "b")
 }
@@ -444,6 +496,7 @@ public plugin_cfg()
 	g_pWeaponMode = get_cvar_pointer("wc_weaponmode")
 	// AMXX's nextmap plugin: the next map in the cycle, or the vote's pick.
 	g_pNextMap = get_cvar_pointer("amx_nextmap")
+	WvCfg()
 	CoopCfg()
 }
 
@@ -458,6 +511,7 @@ public client_putinserver(id)
 	g_levelKills[id] = 0
 	g_modeSent[id][0] = EOS
 	g_modeTest[id] = false
+	g_bot[id] = bool:is_user_bot(id)
 }
 
 public client_disconnected(id)
@@ -470,12 +524,13 @@ public client_disconnected(id)
 	g_levelKills[id] = 0
 	g_modeSent[id][0] = EOS
 	g_modeTest[id] = false
+	g_bot[id] = false
 }
 
 ReadMode()
 {
 	new mode = get_pcvar_num(g_pMode)
-	if (mode < MODE_CLASSIC || mode > MODE_ZOMBIES)
+	if (mode < MODE_CLASSIC || mode > MODE_SURVIVAL)
 		return MODE_CLASSIC
 	return mode
 }
@@ -505,6 +560,8 @@ public Poll()
 		GgPoll()
 	else if (g_mode == MODE_ZOMBIES)
 		ZmPoll()
+	else if (g_mode == MODE_SURVIVAL)
+		WvPoll()
 }
 
 public OnRestartScheduled()
@@ -514,6 +571,9 @@ public OnRestartScheduled()
 	// Zombies: the round count starts again; infected humans are cured.
 	if (g_mode == MODE_ZOMBIES)
 		ZmStart()
+	// Survival: wave 1 starts with the new round.
+	else if (g_mode == MODE_SURVIVAL)
+		WvReset()
 	// Apply a changed mode now, so the scheduled restart starts it.
 	new mode = ReadMode()
 	if (mode != g_mode)
@@ -559,10 +619,14 @@ ChangeMode(mode)
 		GgStop()
 	else if (old == MODE_ZOMBIES)
 		ZmStop()
+	else if (old == MODE_SURVIVAL)
+		WvStop()
 	if (mode == MODE_GUNGAME)
 		GgStart()
 	else if (mode == MODE_ZOMBIES)
 		ZmStart()
+	else if (mode == MODE_SURVIVAL)
+		WvStart()
 	if (mode == MODE_CLASSIC)
 	{
 		for (new id = 1; id <= MaxClients; id++)
@@ -575,6 +639,8 @@ ChangeMode(mode)
 		client_print(0, print_chat, "[Server] Deathmatch: pick your weapons from the menu. Press B or say guns to open it again.")
 	else if (mode == MODE_GUNGAME)
 		client_print(0, print_chat, "[Server] Gun Game: %d levels. Each kill gives you the next weapon; a knife kill steals a level.", g_ladderCount)
+	else if (mode == MODE_SURVIVAL)
+		client_print(0, print_chat, "[Server] Survival: %d waves of bots. The dead come back after each wave; buy between waves.", WvCount())
 	else if (mode == MODE_ZOMBIES)
 		client_print(0, print_chat, "[Server] Zombies: survive the round against the bots. They only have knives, but a lot of health. Buy anywhere.")
 	// Everyone starts fresh under the new rules: one restart (see the top).
@@ -601,6 +667,7 @@ SetModeCvars(mode)
 			case MODE_GUNGAME: set_cvar_string(MODE_CVARS[i][CVAR_NAME], MODE_CVARS[i][CVAR_GUNGAME])
 			case MODE_DEATHMATCH: set_cvar_string(MODE_CVARS[i][CVAR_NAME], MODE_CVARS[i][CVAR_DEATHMATCH])
 			case MODE_ZOMBIES: set_cvar_string(MODE_CVARS[i][CVAR_NAME], MODE_CVARS[i][CVAR_ZOMBIES])
+			case MODE_SURVIVAL: set_cvar_string(MODE_CVARS[i][CVAR_NAME], MODE_CVARS[i][CVAR_SURVIVAL])
 			default: set_cvar_string(MODE_CVARS[i][CVAR_NAME], MODE_CVARS[i][CVAR_CLASSIC])
 		}
 	}
@@ -672,6 +739,19 @@ public OnPlayerSpawn(id)
 	if (g_mode == MODE_ZOMBIES)
 	{
 		ZmSpawn(id)
+		return HAM_IGNORED
+	}
+	// Survival: the team spawns at a round (re)start; a bot sent back in
+	// during a wave comes in away from the humans.
+	if (g_mode == MODE_SURVIVAL)
+	{
+		g_spawnTime[id] = get_gametime()
+		if (g_bot[id] && g_waveState == WAVE_FIGHT)
+			RandomSpawn(id)
+		StartGlow(id)
+		if (g_waveState == WAVE_WON)
+			Freeze(id)
+		WvSpawn(id)
 		return HAM_IGNORED
 	}
 
@@ -975,6 +1055,13 @@ public OnBuy(id)
 	if (g_mode == MODE_GUNGAME)
 	{
 		client_print(id, print_center, "Gun Game: no buying. Kills give you the next weapon.")
+		return PLUGIN_HANDLED
+	}
+	if (g_mode == MODE_SURVIVAL)
+	{
+		if (g_waveState == WAVE_BREAK)
+			return PLUGIN_CONTINUE
+		client_print(id, print_center, "Survival: buy between waves.")
 		return PLUGIN_HANDLED
 	}
 	if (g_mode == MODE_ZOMBIES)
@@ -1446,6 +1533,18 @@ SendMode(id)
 		kills = ZmAlive()
 		killsNeeded = g_zmStartCount
 		copy(weapon, charsmax(weapon), "Zombies")
+	}
+	else if (g_mode == MODE_SURVIVAL)
+	{
+		level = max(g_wave, 1)
+		levels = WvCount()
+		kills = g_waveKills
+		killsNeeded = g_waveSize
+		WvPhase(weapon, charsmax(weapon))
+		if (g_waveState == WAVE_BREAK)
+			num_to_str(WvBreakLeft(), next, charsmax(next))
+		if (g_waveState == WAVE_WON)
+			copy(winner, charsmax(winner), "Humans")
 	}
 	// The end time, not the time left, so a running protection isn't
 	// "changed" every poll.

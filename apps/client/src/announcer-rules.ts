@@ -1,7 +1,13 @@
 // Announcer rules (C.2), without DOM or audio: which sound a kill, a scores
 // snapshot or a game mode change calls for, and which sound wins when they
 // overlap. hud.ts feeds the events; announcer.ts plays the result.
-import { isGunGame, type ModeState } from './gamemode';
+import {
+  isGunGame,
+  isSurvival,
+  waveEvent,
+  type ModeState,
+  type WaveEvent,
+} from './gamemode';
 import type { KillEvent, KillResult } from './stats';
 
 /** Files in public/sounds (C.1), each as .webm (Opus) and .mp3. */
@@ -180,14 +186,27 @@ function hasAliveTeammate(players: readonly LastManPlayer[]): boolean {
   return players.some((p) => !p.local && p.team === me.team && !p.dead);
 }
 
+// Survival reuses the Gun Game sounds: a cleared wave is a level up, a boss
+// the last level, all waves cleared the winner.
+const WAVE_SOUNDS: Readonly<Record<WaveEvent, SoundName>> = {
+  cleared: 'level-up',
+  boss: 'final-level',
+  won: 'winner',
+};
+
 /**
  * The sound for a `mode` change from prev to state (Part A): someone won Gun
- * Game, the local player reached the last level, or went up a level.
+ * Game, the local player reached the last level, or went up a level; in
+ * Survival, a wave cleared, a boss or all waves cleared (WAVE_SOUNDS).
  */
 export function modeSound(
   prev: ModeState | undefined,
   state: ModeState
 ): SoundName | undefined {
+  if (prev && isSurvival(prev) && isSurvival(state)) {
+    const event = waveEvent(prev, state);
+    return event ? WAVE_SOUNDS[event] : undefined;
+  }
   if (!isGunGame(prev) || !isGunGame(state)) return undefined;
   if (state.winner) return prev.winner ? undefined : 'winner';
   if (prev.levels !== state.levels || state.level <= prev.level) {

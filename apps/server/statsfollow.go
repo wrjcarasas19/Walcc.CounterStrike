@@ -34,6 +34,11 @@ import (
 //   - Gun Game win: wc_gamemode.amxx's wc_gg_win line. Kills in Gun Game
 //     and Deathmatch count like any other (no separate per-mode totals);
 //     those modes have no Round_End, so they add no rounds.
+//   - Survival: wc_gamemode.amxx writes wc_wave_clear (wave "N") for each
+//     human on CT when a wave is cleared, and wc_wave_win when the last
+//     one is: best wave is the highest N, survival wins count the wins.
+//     Same rules as wc_gg_win (bots only with includeBots, claimed names
+//     to the claimed row). Survival is one endless round: no rounds.
 //   - duel: each kill also adds 1 to the (killer, victim) pair, when both
 //     names count (head-to-head for GET /duel). Only enemy kills, like the
 //     kills column. Pairs are by name: after a rename, a new pair starts.
@@ -342,7 +347,7 @@ func (t *statsTally) apply(ev logEvent, count bool) {
 	case logKill, logHeadshot:
 		t.seen(ev.Player)
 		t.seen(ev.Victim)
-	case logSuicide, logEntered, logPlayerOther, logGunGameWin:
+	case logSuicide, logEntered, logPlayerOther, logGunGameWin, logWaveClear, logSurvivalWin:
 		t.seen(ev.Player)
 	case logJoinedTeam:
 		p := ev.Player
@@ -381,7 +386,7 @@ func (t *statsTally) apply(ev logEvent, count bool) {
 	case logKill, logHeadshot:
 		t.enforce(ev.Player)
 		t.enforce(ev.Victim)
-	case logSuicide, logEntered, logPlayerOther, logGunGameWin, logJoinedTeam:
+	case logSuicide, logEntered, logPlayerOther, logGunGameWin, logWaveClear, logSurvivalWin, logJoinedTeam:
 		t.enforce(ev.Player)
 	case logChangedName:
 		p := ev.Player
@@ -418,6 +423,11 @@ func (t *statsTally) apply(ev logEvent, count bool) {
 		t.add(killer, func(d *playerTotals) { d.Deaths++; d.Suicides++ })
 	case logGunGameWin:
 		t.add(ev.Player, func(d *playerTotals) { d.GunGameWins++ })
+	case logWaveClear:
+		wave := int64(ev.Wave)
+		t.add(ev.Player, func(d *playerTotals) { d.BestWave = max(d.BestWave, wave) })
+	case logSurvivalWin:
+		t.add(ev.Player, func(d *playerTotals) { d.SurvivalWins++ })
 	}
 }
 

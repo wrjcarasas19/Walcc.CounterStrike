@@ -4,9 +4,10 @@ Pawn plugins compiled into the image and loaded by AMX Mod X on the server. Read
 
 | File | Role |
 |---|---|
-| `wc_gamemode.sma` | `wc_gamemode 0\|1\|2\|3`: classic, Gun Game, Deathmatch, Zombies; sets and restores ReGameDLL and YaPB cvars, sends the `WcMode` user message. Includes the mode files below |
+| `wc_gamemode.sma` | `wc_gamemode 0\|1\|2\|3\|4`: classic, Gun Game, Deathmatch, Zombies, Survival; sets and restores ReGameDLL and YaPB cvars, sends the `WcMode` user message. Includes the mode files below |
 | `wc_gm_coop.inc` | `wc_coop 0\|1`: humans on CT against bots on T, the bot count (`yb_quota`), adaptive difficulty; included by `wc_gamemode.sma` after its globals |
 | `wc_gm_zombies.inc` | `wc_gamemode 3`: knife-only zombie bots, their health, speed, gravity, knife damage and knockback, the round timer, infection |
+| `wc_gm_waves.inc` | `wc_gamemode 4`: Survival waves, bot respawns and guns by wave, the boss, breaks, the `wc_wave_clear` / `wc_wave_win` log lines |
 | `wc_weaponmode.sma` | `wc_weaponmode 0\|1\|2`: off, knife only, pistols only; ignored while a game mode is on |
 | `wc_statslog.sma` | Adds `wc_headshot` and `changed name to` log lines for the leaderboard |
 | `wc_killinfo.sma` | Sends the victim the `WcKillInfo` user message for the "Killed by" card |
@@ -30,9 +31,9 @@ Pawn plugins compiled into the image and loaded by AMX Mod X on the server. Read
 
 - `WcMode` and `WcKillInfo` are hooked by name in `apps/cs16-client/source/cl_dll/web_bridge.cpp` and turned into page events read by `apps/client`. Their field order is the comment at the top of the plugin; a change touches all three parts and the client version gate.
 - Send user messages only to players whose userinfo has `wc_html_hud 1` (set by the page once its client forwards the event), never to bots, except through the `wc_*_test` commands.
-- Log lines (`wc_headshot`, `wc_gg_win`, name changes) are parsed by `apps/server/statsfollow.go`; keep the stock `"Name<uid><auth><team>"` format and change the parser and its tests with the line.
+- Log lines (`wc_headshot`, `wc_gg_win`, `wc_wave_clear` with its `(wave "N")`, `wc_wave_win`, name changes) are parsed by `apps/server/statsfollow.go`; keep the stock `"Name<uid><auth><team>"` format and change the parser and its tests with the line.
 - Pass player names as format arguments, never as the format string.
 
 ## Verify
 
-No unit tests exist. Build and run the image, add bots (`BOT_QUOTA` or `yb add`), and use the plugin's own console commands over rcon or the F4 menu: `wc_weaponmode_status`, `wc_gamemode_status`, `wc_dm_status`, `wc_dm_guns`, `wc_gg_status`, `wc_gg_setlevel`, `wc_mode_test`, `wc_coop_status`, `wc_zm_status`, `wc_killinfo_status`, `wc_killinfo_test`. Plugin output goes to the server console (`docker compose logs`) and `log_amx` to `cstrike/addons/amxmodx/logs`. Report which commands ran and what they showed.
+No unit tests exist. Build and run the image, add bots (`BOT_QUOTA` or `yb add`), and use the plugin's own console commands over rcon or the F4 menu: `wc_weaponmode_status`, `wc_gamemode_status`, `wc_dm_status`, `wc_dm_guns`, `wc_gg_status`, `wc_gg_setlevel`, `wc_mode_test`, `wc_coop_status`, `wc_zm_status`, `wc_wave_status`, `wc_wave_set`, `wc_killinfo_status`, `wc_killinfo_test`. Plugin output goes to the server console (`docker compose logs`) and `log_amx` to `cstrike/addons/amxmodx/logs`. Report which commands ran and what they showed.

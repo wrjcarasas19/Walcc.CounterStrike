@@ -2825,6 +2825,11 @@ canvas,
   text-align: right;
 }
 
+/* Best Survival wave: "WAVE" is wider than the numbers. */
+.leaderboard-table .leaderboard-number:nth-child(8) {
+  width: 4em;
+}
+
 /* Six number columns (with Gun Game wins, A.5) leave a phone's name column
    almost nothing at the widths above: smaller text and columns sized to
    their usual contents (K, D up to 4 digits, "0.50", "100%", GG). */
@@ -2857,6 +2862,12 @@ canvas,
 
   .leaderboard-table .leaderboard-number:nth-child(7) {
     width: 2.2em;
+  }
+
+  /* No room for the two Survival columns (best wave, wins) on a phone. */
+  .leaderboard-table .leaderboard-number:nth-child(8),
+  .leaderboard-table .leaderboard-number:nth-child(9) {
+    display: none;
   }
 }
 

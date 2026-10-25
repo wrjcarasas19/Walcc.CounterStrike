@@ -29,7 +29,11 @@ export type CvarName =
   | 'wc_zm_gravity'
   | 'wc_zm_damage'
   | 'wc_zm_knockback'
-  | 'wc_zm_infect';
+  | 'wc_zm_infect'
+  | 'wc_wave_size'
+  | 'wc_wave_count'
+  | 'wc_wave_boss_every'
+  | 'wc_wave_break';
 
 /** When a new value takes effect in a running game. */
 export type CvarApplies = 'now' | 'next round' | 'restart';
@@ -160,16 +164,16 @@ export const CVARS: Readonly<Record<CvarName, CvarDef>> = {
   },
   // Our AMX Mod X plugin (apps/amxx/wc_gamemode.sma). A change restarts the
   // game; the plugin sets it back to 0 when a map starts. While it isn't 0,
-  // the weapon mode plugin keeps wc_weaponmode at 0. Zombies turns co-op
-  // on while it runs.
+  // the weapon mode plugin keeps wc_weaponmode at 0. Zombies and Survival
+  // turn co-op on while they run.
   wc_gamemode: {
     name: 'wc_gamemode',
     label: 'Game mode',
     unit: '',
     kind: 'choice',
-    choices: ['classic', 'gun game', 'deathmatch', 'zombies'],
+    choices: ['classic', 'gun game', 'deathmatch', 'zombies', 'survival'],
     min: 0,
-    max: 3,
+    max: 4,
     decimals: 0,
     applies: 'now',
     mapReset: 0,
@@ -337,6 +341,49 @@ export const CVARS: Readonly<Record<CvarName, CvarDef>> = {
     max: 1,
     decimals: 0,
     applies: 'now',
+  },
+  // Survival (apps/amxx/wc_gm_waves.inc), kept over map changes. Wave N has
+  // (size + 2 N) bots per human; a boss every so many waves (0: none); the
+  // break between waves.
+  wc_wave_size: {
+    name: 'wc_wave_size',
+    label: 'Survival: wave size',
+    unit: 'bots per human',
+    kind: 'number',
+    min: 1,
+    max: 20,
+    decimals: 0,
+    applies: 'next round',
+  },
+  wc_wave_count: {
+    name: 'wc_wave_count',
+    label: 'Survival: waves to win',
+    unit: 'waves',
+    kind: 'number',
+    min: 1,
+    max: 30,
+    decimals: 0,
+    applies: 'now',
+  },
+  wc_wave_boss_every: {
+    name: 'wc_wave_boss_every',
+    label: 'Survival: boss every',
+    unit: 'waves',
+    kind: 'number',
+    min: 0,
+    max: 30,
+    decimals: 0,
+    applies: 'next round',
+  },
+  wc_wave_break: {
+    name: 'wc_wave_break',
+    label: 'Survival: break between waves',
+    unit: 's',
+    kind: 'number',
+    min: 5,
+    max: 60,
+    decimals: 0,
+    applies: 'next round',
   },
 };
 

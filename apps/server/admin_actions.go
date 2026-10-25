@@ -72,9 +72,9 @@ var adminCvars = map[string]adminCvar{
 	"mp_maxrounds":    {0, 100, 0},
 	// 0 off, 1 knife only, 2 pistols only (apps/amxx/wc_weaponmode.sma).
 	"wc_weaponmode": {0, 2, 0},
-	// 0 classic, 1 Gun Game, 2 Deathmatch, 3 Zombies
+	// 0 classic, 1 Gun Game, 2 Deathmatch, 3 Zombies, 4 Survival
 	// (apps/amxx/wc_gamemode.sma).
-	"wc_gamemode": {0, 3, 0},
+	"wc_gamemode": {0, 4, 0},
 	// Deathmatch frag limit, 0 off (apps/amxx/wc_gamemode.sma).
 	"wc_dm_fraglimit": {0, 500, 0},
 	// Gun Game (apps/amxx/wc_gamemode.sma): kills per level, a level lost on
@@ -98,6 +98,12 @@ var adminCvars = map[string]adminCvar{
 	"wc_zm_damage":           {0.5, 10, 1},
 	"wc_zm_knockback":        {0, 5, 1},
 	"wc_zm_infect":           {0, 1, 0},
+	// Survival (apps/amxx/wc_gm_waves.inc): base bots per human per wave,
+	// waves to win, a boss every this many waves (0 none), break seconds.
+	"wc_wave_size":       {1, 20, 0},
+	"wc_wave_count":      {1, 30, 0},
+	"wc_wave_boss_every": {0, 30, 0},
+	"wc_wave_break":      {5, 60, 0},
 }
 
 // Same as message-text.ts: printable ASCII without " ; \ $ { } ' , ^ %.

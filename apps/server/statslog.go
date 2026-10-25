@@ -24,12 +24,14 @@ import (
 // line can be misread; nothing can tell those apart.
 //
 // Lines used (CS 1.6 mp.dll, plus wc_statslog.amxx for headshots and
-// wc_gamemode.amxx for Gun Game wins):
+// wc_gamemode.amxx for Gun Game wins and Survival waves):
 //
 //	"K<..>" killed "V<..>" with "weapon"
 //	"V<..>" committed suicide with "weapon"
 //	"K<..>" triggered "wc_headshot" against "V<..>" with "weapon"
 //	"W<..>" triggered "wc_gg_win"
+//	"P<..>" triggered "wc_wave_clear" (wave "N")
+//	"P<..>" triggered "wc_wave_win"
 //	"P<..>" joined team "CT"
 //	"P<..>" changed name to "New name"
 //	"P<userid><slot><>" connected, address "A.B.C.D:port" (or "local")
@@ -44,6 +46,8 @@ const (
 	logSuicide
 	logHeadshot
 	logGunGameWin
+	logWaveClear
+	logSurvivalWin
 	logJoinedTeam
 	logChangedName
 	logConnected
@@ -80,6 +84,8 @@ type logEvent struct {
 	// Value is the new team (logJoinedTeam), the new name
 	// (logChangedName) or the address (logConnected).
 	Value string
+	// Wave is the cleared wave (logWaveClear), from 1.
+	Wave int
 }
 
 const (
@@ -93,9 +99,13 @@ var (
 	logKillRe       = regexp.MustCompile(`^` + logPlayerPattern + ` killed ` + logPlayerPattern + ` with "([^"]*)"$`)
 	logHeadshotRe   = regexp.MustCompile(`^` + logPlayerPattern + ` triggered "wc_headshot" against ` + logPlayerPattern + ` with "([^"]*)"$`)
 	logGunGameWinRe = regexp.MustCompile(`^` + logPlayerPattern + ` triggered "wc_gg_win"$`)
-	logSuicideRe    = regexp.MustCompile(`^` + logPlayerPattern + ` committed suicide with "([^"]*)"(?: \(world\))?$`)
-	logTeamRe       = regexp.MustCompile(`^` + logPlayerPattern + ` joined team "([^"]*)"$`)
-	logNameRe       = regexp.MustCompile(`^` + logPlayerPattern + ` changed name to "(.*)"$`)
+	// Survival (wc_gm_waves.inc). A wave line with other properties, or a
+	// wave that isn't 1-999, is another line about the player.
+	logWaveClearRe   = regexp.MustCompile(`^` + logPlayerPattern + ` triggered "wc_wave_clear" \(wave "([1-9][0-9]{0,2})"\)$`)
+	logSurvivalWinRe = regexp.MustCompile(`^` + logPlayerPattern + ` triggered "wc_wave_win"$`)
+	logSuicideRe     = regexp.MustCompile(`^` + logPlayerPattern + ` committed suicide with "([^"]*)"(?: \(world\))?$`)
+	logTeamRe        = regexp.MustCompile(`^` + logPlayerPattern + ` joined team "([^"]*)"$`)
+	logNameRe        = regexp.MustCompile(`^` + logPlayerPattern + ` changed name to "(.*)"$`)
 	// The engine (FWGS sv_client.c) writes the slot index where the auth
 	// goes, and team is always empty. Captured in the image:
 	//	"Capture<3><2><>" connected, address "0.84.74.120:12345"
@@ -137,6 +147,13 @@ func parseLogLine(line string) (logEvent, bool) {
 	}
 	if m := logGunGameWinRe.FindStringSubmatch(body); m != nil {
 		return logEvent{Kind: logGunGameWin, Player: logPlayerFrom(m[1:5])}, true
+	}
+	if m := logWaveClearRe.FindStringSubmatch(body); m != nil {
+		wave, _ := strconv.Atoi(m[5])
+		return logEvent{Kind: logWaveClear, Player: logPlayerFrom(m[1:5]), Wave: wave}, true
+	}
+	if m := logSurvivalWinRe.FindStringSubmatch(body); m != nil {
+		return logEvent{Kind: logSurvivalWin, Player: logPlayerFrom(m[1:5])}, true
 	}
 	// Also killed by the world (a fall, trigger_hurt), where the game adds
 	// " (world)": committed suicide with "worldspawn" (world).

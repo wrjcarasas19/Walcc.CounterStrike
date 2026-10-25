@@ -42,7 +42,7 @@ Environment: `IP`, `PORT`, `ADMIN_PASSWORD`, `RCON_PASSWORD`, `BOT_QUOTA`, `LEAD
 ## Contracts with other parts
 
 - JSON shapes and status codes of `/status.json` (its `game` field picks what the page joins as, `apps/client/src/servergame.ts`), `/leaderboard`, `/duel`, `/names/*`, `/maps/index.json` and `/admin/*` are consumed by `apps/client`. Change both sides in the same commit.
-- The log lines `statsfollow.go` parses (`killed`, `wc_headshot`, `wc_gg_win`, `changed name to`, `connected, address`) are written by the engine and by `apps/amxx`. A format change touches the plugin, this parser and its tests.
+- The log lines `statsfollow.go` parses (`killed`, `wc_headshot`, `wc_gg_win`, `wc_wave_clear`, `wc_wave_win`, `changed name to`, `connected, address`) are written by the engine and by `apps/amxx`. A format change touches the plugin, this parser and its tests.
 - `.res` files and the files `/maps/files/` may serve are produced by the Dockerfile `maps` stage; the allowed extensions are listed in `maps.go`.
 - Leaderboard schema changes are numbered migrations in `statsdb.go`. Totals, duels and read offsets are updated in one transaction; keep that invariant.
 

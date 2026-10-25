@@ -104,6 +104,52 @@ func TestStatsTallyGunGameWins(t *testing.T) {
 	}
 }
 
+func TestStatsTallySurvival(t *testing.T) {
+	lines := []string{
+		`World triggered "Round_Start"`,
+		`"Walter<7><ID_1><CT>" triggered "wc_wave_clear" (wave "1")`,
+		`"Ann<8><ID_2><CT>" triggered "wc_wave_clear" (wave "1")`,
+		`"Walter<7><ID_1><CT>" triggered "wc_wave_clear" (wave "3")`,
+		// Lower than the best so far: the best stays.
+		`"Walter<7><ID_1><CT>" triggered "wc_wave_clear" (wave "2")`,
+		`"Walter<7><ID_1><CT>" triggered "wc_wave_win"`,
+		`"Gilroy<3><ID_BOT><CT>" triggered "wc_wave_clear" (wave "5")`,
+		`"Gilroy<3><ID_BOT><CT>" triggered "wc_wave_win"`,
+		`"<9><ID_3><CT>" triggered "wc_wave_win"`,
+	}
+	if got, want := tallyLines(t, false, lines...), map[string]playerTotals{
+		"Walter": {BestWave: 3, SurvivalWins: 1},
+		"Ann":    {BestWave: 1},
+	}; !reflect.DeepEqual(got, want) {
+		t.Errorf("bots left out: got %+v, want %+v", got, want)
+	}
+	if got, want := tallyLines(t, true, lines...), map[string]playerTotals{
+		"Walter": {BestWave: 3, SurvivalWins: 1},
+		"Ann":    {BestWave: 1},
+		"Gilroy": {BestWave: 5, SurvivalWins: 1},
+	}; !reflect.DeepEqual(got, want) {
+		t.Errorf("bots included: got %+v, want %+v", got, want)
+	}
+}
+
+// The best wave in the database is the highest committed, not a sum.
+func TestStatsDBBestWave(t *testing.T) {
+	ft := &followerTest{t: t}
+	ft.open(filepath.Join(t.TempDir(), leaderboardFile))
+	ctx := context.Background()
+	for i, d := range []playerTotals{
+		{BestWave: 4, SurvivalWins: 1},
+		{BestWave: 2},
+		{Kills: 1, BestWave: 6, SurvivalWins: 1},
+	} {
+		if err := ft.db.commit(ctx, "L1025000.log", logFileRecord{Fingerprint: "a", Offset: int64(i + 1)},
+			map[string]playerTotals{"Walter": d}, nil, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ft.expect(map[string]playerTotals{"Walter": {Kills: 1, BestWave: 6, SurvivalWins: 2}})
+}
+
 func TestStatsTallyRounds(t *testing.T) {
 	got := tallyLines(t, false,
 		`"Walter<7><ID_1><>" entered the game`,
@@ -631,6 +677,43 @@ func TestLogFollowerDuels(t *testing.T) {
 	if a, b, err := ft.db.duel(context.Background(), "Walter", "Nobody"); err != nil || a != 0 || b != 0 {
 		t.Errorf("duel(Walter, Nobody) = %d, %d, %v", a, b, err)
 	}
+}
+
+// A database from before Survival (user_version 3) with rows gets the
+// best_wave and survival_wins columns; its rows are kept as they were.
+func TestStatsDBMigratesPreSurvivalDatabase(t *testing.T) {
+	path := filepath.Join(t.TempDir(), leaderboardFile)
+	old, err := sql.Open("sqlite3", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := old.Exec(statsSchemaV0 + statsMigrations[0] + ";\n" + `UPDATE players SET gg_wins = 4 WHERE name = 'Walter';` +
+		statsMigrations[1] + ";\n" + statsMigrations[2] + ";\n" + `
+INSERT INTO duels (killer, victim, kills) VALUES ('Walter', 'Ann', 3);
+INSERT INTO claims (name_key, name, code_hash, created) VALUES ('walter', 'Walter', 'h', 1);
+PRAGMA user_version = 3;`); err != nil {
+		t.Fatal(err)
+	}
+	old.Close()
+
+	ft := &followerTest{t: t}
+	ft.open(path)
+	if v := statsUserVersion(t, ft.db); v != len(statsMigrations) || v < 4 {
+		t.Errorf("user_version %d, want %d", v, len(statsMigrations))
+	}
+	ft.expect(map[string]playerTotals{"Walter": {Kills: 5, Deaths: 2, Headshots: 1, Rounds: 3, GunGameWins: 4}})
+	ft.expectDuels(map[duelPair]int64{{"Walter", "Ann"}: 3})
+	recs, err := ft.db.logFiles(context.Background())
+	if err != nil || recs["L1006000.log"] != (logFileRecord{Fingerprint: "abc", Offset: 42}) {
+		t.Errorf("log files %+v, %v", recs, err)
+	}
+	if err := ft.db.commit(context.Background(), "L1006000.log", logFileRecord{Fingerprint: "abc", Offset: 50},
+		map[string]playerTotals{"Walter": {BestWave: 2, SurvivalWins: 1}}, nil, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	// Opened again: the ALTER TABLEs don't run twice.
+	ft.open(path)
+	ft.expect(map[string]playerTotals{"Walter": {Kills: 5, Deaths: 2, Headshots: 1, Rounds: 3, GunGameWins: 4, BestWave: 2, SurvivalWins: 1}})
 }
 
 // A database from after A.5 (gg_wins, user_version 1) and before the duels

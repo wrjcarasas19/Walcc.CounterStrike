@@ -67,6 +67,26 @@ func TestParseLogLine(t *testing.T) {
 			logEvent{Kind: logPlayerOther, Player: human("Walter", 7, "CT")}},
 		{`10/07/2026 - 01:12:40: "Walter<7><ID_1a2b3c><CT>" triggered "wc_gg_winner"`,
 			logEvent{Kind: logPlayerOther, Player: human("Walter", 7, "CT")}},
+		// Survival (wc_gamemode.amxx): a cleared wave and a won game.
+		{`10/25/2026 - 01:12:40: "Walter<7><ID_1a2b3c><CT>" triggered "wc_wave_clear" (wave "4")`,
+			logEvent{Kind: logWaveClear, Player: human("Walter", 7, "CT"), Wave: 4}},
+		{`10/25/2026 - 01:12:40: "a (wave "1")<9><ID_BOT><CT>" triggered "wc_wave_clear" (wave "120")` + "\r\n",
+			logEvent{Kind: logWaveClear, Player: idBot(`a (wave "1")`, 9, "CT"), Wave: 120}},
+		{`10/25/2026 - 01:12:40: "Walter<7><ID_1a2b3c><CT>" triggered "wc_wave_win"`,
+			logEvent{Kind: logSurvivalWin, Player: human("Walter", 7, "CT")}},
+		// Not a wave line: no wave, a bad one, or more after it.
+		{`10/25/2026 - 01:12:40: "Walter<7><ID_1a2b3c><CT>" triggered "wc_wave_clear"`,
+			logEvent{Kind: logPlayerOther, Player: human("Walter", 7, "CT")}},
+		{`10/25/2026 - 01:12:40: "Walter<7><ID_1a2b3c><CT>" triggered "wc_wave_clear" (wave "0")`,
+			logEvent{Kind: logPlayerOther, Player: human("Walter", 7, "CT")}},
+		{`10/25/2026 - 01:12:40: "Walter<7><ID_1a2b3c><CT>" triggered "wc_wave_clear" (wave "1000")`,
+			logEvent{Kind: logPlayerOther, Player: human("Walter", 7, "CT")}},
+		{`10/25/2026 - 01:12:40: "Walter<7><ID_1a2b3c><CT>" triggered "wc_wave_clear" (wave "x")`,
+			logEvent{Kind: logPlayerOther, Player: human("Walter", 7, "CT")}},
+		{`10/25/2026 - 01:12:40: "Walter<7><ID_1a2b3c><CT>" triggered "wc_wave_clear" (wave "3") (boss "1")`,
+			logEvent{Kind: logPlayerOther, Player: human("Walter", 7, "CT")}},
+		{`10/25/2026 - 01:12:40: "Walter<7><ID_1a2b3c><CT>" triggered "wc_wave_win" (wave "10")`,
+			logEvent{Kind: logPlayerOther, Player: human("Walter", 7, "CT")}},
 		{`10/06/2026 - 15:39:19: Server shutdown`, logEvent{Kind: logShutdown}},
 		// Connections, real lines from the image (E.3): the engine writes
 		// the slot index where the auth goes; a browser player has the

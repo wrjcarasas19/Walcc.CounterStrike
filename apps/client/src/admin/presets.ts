@@ -112,6 +112,20 @@ export const PRESETS: readonly Preset[] = [
       wc_gamemode: 3,
     },
   },
+  // Survival (apps/amxx/wc_gm_waves.inc): waves of bots in one endless
+  // round; money comes after each wave. Co-op is on while it runs; the
+  // plugin sets the buy time itself.
+  {
+    id: 'survival',
+    label: 'Survival',
+    values: {
+      mp_friendlyfire: 0,
+      mp_startmoney: 4000,
+      mp_freezetime: 0,
+      wc_weaponmode: 0,
+      wc_gamemode: 4,
+    },
+  },
   // Knife only / pistols only (apps/amxx/wc_weaponmode.sma); the other
   // settings stay as they are. The presets above turn the mode off. They
   // do nothing during Gun Game or Deathmatch (the plugin refuses them and

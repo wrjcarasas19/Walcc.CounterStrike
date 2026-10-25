@@ -39,6 +39,10 @@ type leaderboardEntry struct {
 	HeadshotPct *int64 `json:"headshotPercent"`
 	Rounds      int64  `json:"rounds"`
 	GunGameWins int64  `json:"ggWins"`
+	// BestWave is the highest Survival wave cleared, SurvivalWins the
+	// Survival games won (all waves cleared).
+	BestWave     int64 `json:"bestWave"`
+	SurvivalWins int64 `json:"survivalWins"`
 	// Claimed is true on the row of a claimed name: its name is exactly
 	// the claimed spelling (claims.name), not a case or colour variant.
 	Claimed bool `json:"claimed"`
@@ -57,15 +61,17 @@ func leaderboardEntries(rows []leaderboardRow, claims map[string]string) []leade
 	for i, r := range rows {
 		claimed, ok := claims[nameKey(r.Name)]
 		e := leaderboardEntry{
-			Rank:        i + 1,
-			Name:        r.Name,
-			Kills:       r.Kills,
-			Deaths:      r.Deaths,
-			KD:          math.Round(float64(r.Kills)/math.Max(1, float64(r.Deaths))*100) / 100,
-			Headshots:   r.Headshots,
-			Rounds:      r.Rounds,
-			GunGameWins: r.GunGameWins,
-			Claimed:     ok && claimed == r.Name,
+			Rank:         i + 1,
+			Name:         r.Name,
+			Kills:        r.Kills,
+			Deaths:       r.Deaths,
+			KD:           math.Round(float64(r.Kills)/math.Max(1, float64(r.Deaths))*100) / 100,
+			Headshots:    r.Headshots,
+			Rounds:       r.Rounds,
+			GunGameWins:  r.GunGameWins,
+			BestWave:     r.BestWave,
+			SurvivalWins: r.SurvivalWins,
+			Claimed:      ok && claimed == r.Name,
 		}
 		if r.Kills > 0 {
 			pct := int64(math.Round(float64(r.Headshots) * 100 / float64(r.Kills)))

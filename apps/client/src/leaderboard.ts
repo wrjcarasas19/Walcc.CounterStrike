@@ -22,6 +22,10 @@ export interface LeaderboardEntry {
   rounds: number;
   /** Gun Game games won (0 from a server without the column). */
   ggWins: number;
+  /** Highest Survival wave cleared (0: none, or an older server). */
+  bestWave: number;
+  /** Survival games won, all waves cleared (0 from an older server). */
+  survivalWins: number;
   /**
    * The name is claimed (names.go) and this row is its claimed spelling:
    * only the claimant's browsers add to it.
@@ -79,6 +83,8 @@ export function parseLeaderboard(json: unknown): Leaderboard | undefined {
       headshotPercent: p.headshotPercent as number | null,
       rounds: isCount(p.rounds) ? p.rounds : 0,
       ggWins: isCount(p.ggWins) ? p.ggWins : 0,
+      bestWave: isCount(p.bestWave) ? p.bestWave : 0,
+      survivalWins: isCount(p.survivalWins) ? p.survivalWins : 0,
       claimed: p.claimed === true,
     });
   }
@@ -183,7 +189,9 @@ function render(board: Leaderboard): void {
       cell(String(player.deaths), 'leaderboard-number'),
       cell(kdText(player.kd), 'leaderboard-number'),
       cell(headshotText(player.headshotPercent), 'leaderboard-number'),
-      cell(String(player.ggWins), 'leaderboard-number')
+      cell(String(player.ggWins), 'leaderboard-number'),
+      cell(String(player.bestWave), 'leaderboard-number'),
+      cell(String(player.survivalWins), 'leaderboard-number')
     );
     return row;
   });

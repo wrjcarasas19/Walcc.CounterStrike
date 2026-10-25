@@ -35,7 +35,8 @@ import {
 // only show "Sent". A restart (also the end of every preset) is confirmed by
 // the round timer jumping.
 //
-// The game modes (wc_gamemode: Gun Game, Deathmatch, Zombies) and the weapon modes
+// The game modes (wc_gamemode: Gun Game, Deathmatch, Zombies, Survival) and
+// the weapon modes
 // (wc_weaponmode: knife only, pistols only) don't mix: the weapon mode
 // plugin ignores wc_weaponmode while a game mode is on. So that the admin
 // knows why, the tab doesn't send a weapon mode while it knows a game mode
@@ -66,6 +67,10 @@ const FIELDS: readonly CvarName[] = [
   'wc_zm_damage',
   'wc_zm_knockback',
   'wc_zm_infect',
+  'wc_wave_size',
+  'wc_wave_count',
+  'wc_wave_boss_every',
+  'wc_wave_break',
   'wc_weaponmode',
 ];
 
