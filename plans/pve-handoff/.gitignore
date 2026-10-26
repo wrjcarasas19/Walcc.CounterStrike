@@ -1,0 +1,6 @@
+node_modules/
+profile*/
+out/
+players.log
+cmd.txt
+*.png
