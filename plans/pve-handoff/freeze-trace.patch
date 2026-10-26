@@ -1,0 +1,214 @@
+diff --git a/apps/server/btrace_tmp.go b/apps/server/btrace_tmp.go
+new file mode 100644
+index 0000000..100d4b0
+--- /dev/null
++++ b/apps/server/btrace_tmp.go
+@@ -0,0 +1,88 @@
++package main
++
++// Temporary freeze-investigation backtrace; not for commit.
++
++/*
++#define _GNU_SOURCE
++#include <execinfo.h>
++#include <fcntl.h>
++#include <signal.h>
++#include <stdio.h>
++#include <string.h>
++#include <sys/syscall.h>
++#include <ucontext.h>
++#include <unistd.h>
++
++static void bt_handler(int sig, siginfo_t *si, void *ctx) {
++	ucontext_t *uc = ctx;
++	char line[160];
++	void *buf[64];
++	int fd = open("/tmp/bt.log", O_WRONLY | O_CREAT | O_APPEND, 0644);
++	if (fd < 0) return;
++	unsigned long eip = uc->uc_mcontext.gregs[REG_EIP];
++	unsigned long ebp = uc->uc_mcontext.gregs[REG_EBP];
++	unsigned long esp = uc->uc_mcontext.gregs[REG_ESP];
++	int n = snprintf(line, sizeof line, "--- tid %ld eip %08lx ebp %08lx esp %08lx\n", (long)syscall(SYS_gettid), eip, ebp, esp);
++	write(fd, line, n);
++	// Frame-pointer walk, then the unwinder: one of them may survive -O2.
++	for (int i = 0; i < 32 && ebp > 0x1000 && (ebp & 3) == 0; i++) {
++		unsigned long *f = (unsigned long *)ebp;
++		n = snprintf(line, sizeof line, "fp %08lx\n", f[1]);
++		write(fd, line, n);
++		if (f[0] <= ebp) break;
++		ebp = f[0];
++	}
++	n = backtrace(buf, 64);
++	write(fd, "unwind:\n", 8);
++	backtrace_symbols_fd(buf, n, fd);
++	close(fd);
++}
++
++static void bt_install(void) {
++	struct sigaction sa;
++	memset(&sa, 0, sizeof sa);
++	sa.sa_sigaction = bt_handler;
++	sa.sa_flags = SA_SIGINFO | SA_ONSTACK | SA_RESTART;
++	sigaction(SIGUSR2, &sa, NULL);
++}
++
++static void bt_signal(int tid) {
++	syscall(SYS_tgkill, getpid(), tid, SIGUSR2);
++}
++*/
++import "C"
++
++import (
++	"os"
++	"sync/atomic"
++	"syscall"
++	"time"
++)
++
++var btTid atomic.Int32
++
++func init() {
++	C.bt_install()
++}
++
++// btNoteThread runs on the engine thread.
++func btNoteThread() {
++	if btTid.Load() == 0 {
++		btTid.Store(int32(syscall.Gettid()))
++	}
++}
++
++func btSample() {
++	tid := btTid.Load()
++	if tid == 0 {
++		return
++	}
++	if maps, err := os.ReadFile("/proc/self/maps"); err == nil {
++		_ = os.WriteFile("/tmp/maps.txt", maps, 0o644)
++	}
++	_ = os.Remove("/tmp/bt.log")
++	for i := 0; i < 6; i++ {
++		C.bt_signal(C.int(tid))
++		time.Sleep(700 * time.Millisecond)
++	}
++}
+diff --git a/apps/server/sfu.go b/apps/server/sfu.go
+index 66bac72..65f8be0 100644
+--- a/apps/server/sfu.go
++++ b/apps/server/sfu.go
+@@ -721,9 +721,12 @@ func runSFU(game string, admin http.Handler, console *engineConsole, query *engi
+ 		// recvfrom runs on the engine thread, the only place commands can
+ 		// be queued safely.
+ 		runDrops()
+-		return receive()
++		p := receive()
++		tracePacket('R', p)
++		return p
+ 	})
+ 	goxash3d_fwgs.DefaultXash3D.RegisterSendtoCallback(func(p goxash3d_fwgs.Packet) {
++		tracePacket('S', &p)
+ 		if p.IP == consoleAddr {
+ 			if console != nil {
+ 				console.deliver(p.Data)
+diff --git a/apps/server/trace_tmp.go b/apps/server/trace_tmp.go
+new file mode 100644
+index 0000000..c3277a1
+--- /dev/null
++++ b/apps/server/trace_tmp.go
+@@ -0,0 +1,96 @@
++package main
++
++// Temporary freeze-investigation trace; not for commit. Keeps the last
++// packets in memory and dumps them once the engine stops calling recvfrom.
++import (
++	"encoding/hex"
++	"fmt"
++	"os"
++	"sync"
++	"sync/atomic"
++	"time"
++
++	goxash3d_fwgs "github.com/yohimik/goxash3d-fwgs/pkg"
++)
++
++type traceEntry struct {
++	at   time.Time
++	dir  byte
++	ip   [4]byte
++	data []byte
++}
++
++const traceSize = 4096
++
++var (
++	traceLock  sync.Mutex
++	traceRing  [traceSize]traceEntry
++	traceNext  int
++	traceCalls atomic.Int64
++	traceLast  atomic.Int64
++)
++
++func init() {
++	go func() {
++		dumped := false
++		still := 0
++		var lastCalls int64
++		for range time.Tick(time.Second) {
++			calls := traceCalls.Load()
++			if calls == 0 {
++				continue
++			}
++			if calls != lastCalls {
++				lastCalls = calls
++				dumped = false
++				still = 0
++				continue
++			}
++			if still++; dumped || still < 3 {
++				continue
++			}
++			dumped = true
++			traceDump()
++			go btSample()
++		}
++	}()
++}
++
++func traceDump() {
++	f, err := os.Create("/tmp/pkt.log")
++	if err != nil {
++		return
++	}
++	defer f.Close()
++	traceLock.Lock()
++	defer traceLock.Unlock()
++	fmt.Fprintf(f, "engine stopped calling recvfrom/sendto after %d calls; last call %s\n",
++		traceCalls.Load(), time.Unix(0, traceLast.Load()).Format("15:04:05.000000"))
++	for i := 0; i < traceSize; i++ {
++		e := traceRing[(traceNext+i)%traceSize]
++		if e.at.IsZero() {
++			continue
++		}
++		d := e.data
++		n := len(d)
++		if n > 256 {
++			d = d[:256]
++		}
++		fmt.Fprintf(f, "%s %c %v %d %s\n", e.at.Format("15:04:05.000000"), e.dir, e.ip, n, hex.EncodeToString(d))
++	}
++}
++
++// tracePacket runs on the engine thread only.
++func tracePacket(dir byte, p *goxash3d_fwgs.Packet) {
++	now := time.Now()
++	btNoteThread()
++	traceCalls.Add(1)
++	traceLast.Store(now.UnixNano())
++	if p == nil {
++		return
++	}
++	traceLock.Lock()
++	traceRing[traceNext] = traceEntry{now, dir, p.IP, append([]byte(nil), p.Data...)}
++	traceNext = (traceNext + 1) % traceSize
++	traceLock.Unlock()
++}
