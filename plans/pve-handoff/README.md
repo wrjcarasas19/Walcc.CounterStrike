@@ -8,7 +8,8 @@ State on 2026-10-26, for continuing [../pve-modes.md](../pve-modes.md).
   - `89082fe` Add co-op against bots (`wc_coop`, `apps/amxx/wc_gm_coop.inc`)
   - `b74b418` Add a Zombies mode against knife-only bots (`wc_gamemode 3`, `apps/amxx/wc_gm_zombies.inc`)
   - `03d4d79` Add Survival waves against bots with leaderboard credit (`wc_gamemode 4`, `apps/amxx/wc_gm_waves.inc`, migration 4 in `apps/server/statsdb.go`)
-- The Go tests pass, `npx tsc` and `npm run build` pass, and gofmt is clean. The checks that were open on 2026-10-25 are done (below).
+  - `0cbf7a3` ships YaPB's visibility tables (the freeze fix below), and `b0b3f44` sends one Survival boss per boss wave
+- The Go tests pass, `npx tsc` and `npm run build` pass, and gofmt is clean. Every local check is done, on the `linux/amd64` image from `docker compose` too (below). What's left needs the VPS or the owner.
 - Untracked and not part of this work: `pickle_rick_multiversus.zip` and `src/` in the repository root.
 - **Pushing or merging to `main` deploys to the staging VPS.** The freeze below is fixed on this branch; deploying is the owner's call. Pushing the branch itself is safe, because the workflow only runs on `main`.
 
@@ -45,34 +46,49 @@ State on 2026-10-26, for continuing [../pve-modes.md](../pve-modes.md).
 
 **Still not known:** how often the freeze hit production. The staging VPS logs haven't been searched for `Engine packet queue full` next to `Rebuilding vistable`.
 
-## Next session: what's left
+## What's left
 
-State at hand-off: the fix (`0cbf7a3`) and this write-up (`8e4cedf`) are committed on `pickle-rick-gsg9`, not pushed. Steps 1–4 run on an Apple Silicon Mac with Docker Desktop; step 5 needs the VPS. When done, write the results into this file and `plans/pve-modes.md`. Commit on the branch, and don't push to `main` unless the owner says so.
+Steps 1–4 of the previous list were done on 2026-10-26 (results in the next section). What remains needs the owner or the VPS:
 
-1. **The documented run path, which is also the amd64 build.** `docker-compose.yml` builds with `platform: linux/amd64`, the platform the deploy workflow builds. So `make run` covers both the Verify step in `AGENTS.md` and the image the VPS runs; the 2026-10-26 checks used `linux/386` images through `docker run`. One-time setup on a Mac:
-   - Run `docker network create proxy`.
-   - Run `cp .env.example .env`, set `ADMIN_PASSWORD` (8+ characters) and `BOT_QUOTA=4`.
-   - Run `sudo mkdir -p /var/data/cs`; Docker Desktop shares `/private`, which holds `/var`.
-
-   Then run `make run` (the first build takes a while). Open http://127.0.0.1:27016 or use `players.mjs`, and read `docker compose logs cs16-web-server`. Expect:
-   - one `Loaded Bots Vistable` line per map, and no `Rebuilding vistable`;
-   - `leaderboard.db` and `bans.json` appearing in `/var/data/cs`;
-   - `/leaderboard` answering, and `bestWave`/`survivalWins` showing up after a Survival win (migration 4 on a fresh database).
-
-   The helpers expect a container named `cs-p0`; use `CONTAINER=cs16-web-server ./c.sh ...`. Stop it with `docker compose down` before running `freeze-check.sh`, which needs the same ports.
-2. **Mode features not repeated on 2026-10-26.** Two headless players (`players.mjs Alice Bob`; if the second times out, `close 1` then `open Bob`):
-   - Zombies: `wc_zm_infect 1` (a human killed by a zombie comes back on T, and is cured at the next round); one round on an `fy_` map (`changelevel fy_iceworld`, then `wc_gamemode 3` and `sv_restart 1`, because the level change re-runs the config); each round ending (humans win, zombies win, timer).
-   - Survival: `wc_wave_set 4`, then clear wave 4 (`yb kill` repeatedly) to get the wave 5 boss; a wipe, where every human dies (`./c.sh "amx_slay Alice" "amx_slay Bob"` from the server console), should show "Reached wave N" and restart at wave 1.
-   - `wc_mode_test <userid> 0`: the plain HUD line instead of the HTML strip.
-   - Screenshots with `shot <i> <file.png>` to check the strips.
-3. **Go tests.** The fix didn't touch Go, but rerun them once on the final tree: `docker build --platform=linux/amd64 -f apps/server/Dockerfile --target go -t local/cs16-go-test . && docker run --rm local/cs16-go-test go test ./`.
-4. **The `.pmx` pause at first map load.** Optional: with the step 1 container, `changelevel` to a big map (de_nuke, cs_office) and time from `Spawn Server` to the first `Loaded Bots` line. The number is emulated; on x86 it should be much shorter.
-5. **On the VPS (needs SSH access; ask the owner for the host).**
+1. **On the VPS** (needs SSH access; ask the owner for the host).
    - Before deploying, search the current logs for the old freeze: `docker logs cs16-web-server 2>&1 | grep -E "Engine packet queue full|Rebuilding vistable"` in `/opt/apps/cs`.
-   - After the owner deploys, check that a map change logs `Loaded Bots Vistable` and no `Rebuilding vistable`, and time the `.pmx` pause from step 4 natively.
-6. **YaPB issue.** `yapb-issue.md` is a draft; post it on github.com/yapb/yapb only with the owner's OK.
+   - After the owner deploys, check that a map change logs `Loaded Bots Vistable` and no `Rebuilding vistable`.
+2. **YaPB issue.** `yapb-issue.md` is a draft; post it on github.com/yapb/yapb only with the owner's OK.
+3. **Found while checking, not fixed** (each needs a decision first):
+   - An infected human's own HUD shows **255** health while the server has them at 1500 (`wc_zm_status`). The stock `Health` user message is a byte, so `WebBridge_Health` in `apps/cs16-client/source/cl_dll/web_bridge.cpp` never sees more. Bots aren't affected, and the "Killed by" card shows the real number (Phase 0 item 3). Fixing it means sending the real health in another message, for example a `WcMode` field; that's a contract change across the three parts.
+   - Seen once: the infected player's weapon panel still listed the pistol slot and 120 rounds of reserve ammo while the server said knife only. Not looked into.
+   - Text the client prints in the top left (`GetSpriteIndex: item_assaultsuit sprite not found`, `d_world sprite not found`, `Error: Decal has invalid texture!`), on de_dust2 and fy_iceworld. Probably not from these modes; not looked into.
 
-## Checks done on 2026-10-26
+## Checks done on 2026-10-26 (second session)
+
+The image built by `docker compose build` (`linux/amd64`, the deploy platform), run with `docker compose up -d`, two headless players (Alice and Bob). Two departures from `make run`, through an override file passed with `-f`: `sudo` needed a password, so a scratch folder replaced `/var/data/cs` on `/xashds/data`; and `stdin_open: true`, because without it the container's stdin is `/dev/null` and `c.sh` reaches nothing.
+
+- **The run path.**
+  - One `Loaded Bots Vistable` per map (de_dust2, de_nuke, fy_iceworld) and no `Rebuilding vistable`.
+  - `leaderboard.db` appeared in the data folder. `bans.json` didn't, and isn't expected to: `banList.save` in `apps/server/bans.go` runs on the first ban or unban only.
+  - The page, `/status.json` and `/leaderboard` answered.
+- **Go tests:** `go test ./` passes on the final tree (`-count=1`).
+- **The `.pmx` isn't a pause at load.** de_nuke: 1.6 s from `Mapchange` to `Loaded Bots Vistable`, then `server started`. YaPB wrote the 3.9 MB `de_nuke.pmx` 7 s later, after load. While it did, the engine answered 90 `status` probes sent every 0.5 s, and the largest gap between replies was 1.3 s. de_dust2 looked the same (`.pmx` written 13 s after start). That's under qemu; native should be faster.
+- **Zombies.**
+  - `wc_zm_infect 1`: the first human a zombie kills comes back on T a second later as a full zombie (1500 HP, knife, speed 300, gravity 0.7, "Bob was infected." in chat). The second death ends the round with `Terrorists_Win`, and both start the next round on CT: 11 rounds in a row.
+  - Humans win: `yb kill` right after `Round_Start` gives `CTs_Win`.
+  - Timer: with `mp_roundtime 1` and `wc_zm_damage 0` (so the humans live), the plugin killed the 6 zombies left exactly 60 s after `Round_Start`. That gave `CTs_Win`, the chat line "time is up. The humans survived!" and the strip "0 / 6 left".
+  - fy_iceworld (`changelevel`, then `wc_gamemode 3` and `sv_restart 1`): 6 zombies for 2 humans, infection, `Terrorists_Win`.
+- **Survival.**
+  - `wc_wave_set 4`, then clearing wave 4, gives wave 5 with one boss: an M249, 6000 HP for 2 humans, "boss incoming" in chat, and the strip "Wave 5 / 10 · Boss · 0 / 32 killed".
+  - A wipe (`amx_slay` both) logs `lost on wave 5`, prints "everyone is down. You reached wave 5. Starting again from wave 1." and starts wave 1 seven seconds later.
+  - `wc_wave_set 10` then clearing it logs `wc_wave_win` for both players and changes the map. On the fresh database `/leaderboard` then showed `bestWave` 10 and `survivalWins` 1 for each, after showing `bestWave` 4 when wave 4 was cleared. So migration 4 works on a fresh database.
+  - **Bug found and fixed** (`b0b3f44`): every time a boss died, the next bot to respawn became a new boss, because the plugin tested `g_waveBoss`, which the boss's death clears. Wave 10 had 9 bosses in 30 s. The plugin now sends one boss per boss wave (`wc_gamemode.sma` 1.8). After the fix, wave 5 had one boss across all 32 bots.
+- **`wc_mode_test <id> 0`:** that player gets the plain top-centre line "Wave 1/10 | 0/16 killed", and the other player the HTML strip only. The tested player's HTML strip stays on screen, frozen at its last state, because the page isn't told to drop it. A client that really has no HTML HUD has no strip, so this only happens in the test.
+- Screenshots of the above (`zm-*.png`, `wv-*.png` in this folder) are ignored by git.
+
+Ways to make the helpers less fiddly:
+
+- To keep bots from shooting idle headless players, set `yb_ignore_enemies 1`. Without it, wave 4 wiped both players in 13 s, before `yb kill` could clear it.
+- `players.mjs` only picks a team on its first join. After a `changelevel`, the players sit at team 0. Click them in with `eval <i>` on `#team-menu .team-option[data-side="CT"]`, then again on the first visible `.team-option` (the character).
+- `npm install` here took a `playwright-core` with no browser downloaded. `CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"` worked.
+
+## Checks done on 2026-10-26 (first session)
 
 Done on the head image with the trace patch and the prebuilt vistable, through `docker run` like `freeze-check.sh` rather than `make build-local-image` and `make run`. Details are in `plans/pve-modes.md`.
 
@@ -82,7 +98,7 @@ Done on the head image with the trace patch and the prebuilt vistable, through `
   - Co-op: 6 bots on T for 2 humans, and `/status.json` says `"coop":true`.
   - Zombies: 1500 HP each, knife only, speed 300, gravity 0.7, and the strip reads "Round 1 · Zombies · 6 / 6 left".
   - Survival with `wc_wave_count 2`: 16 bots in wave 1, `wc_wave_clear` for both waves and `wc_wave_win` for both players, and `/leaderboard` shows best wave 2 and 1 win each, with no bot rows.
-  - Not repeated: infection, `fy_` maps, a wipe.
+  - Not repeated in that session: infection, `fy_` maps, a wipe (done in the second session, above).
 
 Both headless players run from one browser profile, so they share one auth ID (`ID_…` in the game log); the leaderboard still kept them apart by name. The second player's first join timed out at the main menu, and `close 1` then `open Bob` worked.
 
@@ -92,7 +108,7 @@ They work on macOS and Linux. Run `npm install` here once. `npm install` takes t
 
 | File | What it does |
 |---|---|
-| `c.sh "cmd" ...` | Sends console commands to the container `cs-p0` (`CONTAINER=` to change it) through `/proc/1/fd/0` and prints the new log lines. It hides `Rebuilding vistable` lines; read `docker logs` to see the rebuild. Use `status` as the liveness probe; `version` prints nothing on this console. |
+| `c.sh "cmd" ...` | Sends console commands to the container `cs-p0` (`CONTAINER=` to change it) through `/proc/1/fd/0` and prints the new log lines. The container needs an open stdin (`docker run -i`, or `stdin_open: true` in a compose override for `cs16-web-server`). It hides `Rebuilding vistable` lines; read `docker logs` to see the rebuild. Use `status` as the liveness probe; `version` prints nothing on this console. |
 | `freeze-check.sh <image> [platform]` | Starts a fresh `cs-p0` with 4 bots, joins one headless player, then runs up to 10 `sv_restart`, reporting `ok` or `FROZEN` after each. Ports 27016 and 27018 must be free (stop `make run`). Its `until` loops have no timeout, so a player that never joins hangs it. The leftover `nohup` subshell keeps the name `freeze-check.sh` until `players.mjs` exits, so don't wait on `pgrep -f freeze-check.sh`. Images built from this branch ship the vistables, so the freeze no longer reproduces; to reproduce it, start the container with the tables deleted (`rm -f /xashds/cstrike/addons/yapb/data/train/*` before `./xash`, as `apps/server/yapb-tables.sh` does). |
 | `players.mjs Name ...` | Headless players that log in, download the game files (about 480 MB, cached in the profile), connect and join CT. Control them by appending lines to `cmd.txt`: `shot <i> <file.png>`, `eval <i> <js>`, `type <i> <console text>`, `open <name>`, `close <i>`. `type` doesn't reach the game console (nothing typed shows in the game log); use the page instead, for example `eval` that opens the team menu with an `m` key event and clicks `#team-menu .team-option[data-side="T"]`. `PROFILE=` picks the browser profile folder. |
 | `hotswap.sh` | Compiles `wc_gamemode.sma` and copies it into `cs-p0`. Then run `./c.sh "changelevel de_dust2"`. The level change re-runs the server config, so set `wc_gamemode` again afterwards and `sv_restart 1`. Needs the compiler image once: `docker build --platform=linux/386 -f apps/server/Dockerfile --target amxx-plugins -t local/cs16-amxx-test .` from the repository root. |
