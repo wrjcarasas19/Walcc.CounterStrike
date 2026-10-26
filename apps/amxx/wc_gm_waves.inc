@@ -226,9 +226,11 @@ public WvEquip(taskid)
 		primary = WAVE_RIFLES[random(sizeof WAVE_RIFLES)]
 	else if (g_wave >= 3)
 		primary = WAVE_SMGS[random(sizeof WAVE_SMGS)]
-	if (g_waveBossDue && !g_waveBoss)
+	if (g_waveBossDue)
 	{
-		// The first bot of a boss wave is the boss.
+		// The first bot of a boss wave is the boss, once: the boss's death
+		// clears g_waveBoss, so that can't be the test.
+		g_waveBossDue = false
 		g_waveBoss = id
 		primary = CSW_M249
 		set_user_health(id, WAVE_BOSS_HEALTH * max(CoopHumans(), 1))

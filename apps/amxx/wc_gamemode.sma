@@ -132,8 +132,8 @@
 //   death counts. Bot health x (1 + 0.15 N), yb_difficulty min(1 + N / 2,
 //   4), and guns by wave (no buying, yb_botbuy 0): pistols in waves 1-2,
 //   SMGs and shotguns in 3-4, rifles in 5-7, rifles and the AWP from 8.
-// - Every wc_wave_boss_every (5; 0: none) waves the first bot is a boss:
-//   3000 HP per human, an M249, a red glow, announced in the centre and in
+// - Every wc_wave_boss_every (5; 0: none) waves the first bot is a boss,
+//   the only one that wave: 3000 HP per human, an M249, a red glow, announced in the centre and in
 //   chat.
 // - Dead humans wait for the end of the wave. A cleared wave starts a
 //   break of wc_wave_break (12) seconds: the dead come back, every human
@@ -228,7 +228,7 @@
 #include "wc_weapons.inc"
 
 #define PLUGIN  "Web game mode"
-#define VERSION "1.7"
+#define VERSION "1.8"
 #define AUTHOR  "Walcc"
 
 #define MODE_CLASSIC    0
