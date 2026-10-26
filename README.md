@@ -435,10 +435,16 @@ Player models:
   `apps/server/configs/cstrike/addons/yapb/data/graph` (from YaPB's graph database,
   except `fy_iceworld`'s, made by YaPB's own analysis because the database
   has the graph for the original version of that map). The database has
-  none for `cs_mansion` or `ttt_mario_b1`, so YaPB analyses those itself.
-  For any other map YaPB downloads one from that database, or analyses the
-  map itself (a few seconds to a minute), and saves it in
+  none for `cs_mansion` or `ttt_mario_b1`; theirs were made once by YaPB's
+  own analysis. For any other map YaPB downloads one from that database, or
+  analyses the map itself (a few seconds to a minute), and saves it in
   `cstrike/addons/yapb/data/graph`.
+- Every map in the image also comes with YaPB's visibility table
+  (`apps/server/configs/cstrike/addons/yapb/data/train/<map>.vis`). Without
+  one, YaPB builds it in the map's first minutes, and the server can stop
+  for good while it does. After adding a map, changing a graph or changing
+  the YaPB version, run `apps/server/yapb-tables.sh` (after
+  `make build-local-image`) to regenerate them, then build the image again.
 
 ## 🛠️ Development
 

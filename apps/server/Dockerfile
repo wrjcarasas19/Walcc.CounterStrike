@@ -255,6 +255,9 @@ ARG metamod_sha256=ede7f59c4e0220afe8c02aa348a130cce527f87d36ffdb674e37a501ce57b
 ARG amxx_version=1.10.0-git5486
 ARG amxx_base_sha256=9f5041325cc656dcc292cafb9d2c9cb4deeedb57192d8a7ed43947530e04e5b7
 ARG amxx_cstrike_sha256=686d875010792d84ac765d2f78af227ab7000c9b567995ea56b836e0a41fc7a7
+# The visibility tables in apps/server/configs/cstrike/addons/yapb/data/train
+# are only valid for this YaPB version: run apps/server/yapb-tables.sh after
+# changing it.
 ARG yapb_version=4.4.957
 ARG yapb_sha256=8c095ac89b9b2ccc70a66a71d608e1a570b5268c57c6083ced8c06161533a4b1
 ARG regamedll_version=5.30.0.814
@@ -570,11 +573,16 @@ COPY --from=hlsdk-portable-server /out/hl.so ./valve/dlls/hl.so
 USER root
 RUN rm -f /xashds/libstdc++.so.6 /xashds/libgcc_s.so.1
 # YaPB saves each map's vistable and path matrix here; without write access
-# it rebuilds them on every map load (minutes of CPU on a big map). A map
-# without a graph (waypoints) gets one from YaPB's graph database, or its own
-# analysis, saved in graph/; the community maps' graphs are in
-# apps/server/configs/cstrike/addons/yapb/data/graph. Only the folder is chowned (new
-# files), so the 2 MB of graphs in it aren't copied into another layer.
+# it rebuilds them on every map load (minutes of CPU on a big map). Every
+# map's vistable comes prebuilt from apps/server/configs (made by
+# apps/server/yapb-tables.sh): rebuilding one runs on the engine thread in
+# the map's first minutes and could stop the server for good. The path
+# matrix (.pmx, megabytes per map) is computed once at the map's first load,
+# a few seconds. A map without a graph (waypoints) gets one from YaPB's graph
+# database, or its own analysis, saved in graph/; the community maps' graphs
+# are in apps/server/configs/cstrike/addons/yapb/data/graph. Only the graph
+# folder is chowned (new files), so the 2 MB of graphs in it aren't copied
+# into another layer.
 RUN cd /xashds/cstrike/addons/yapb/data \
     && chown -R xashds:xashds train logs pwf \
     && chmod -R u+rwX train logs pwf \
