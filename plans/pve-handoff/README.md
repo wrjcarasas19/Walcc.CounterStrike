@@ -45,6 +45,33 @@ State on 2026-10-26, for continuing [../pve-modes.md](../pve-modes.md).
 
 **Still not known:** how often the freeze hit production. The staging VPS logs haven't been searched for `Engine packet queue full` next to `Rebuilding vistable`.
 
+## Next session: what's left
+
+State at hand-off: the fix (`0cbf7a3`) and this write-up (`8e4cedf`) are committed on `pickle-rick-gsg9`, not pushed. Steps 1–4 run on an Apple Silicon Mac with Docker Desktop; step 5 needs the VPS. When done, write the results into this file and `plans/pve-modes.md`. Commit on the branch, and don't push to `main` unless the owner says so.
+
+1. **The documented run path, which is also the amd64 build.** `docker-compose.yml` builds with `platform: linux/amd64`, the platform the deploy workflow builds. So `make run` covers both the Verify step in `AGENTS.md` and the image the VPS runs; the 2026-10-26 checks used `linux/386` images through `docker run`. One-time setup on a Mac:
+   - Run `docker network create proxy`.
+   - Run `cp .env.example .env`, set `ADMIN_PASSWORD` (8+ characters) and `BOT_QUOTA=4`.
+   - Run `sudo mkdir -p /var/data/cs`; Docker Desktop shares `/private`, which holds `/var`.
+
+   Then run `make run` (the first build takes a while). Open http://127.0.0.1:27016 or use `players.mjs`, and read `docker compose logs cs16-web-server`. Expect:
+   - one `Loaded Bots Vistable` line per map, and no `Rebuilding vistable`;
+   - `leaderboard.db` and `bans.json` appearing in `/var/data/cs`;
+   - `/leaderboard` answering, and `bestWave`/`survivalWins` showing up after a Survival win (migration 4 on a fresh database).
+
+   The helpers expect a container named `cs-p0`; use `CONTAINER=cs16-web-server ./c.sh ...`. Stop it with `docker compose down` before running `freeze-check.sh`, which needs the same ports.
+2. **Mode features not repeated on 2026-10-26.** Two headless players (`players.mjs Alice Bob`; if the second times out, `close 1` then `open Bob`):
+   - Zombies: `wc_zm_infect 1` (a human killed by a zombie comes back on T, and is cured at the next round); one round on an `fy_` map (`changelevel fy_iceworld`, then `wc_gamemode 3` and `sv_restart 1`, because the level change re-runs the config); each round ending (humans win, zombies win, timer).
+   - Survival: `wc_wave_set 4`, then clear wave 4 (`yb kill` repeatedly) to get the wave 5 boss; a wipe, where every human dies (`./c.sh "amx_slay Alice" "amx_slay Bob"` from the server console), should show "Reached wave N" and restart at wave 1.
+   - `wc_mode_test <userid> 0`: the plain HUD line instead of the HTML strip.
+   - Screenshots with `shot <i> <file.png>` to check the strips.
+3. **Go tests.** The fix didn't touch Go, but rerun them once on the final tree: `docker build --platform=linux/amd64 -f apps/server/Dockerfile --target go -t local/cs16-go-test . && docker run --rm local/cs16-go-test go test ./`.
+4. **The `.pmx` pause at first map load.** Optional: with the step 1 container, `changelevel` to a big map (de_nuke, cs_office) and time from `Spawn Server` to the first `Loaded Bots` line. The number is emulated; on x86 it should be much shorter.
+5. **On the VPS (needs SSH access; ask the owner for the host).**
+   - Before deploying, search the current logs for the old freeze: `docker logs cs16-web-server 2>&1 | grep -E "Engine packet queue full|Rebuilding vistable"` in `/opt/apps/cs`.
+   - After the owner deploys, check that a map change logs `Loaded Bots Vistable` and no `Rebuilding vistable`, and time the `.pmx` pause from step 4 natively.
+6. **YaPB issue.** `yapb-issue.md` is a draft; post it on github.com/yapb/yapb only with the owner's OK.
+
 ## Checks done on 2026-10-26
 
 Done on the head image with the trace patch and the prebuilt vistable, through `docker run` like `freeze-check.sh` rather than `make build-local-image` and `make run`. Details are in `plans/pve-modes.md`.
