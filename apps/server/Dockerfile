@@ -291,6 +291,13 @@ RUN mkdir /tmp/addons && cd /tmp/addons \
     && sed -i 's|^yb_think_fps .*|yb_think_fps "24.0"|' addons/yapb/conf/yapb.cfg \
     # No text chat from bots; radio and voice chatter (yb_radio_mode 2) stay.
     && sed -i 's|^yb_chat .*|yb_chat "0"|' addons/yapb/conf/yapb.cfg \
+    # Bots don't fire through walls at players they heard or just lost sight
+    # of (YaPB's default is 2); it looked like they could see through them.
+    && sed -i 's|^yb_shoots_thru_walls .*|yb_shoots_thru_walls "0"|' addons/yapb/conf/yapb.cfg \
+    # Normal bots (YaPB's default is 3, Hard); the levels themselves are in
+    # apps/server/configs/cstrike/addons/yapb/conf/difficulty.cfg, copied
+    # over YaPB's below. apps/client/src/admin/bot-commands.ts shows it.
+    && sed -i 's|^yb_difficulty .*|yb_difficulty "2"|' addons/yapb/conf/yapb.cfg \
     # Players get fake addresses from the SFU, so drop the address-based admin.
     && sed -i 's|^"loopback"|; "loopback"|' addons/amxmodx/configs/users.ini \
     # Slot reservation reads a cvar Xash3D doesn't have and errors on every join.

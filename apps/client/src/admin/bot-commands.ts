@@ -12,8 +12,8 @@ export const DIFFICULTIES: readonly { level: number; label: string }[] = [
   { level: 3, label: 'Professional' },
   { level: 4, label: 'Godlike' },
 ];
-/** yb_difficulty in the image's yapb.cfg (YaPB's default). */
-export const DEFAULT_DIFFICULTY = 3;
+/** yb_difficulty in the image's yapb.cfg (set in apps/server/Dockerfile). */
+export const DEFAULT_DIFFICULTY = 2;
 
 /** The engine's MAX_CLIENTS; YaPB also caps the quota at maxplayers. */
 export const BOT_QUOTA_MAX = 32;
